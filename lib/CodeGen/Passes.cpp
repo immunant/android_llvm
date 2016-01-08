@@ -461,8 +461,7 @@ void TargetPassConfig::addISelPrepare() {
 
   // Add both the safe stack and the stack protection passes: each of them will
   // only protect functions that have corresponding attributes.
-  // Bug: 22349095 - Skip adding SafeStackPass until r240321 is merged.
-  // addPass(createSafeStackPass());
+  addPass(createSafeStackPass());
   addPass(createStackProtectorPass(TM));
 
   if (PrintISelInput)
