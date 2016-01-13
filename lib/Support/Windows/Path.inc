@@ -756,6 +756,7 @@ std::error_code openFileForWrite(const Twine &Name, int &ResultFD,
 namespace path {
 static bool getKnownFolderPath(KNOWNFOLDERID folderId,
                                SmallVectorImpl<char> &result) {
+#if 0
   wchar_t *path = nullptr;
   if (::SHGetKnownFolderPath(folderId, KF_FLAG_CREATE, nullptr, &path) != S_OK)
     return false;
@@ -763,10 +764,21 @@ static bool getKnownFolderPath(KNOWNFOLDERID folderId,
   bool ok = !UTF16ToUTF8(path, ::wcslen(path), result);
   ::CoTaskMemFree(path);
   return ok;
+#else
+  // ANDROID needs updated mingw to build this.
+  // BUG: http://b/26523949
+  return false;
+#endif
 }
 
 bool getUserCacheDir(SmallVectorImpl<char> &Result) {
+#if 0
   return getKnownFolderPath(FOLDERID_LocalAppData, Result);
+#else
+  // ANDROID needs updated mingw to build this.
+  // BUG: http://b/26523949
+  return false;
+#endif
 }
 
 bool home_directory(SmallVectorImpl<char> &result) {
