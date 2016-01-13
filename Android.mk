@@ -18,7 +18,6 @@ include $(CLEAR_VARS)
 # LLVM Libraries
 subdirs := \
   lib/Analysis \
-  lib/Analysis/IPA \
   lib/AsmParser \
   lib/Bitcode/Reader \
   lib/Bitcode/Writer \

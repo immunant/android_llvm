@@ -53,7 +53,6 @@ llvm_post_static_libraries := \
   libLLVMInstrumentation \
   libLLVMTransformObjCARC \
   libLLVMTransformUtils \
-  libLLVMipa \
   libLLVMAnalysis \
   libLLVMTarget \
   libLLVMMCDisassembler \
