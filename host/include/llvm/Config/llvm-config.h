@@ -33,7 +33,11 @@
 #define LLVM_DOCSDIR "/opt/llvm-android/share/doc/llvm"
 
 /* Define if threads enabled */
+#if !defined(_WIN32) && !defined(_WIN64)
 #define LLVM_ENABLE_THREADS 1
+#else
+#define LLVM_ENABLE_THREADS 0
+#endif
 
 /* Installation directory for config files */
 #define LLVM_ETCDIR "/opt/llvm-android/etc/llvm"
