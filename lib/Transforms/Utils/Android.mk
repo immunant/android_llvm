@@ -35,6 +35,7 @@ transforms_utils_SRC_FILES := \
   SimplifyIndVar.cpp \
   SimplifyInstructions.cpp \
   SimplifyLibCalls.cpp \
+  SplitModule.cpp \
   SymbolRewriter.cpp \
   UnifyFunctionExitNodes.cpp \
   Utils.cpp \

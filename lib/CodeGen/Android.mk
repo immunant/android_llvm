@@ -82,6 +82,7 @@ codegen_SRC_FILES := \
   MIRPrintingPass.cpp \
   OcamlGC.cpp \
   OptimizePHIs.cpp \
+  ParallelCG.cpp \
   Passes.cpp \
   PeepholeOptimizer.cpp \
   PHIElimination.cpp \
