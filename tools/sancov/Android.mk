@@ -4,22 +4,14 @@ LLVM_ROOT_PATH := $(LOCAL_PATH)/../..
 
 
 #===---------------------------------------------------------------===
-# opt command line tool
+# sancov command line tool
 #===---------------------------------------------------------------===
 
-llvm_opt_SRC_FILES := \
-  AnalysisWrappers.cpp \
-  BreakpointPrinter.cpp \
-  GraphPrinters.cpp \
-  NewPMDriver.cpp \
-  PassPrinters.cpp \
-  PrintSCC.cpp \
-  opt.cpp \
+llvm_sancov_SRC_FILES := \
+  sancov.cc \
 
-llvm_opt_STATIC_LIBRARIES := \
+llvm_sancov_STATIC_LIBRARIES := \
   libLLVMIRReader \
-  libLLVMBitReader \
-  libLLVMBitWriter \
   libLLVMARMCodeGen \
   libLLVMARMInfo \
   libLLVMARMDesc \
@@ -42,6 +34,9 @@ llvm_opt_STATIC_LIBRARIES := \
   libLLVMX86AsmPrinter \
   libLLVMX86Utils \
   libLLVMX86Disassembler \
+  libLLVMSymbolize \
+  libLLVMDebugInfoDWARF \
+  libLLVMDebugInfoPDB \
   libLLVMAsmPrinter \
   libLLVMSelectionDAG \
   libLLVMCodeGen \
@@ -56,9 +51,11 @@ llvm_opt_STATIC_LIBRARIES := \
   libLLVMTransformUtils \
   libLLVMAnalysis \
   libLLVMTarget \
+  libLLVMObject \
+  libLLVMBitReader \
+  libLLVMBitWriter \
   libLLVMMC \
   libLLVMMCParser \
-  libLLVMObject \
   libLLVMProfileData \
   libLLVMCore \
   libLLVMAsmParser \
@@ -68,37 +65,12 @@ llvm_opt_STATIC_LIBRARIES := \
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := opt
-LOCAL_MODULE_TAGS := optional
-LOCAL_MODULE_CLASS := EXECUTABLES
-LOCAL_IS_HOST_MODULE := true
+LOCAL_MODULE := sancov
 
-LOCAL_SRC_FILES := $(llvm_opt_SRC_FILES)
-LOCAL_STATIC_LIBRARIES := $(llvm_opt_STATIC_LIBRARIES)
-LOCAL_LDLIBS += -lpthread -ldl
-LOCAL_LDFLAGS_darwin := -Wl,-export_dynamic
-LOCAL_LDFLAGS_linux := -Wl,--export-dynamic
+LOCAL_CPP_EXTENSION := .cc
+LOCAL_SRC_FILES := $(llvm_sancov_SRC_FILES)
+LOCAL_STATIC_LIBRARIES := $(llvm_sancov_STATIC_LIBRARIES)
 
 include $(LLVM_ROOT_PATH)/llvm.mk
 include $(LLVM_HOST_BUILD_MK)
-include $(LLVM_GEN_ATTRIBUTES_MK)
-include $(LLVM_GEN_INTRINSICS_MK)
 include $(BUILD_HOST_EXECUTABLE)
-
-
-ifneq (true,$(DISABLE_LLVM_DEVICE_BUILDS))
-include $(CLEAR_VARS)
-
-LOCAL_MODULE := opt
-LOCAL_MODULE_TAGS := optional
-LOCAL_MODULE_CLASS := EXECUTABLES
-
-LOCAL_SRC_FILES := $(llvm_opt_SRC_FILES)
-LOCAL_STATIC_LIBRARIES := $(llvm_opt_STATIC_LIBRARIES)
-
-include $(LLVM_ROOT_PATH)/llvm.mk
-include $(LLVM_DEVICE_BUILD_MK)
-include $(LLVM_GEN_ATTRIBUTES_MK)
-include $(LLVM_GEN_INTRINSICS_MK)
-include $(BUILD_EXECUTABLE)
-endif

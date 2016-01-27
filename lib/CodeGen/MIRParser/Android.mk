@@ -16,6 +16,7 @@ LOCAL_MODULE:= libLLVMMIRParser
 LOCAL_MODULE_TAGS := optional
 
 include $(LLVM_HOST_BUILD_MK)
+include $(LLVM_GEN_ATTRIBUTES_MK)
 include $(BUILD_HOST_STATIC_LIBRARY)
 
 # For the device
@@ -30,5 +31,6 @@ LOCAL_MODULE:= libLLVMMIRParser
 LOCAL_MODULE_TAGS := optional
 
 include $(LLVM_DEVICE_BUILD_MK)
+include $(LLVM_GEN_ATTRIBUTES_MK)
 include $(BUILD_STATIC_LIBRARY)
 endif
