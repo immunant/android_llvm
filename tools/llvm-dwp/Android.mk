@@ -4,83 +4,82 @@ LLVM_ROOT_PATH := $(LOCAL_PATH)/../..
 
 
 #===---------------------------------------------------------------===
-# lli command line tool
+# llvm-dwp command line tool
 #===---------------------------------------------------------------===
 
-lli_SRC_FILES := \
-  lli.cpp \
-  OrcLazyJIT.cpp \
-  RemoteMemoryManager.cpp \
-  RemoteTarget.cpp \
-  RemoteTargetExternal.cpp \
+llvm_dwp_SRC_FILES := \
+  llvm-dwp.cpp
 
-lli_STATIC_LIBRARIES := \
-  libLLVMIRReader \
+llvm_dwp_STATIC_LIBRARIES := \
+  libLLVMDebugInfoDWARF \
+  libLLVMObject \
   libLLVMBitReader \
   libLLVMARMCodeGen \
+  libLLVMARMAsmParser \
+  libLLVMARMAsmPrinter \
   libLLVMARMInfo \
   libLLVMARMDesc \
-  libLLVMARMAsmPrinter \
-  libLLVMARMAsmParser \
   libLLVMARMDisassembler \
-  libLLVMAArch64CodeGen \
-  libLLVMAArch64Info \
-  libLLVMAArch64Desc \
-  libLLVMAArch64AsmPrinter \
-  libLLVMAArch64AsmParser \
-  libLLVMAArch64Utils \
-  libLLVMAArch64Disassembler \
   libLLVMMipsCodeGen \
   libLLVMMipsInfo \
   libLLVMMipsDesc \
-  libLLVMMipsAsmPrinter \
   libLLVMMipsAsmParser \
+  libLLVMMipsAsmPrinter \
   libLLVMMipsDisassembler \
   libLLVMX86CodeGen \
   libLLVMX86Info \
   libLLVMX86Desc \
-  libLLVMX86AsmPrinter \
   libLLVMX86AsmParser \
+  libLLVMX86AsmPrinter \
   libLLVMX86Utils \
   libLLVMX86Disassembler \
+  libLLVMAArch64CodeGen \
+  libLLVMAArch64Info \
+  libLLVMAArch64Desc \
+  libLLVMAArch64AsmParser \
+  libLLVMAArch64AsmPrinter \
+  libLLVMAArch64Utils \
+  libLLVMAArch64Disassembler \
+  libLLVMExecutionEngine \
+  libLLVMRuntimeDyld \
+  libLLVMMCJIT \
+  libLLVMOrcJIT \
   libLLVMAsmPrinter \
   libLLVMSelectionDAG \
   libLLVMCodeGen \
-  libLLVMInstrumentation \
-  libLLVMLinker \
-  libLLVMInterpreter \
+  libLLVMObject \
   libLLVMScalarOpts \
+  libLLVMInstCombine \
+  libLLVMInstrumentation \
+  libLLVMTransformObjCARC \
   libLLVMTransformUtils \
+  libLLVMVectorize \
   libLLVMAnalysis \
   libLLVMTarget \
+  libLLVMMCDisassembler \
   libLLVMMC \
-  libLLVMMCJIT \
-  libLLVMOrcJIT \
-  libLLVMExecutionEngine \
-  libLLVMRuntimeDyld \
   libLLVMMCParser \
-  libLLVMObject \
   libLLVMCore \
   libLLVMAsmParser \
   libLLVMOption \
+  libLLVMLTO \
   libLLVMSupport \
-  libLLVMMCDisassembler \
+  libLLVMProfileData
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := lli
+LOCAL_MODULE := llvm-dwp
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_CLASS := EXECUTABLES
 LOCAL_IS_HOST_MODULE := true
 
-LOCAL_SRC_FILES := $(lli_SRC_FILES)
+LOCAL_SRC_FILES := $(llvm_dwp_SRC_FILES)
 
-LOCAL_STATIC_LIBRARIES := $(lli_STATIC_LIBRARIES)
+LOCAL_STATIC_LIBRARIES := $(llvm_dwp_STATIC_LIBRARIES)
 
 LOCAL_LDLIBS += -lpthread -lm -ldl
 
 include $(LLVM_ROOT_PATH)/llvm.mk
 include $(LLVM_HOST_BUILD_MK)
-include $(LLVM_GEN_ATTRIBUTES_MK)
 include $(LLVM_GEN_INTRINSICS_MK)
 include $(BUILD_HOST_EXECUTABLE)

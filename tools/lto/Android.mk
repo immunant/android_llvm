@@ -81,7 +81,6 @@ llvm_lto_STATIC_LIBRARIES := \
   libLLVMInstrumentation \
   libLLVMTransformObjCARC \
   libLLVMTransformUtils \
-  libLLVMipa \
   libLLVMVectorize \
   libLLVMAnalysis \
   libLLVMTarget \

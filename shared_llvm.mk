@@ -5,6 +5,7 @@ llvm_pre_static_libraries := \
   libLLVMipo \
   libLLVMDebugInfoDWARF \
   libLLVMDebugInfoPDB \
+  libLLVMSymbolize \
   libLLVMIRReader \
   libLLVMBitWriter \
   libLLVMBitReader

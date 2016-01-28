@@ -4,7 +4,6 @@ LLVM_ROOT_PATH := $(LOCAL_PATH)/../..
 include $(LLVM_ROOT_PATH)/llvm.mk
 
 llvm_symbolizer_SRC_FILES := \
-  LLVMSymbolize.cpp \
   llvm-symbolizer.cpp
 
 include $(CLEAR_VARS)
@@ -16,6 +15,7 @@ LOCAL_SRC_FILES := $(llvm_symbolizer_SRC_FILES)
 LOCAL_LDLIBS += -lpthread -lm -ldl
 
 LOCAL_STATIC_LIBRARIES := \
+  libLLVMSymbolize \
   libLLVMDebugInfoDWARF \
   libLLVMDebugInfoPDB \
   libLLVMObject \
