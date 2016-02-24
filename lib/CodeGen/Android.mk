@@ -50,6 +50,7 @@ codegen_SRC_FILES := \
   LiveVariables.cpp \
   LLVMTargetMachine.cpp \
   LocalStackSlotAllocation.cpp \
+  LowerEmuTLS.cpp \
   MachineBasicBlock.cpp \
   MachineBlockFrequencyInfo.cpp \
   MachineBlockPlacement.cpp \
