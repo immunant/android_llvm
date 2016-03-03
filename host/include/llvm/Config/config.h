@@ -348,7 +348,11 @@
 #define HAVE_READDIR 1
 
 /* Define to 1 if you have the `realpath' function. */
+#if !defined(_WIN32) && !defined(_WIN64)
 #define HAVE_REALPATH 1
+#else
+// Do not define HAVE_REALPATH
+#endif
 
 /* Define to 1 if you have the `rindex' function. */
 /* #undef HAVE_RINDEX */
