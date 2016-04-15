@@ -1,17 +1,20 @@
 LOCAL_PATH:= $(call my-dir)
 
-analysis_SRC_FILES := $(sort $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)))
+debuginfo_codeview_SRC_FILES := $(sort $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)))
 
 # For the host
 # =====================================================
 include $(CLEAR_VARS)
 
-LOCAL_MODULE:= libLLVMAnalysis
+REQUIRES_RTTI := 1
+
+LOCAL_SRC_FILES := $(debuginfo_codeview_SRC_FILES)
+
+LOCAL_MODULE:= libLLVMDebugInfoCodeView
+
 LOCAL_MODULE_HOST_OS := darwin linux windows
-LOCAL_SRC_FILES := $(analysis_SRC_FILES)
 
 include $(LLVM_HOST_BUILD_MK)
-include $(LLVM_GEN_ATTRIBUTES_MK)
 include $(LLVM_GEN_INTRINSICS_MK)
 include $(BUILD_HOST_STATIC_LIBRARY)
 
@@ -20,11 +23,13 @@ include $(BUILD_HOST_STATIC_LIBRARY)
 ifneq (true,$(DISABLE_LLVM_DEVICE_BUILDS))
 include $(CLEAR_VARS)
 
-LOCAL_MODULE:= libLLVMAnalysis
-LOCAL_SRC_FILES := $(analysis_SRC_FILES)
+REQUIRES_RTTI := 1
+
+LOCAL_SRC_FILES := $(debuginfo_codeview_SRC_FILES)
+
+LOCAL_MODULE:= libLLVMDebugInfoCodeView
 
 include $(LLVM_DEVICE_BUILD_MK)
-include $(LLVM_GEN_ATTRIBUTES_MK)
 include $(LLVM_GEN_INTRINSICS_MK)
 include $(BUILD_STATIC_LIBRARY)
 endif

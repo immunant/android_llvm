@@ -17,6 +17,7 @@ LOCAL_LDLIBS_linux := -lpthread -ldl
 LOCAL_STATIC_LIBRARIES := \
   libLLVMAsmParser \
   libLLVMBitWriter \
+  libLLVMAnalysis \
   libLLVMCore \
   libLLVMSupport
 
