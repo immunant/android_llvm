@@ -182,13 +182,9 @@ SubtargetFeatures::ToggleFeature(FeatureBitset Bits, StringRef Feature,
       SetImpliedBits(Bits, FeatureEntry, FeatureTable);
     }
   } else {
-    // Bug: 20140355
-    // Silence this warning for now
-    if (false) {
-      errs() << "'" << Feature
-             << "' is not a recognized feature for this target"
-             << " (ignoring feature)\n";
-    }
+    errs() << "'" << Feature
+           << "' is not a recognized feature for this target"
+           << " (ignoring feature)\n";
   }
 
   return Bits;
