@@ -307,8 +307,8 @@ public:
     }
 
     if (!TLI->isOperationExpand(ISD, LT.second)) {
-      // If the operation is custom lowered then assume
-      // thare the code is twice as expensive.
+      // If the operation is custom lowered, then assume that the code is twice
+      // as expensive.
       return LT.first * 2 * OpCost;
     }
 
@@ -357,6 +357,11 @@ public:
 
     if (Opcode == Instruction::ZExt &&
         TLI->isZExtFree(SrcLT.second, DstLT.second))
+      return 0;
+
+    if (Opcode == Instruction::AddrSpaceCast &&
+        TLI->isNoopAddrSpaceCast(Src->getPointerAddressSpace(),
+                                 Dst->getPointerAddressSpace()))
       return 0;
 
     // If the cast is marked as legal (or promote) then assume low cost.
@@ -580,6 +585,39 @@ public:
     return Cost;
   }
 
+  /// Get intrinsic cost based on arguments  
+  unsigned getIntrinsicInstrCost(Intrinsic::ID IID, Type *RetTy,
+                                 ArrayRef<Value *> Args) {
+    switch (IID) {
+    default: {
+      SmallVector<Type *, 4> Types;
+      for (Value *Op : Args)
+        Types.push_back(Op->getType());
+      return static_cast<T *>(this)->getIntrinsicInstrCost(IID, RetTy, Types);
+    }
+    case Intrinsic::masked_scatter: {
+      Value *Mask = Args[3];
+      bool VarMask = !isa<Constant>(Mask);
+      unsigned Alignment = cast<ConstantInt>(Args[2])->getZExtValue();
+      return
+        static_cast<T *>(this)->getGatherScatterOpCost(Instruction::Store,
+                                                       Args[0]->getType(),
+                                                       Args[1], VarMask,
+                                                       Alignment);
+    }
+    case Intrinsic::masked_gather: {
+      Value *Mask = Args[2];
+      bool VarMask = !isa<Constant>(Mask);
+      unsigned Alignment = cast<ConstantInt>(Args[1])->getZExtValue();
+      return
+        static_cast<T *>(this)->getGatherScatterOpCost(Instruction::Load,
+                                                       RetTy, Args[0], VarMask,
+                                                       Alignment);
+    }
+    }
+  }
+  
+  /// Get intrinsic cost based on argument types
   unsigned getIntrinsicInstrCost(Intrinsic::ID IID, Type *RetTy,
                                  ArrayRef<Type *> Tys) {
     unsigned ISD = 0;
@@ -693,6 +731,11 @@ public:
     std::pair<unsigned, MVT> LT = TLI->getTypeLegalizationCost(DL, RetTy);
 
     if (TLI->isOperationLegalOrPromote(ISD, LT.second)) {
+      if (IID == Intrinsic::fabs &&
+          TLI->isFAbsFree(LT.second)) {
+        return 0;
+      }
+
       // The operation is legal. Assume it costs 1.
       // If the type is split to multiple registers, assume that there is some
       // overhead to this.

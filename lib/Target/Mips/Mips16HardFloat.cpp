@@ -387,11 +387,9 @@ static bool fixupFPReturnAndCall(Function &F, Module *M,
   bool Modified = false;
   LLVMContext &C = M->getContext();
   Type *MyVoid = Type::getVoidTy(C);
-  for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB)
-    for (BasicBlock::iterator I = BB->begin(), E = BB->end();
-         I != E; ++I) {
-      Instruction &Inst = *I;
-      if (const ReturnInst *RI = dyn_cast<ReturnInst>(I)) {
+  for (auto &BB: F)
+    for (auto &I: BB) {
+      if (const ReturnInst *RI = dyn_cast<ReturnInst>(&I)) {
         Value *RVal = RI->getReturnValue();
         if (!RVal) continue;
         //
@@ -425,17 +423,11 @@ static bool fixupFPReturnAndCall(Function &F, Module *M,
         A = A.addAttribute(C, AttributeSet::FunctionIndex,
                            Attribute::NoInline);
         Value *F = (M->getOrInsertFunction(Name, A, MyVoid, T, nullptr));
-        CallInst::Create(F, Params, "", &Inst );
-      } else if (const CallInst *CI = dyn_cast<CallInst>(I)) {
-        const Value* V = CI->getCalledValue();
-        Type* T = nullptr;
-        if (V) T = V->getType();
-        PointerType *PFT = nullptr;
-        if (T) PFT = dyn_cast<PointerType>(T);
-        FunctionType *FT = nullptr;
-        if (PFT) FT = dyn_cast<FunctionType>(PFT->getElementType());
+        CallInst::Create(F, Params, "", &I);
+      } else if (const CallInst *CI = dyn_cast<CallInst>(&I)) {
+        FunctionType *FT = CI->getFunctionType();
         Function *F_ =  CI->getCalledFunction();
-        if (FT && needsFPReturnHelper(*FT) &&
+        if (needsFPReturnHelper(*FT) &&
             !(F_ && isIntrinsicInline(F_))) {
           Modified=true;
           F.addFnAttr("saveS2");

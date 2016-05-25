@@ -39,7 +39,7 @@ MetadataAsValue::~MetadataAsValue() {
   untrack();
 }
 
-/// \brief Canonicalize metadata arguments to intrinsics.
+/// Canonicalize metadata arguments to intrinsics.
 ///
 /// To support bitcode upgrades (and assembly semantic sugar) for \a
 /// MetadataAsValue, we need to canonicalize certain metadata.
@@ -120,6 +120,38 @@ void MetadataAsValue::untrack() {
     MetadataTracking::untrack(MD);
 }
 
+bool MetadataTracking::track(void *Ref, Metadata &MD, OwnerTy Owner) {
+  assert(Ref && "Expected live reference");
+  assert((Owner || *static_cast<Metadata **>(Ref) == &MD) &&
+         "Reference without owner must be direct");
+  if (auto *R = ReplaceableMetadataImpl::get(MD)) {
+    R->addRef(Ref, Owner);
+    return true;
+  }
+  return false;
+}
+
+void MetadataTracking::untrack(void *Ref, Metadata &MD) {
+  assert(Ref && "Expected live reference");
+  if (auto *R = ReplaceableMetadataImpl::get(MD))
+    R->dropRef(Ref);
+}
+
+bool MetadataTracking::retrack(void *Ref, Metadata &MD, void *New) {
+  assert(Ref && "Expected live reference");
+  assert(New && "Expected live reference");
+  assert(Ref != New && "Expected change");
+  if (auto *R = ReplaceableMetadataImpl::get(MD)) {
+    R->moveRef(Ref, New, MD);
+    return true;
+  }
+  return false;
+}
+
+bool MetadataTracking::isReplaceable(const Metadata &MD) {
+  return ReplaceableMetadataImpl::get(const_cast<Metadata &>(MD));
+}
+
 void ReplaceableMetadataImpl::addRef(void *Ref, OwnerTy Owner) {
   bool WasInserted =
       UseMap.insert(std::make_pair(Ref, std::make_pair(Owner, NextIndex)))
@@ -156,8 +188,8 @@ void ReplaceableMetadataImpl::moveRef(void *Ref, void *New,
 }
 
 void ReplaceableMetadataImpl::replaceAllUsesWith(Metadata *MD) {
-  assert(!(MD && isa<MDNode>(MD) && cast<MDNode>(MD)->isTemporary()) &&
-         "Expected non-temp node");
+  assert(CanReplace &&
+         "Attempted to replace Metadata marked for no replacement");
 
   if (UseMap.empty())
     return;
@@ -237,6 +269,12 @@ void ReplaceableMetadataImpl::resolveAllUses(bool ResolveUsers) {
       continue;
     OwnerMD->decrementUnresolvedOperandCount();
   }
+}
+
+ReplaceableMetadataImpl *ReplaceableMetadataImpl::get(Metadata &MD) {
+  if (auto *N = dyn_cast<MDNode>(&MD))
+    return N->Context.getReplaceableUses();
+  return dyn_cast<ValueAsMetadata>(&MD);
 }
 
 static Function *getLocalFunction(Value *V) {
@@ -359,17 +397,12 @@ void ValueAsMetadata::handleRAUW(Value *From, Value *To) {
 
 MDString *MDString::get(LLVMContext &Context, StringRef Str) {
   auto &Store = Context.pImpl->MDStringCache;
-  auto I = Store.find(Str);
-  if (I != Store.end())
-    return &I->second;
-
-  auto *Entry =
-      StringMapEntry<MDString>::Create(Str, Store.getAllocator(), MDString());
-  bool WasInserted = Store.insert(Entry);
-  (void)WasInserted;
-  assert(WasInserted && "Expected entry to be inserted");
-  Entry->second.Entry = Entry;
-  return &Entry->second;
+  auto I = Store.emplace_second(Str);
+  auto &MapEntry = I.first->getValue();
+  if (!I.second)
+    return &MapEntry;
+  MapEntry.Entry = &*I.first;
+  return &MapEntry;
 }
 
 StringRef MDString::getString() const {
@@ -393,7 +426,7 @@ void *MDNode::operator new(size_t Size, unsigned NumOps) {
   size_t OpSize = NumOps * sizeof(MDOperand);
   // uint64_t is the most aligned type we need support (ensured by static_assert
   // above)
-  OpSize = RoundUpToAlignment(OpSize, llvm::alignOf<uint64_t>());
+  OpSize = alignTo(OpSize, llvm::alignOf<uint64_t>());
   void *Ptr = reinterpret_cast<char *>(::operator new(OpSize + Size)) + OpSize;
   MDOperand *O = static_cast<MDOperand *>(Ptr);
   for (MDOperand *E = O - NumOps; O != E; --O)
@@ -404,7 +437,7 @@ void *MDNode::operator new(size_t Size, unsigned NumOps) {
 void MDNode::operator delete(void *Mem) {
   MDNode *N = static_cast<MDNode *>(Mem);
   size_t OpSize = N->NumOperands * sizeof(MDOperand);
-  OpSize = RoundUpToAlignment(OpSize, llvm::alignOf<uint64_t>());
+  OpSize = alignTo(OpSize, llvm::alignOf<uint64_t>());
 
   MDOperand *O = static_cast<MDOperand *>(Mem);
   for (MDOperand *E = O - N->NumOperands; O != E; --O)
@@ -517,7 +550,7 @@ void MDNode::decrementUnresolvedOperandCount() {
     resolve();
 }
 
-void MDNode::resolveCycles(bool MDMaterialized) {
+void MDNode::resolveRecursivelyImpl(bool AllowTemps) {
   if (isResolved())
     return;
 
@@ -530,7 +563,7 @@ void MDNode::resolveCycles(bool MDMaterialized) {
     if (!N)
       continue;
 
-    if (N->isTemporary() && !MDMaterialized)
+    if (N->isTemporary() && AllowTemps)
       continue;
     assert(!N->isTemporary() &&
            "Expected all forward declarations to be resolved");
@@ -771,7 +804,7 @@ void MDNode::setOperand(unsigned I, Metadata *New) {
   mutable_begin()[I].reset(New, isUniqued() ? this : nullptr);
 }
 
-/// \brief Get a node, or a self-reference that looks like it.
+/// Get a node or a self-reference that looks like it.
 ///
 /// Special handling for finding self-references, for use by \a
 /// MDNode::concatenate() and \a MDNode::intersect() to maintain behaviour from
@@ -1098,9 +1131,6 @@ void Instruction::dropUnknownNonDebugMetadata(ArrayRef<unsigned> KnownIDs) {
   }
 }
 
-/// setMetadata - Set the metadata of the specified kind to the specified
-/// node.  This updates/replaces metadata if already present, or removes it if
-/// Node is null.
 void Instruction::setMetadata(unsigned KindID, MDNode *Node) {
   if (!Node && !hasMetadata())
     return;
@@ -1189,8 +1219,6 @@ void Instruction::getAllMetadataOtherThanDebugLocImpl(
   Info.getAll(Result);
 }
 
-/// clearMetadataHashEntries - Clear all hashtable-based metadata from
-/// this instruction.
 void Instruction::clearMetadataHashEntries() {
   assert(hasMetadataHashEntry() && "Caller should check");
   getContext().pImpl->InstructionMetadata.erase(this);

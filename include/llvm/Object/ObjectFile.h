@@ -94,6 +94,7 @@ public:
   bool isData() const;
   bool isBSS() const;
   bool isVirtual() const;
+  bool isBitcode() const;
 
   bool containsSymbol(SymbolRef S) const;
 
@@ -142,7 +143,7 @@ public:
   /// @brief Get the alignment of this symbol as the actual value (not log 2).
   uint32_t getAlignment() const;
   uint64_t getCommonSize() const;
-  SymbolRef::Type getType() const;
+  ErrorOr<SymbolRef::Type> getType() const;
 
   /// @brief Get section this symbol is defined in reference to. Result is
   /// end_sections() if it is undefined or is an absolute symbol.
@@ -200,7 +201,7 @@ protected:
   virtual uint64_t getSymbolValueImpl(DataRefImpl Symb) const = 0;
   virtual uint32_t getSymbolAlignment(DataRefImpl Symb) const;
   virtual uint64_t getCommonSymbolSizeImpl(DataRefImpl Symb) const = 0;
-  virtual SymbolRef::Type getSymbolType(DataRefImpl Symb) const = 0;
+  virtual ErrorOr<SymbolRef::Type> getSymbolType(DataRefImpl Symb) const = 0;
   virtual ErrorOr<section_iterator>
   getSymbolSection(DataRefImpl Symb) const = 0;
 
@@ -219,6 +220,7 @@ protected:
   virtual bool isSectionBSS(DataRefImpl Sec) const = 0;
   // A section is 'virtual' if its contents aren't present in the object image.
   virtual bool isSectionVirtual(DataRefImpl Sec) const = 0;
+  virtual bool isSectionBitcode(DataRefImpl Sec) const;
   virtual relocation_iterator section_rel_begin(DataRefImpl Sec) const = 0;
   virtual relocation_iterator section_rel_end(DataRefImpl Sec) const = 0;
   virtual section_iterator getRelocatedSection(DataRefImpl Sec) const;
@@ -294,8 +296,9 @@ public:
   static ErrorOr<std::unique_ptr<ObjectFile>>
   createELFObjectFile(MemoryBufferRef Object);
 
-  static ErrorOr<std::unique_ptr<MachOObjectFile>>
+  static Expected<std::unique_ptr<MachOObjectFile>>
   createMachOObjectFile(MemoryBufferRef Object);
+
 };
 
 // Inline function definitions.
@@ -326,7 +329,7 @@ inline ErrorOr<section_iterator> SymbolRef::getSection() const {
   return getObject()->getSymbolSection(getRawDataRefImpl());
 }
 
-inline SymbolRef::Type SymbolRef::getType() const {
+inline ErrorOr<SymbolRef::Type> SymbolRef::getType() const {
   return getObject()->getSymbolType(getRawDataRefImpl());
 }
 
@@ -392,6 +395,10 @@ inline bool SectionRef::isBSS() const {
 
 inline bool SectionRef::isVirtual() const {
   return OwningObject->isSectionVirtual(SectionPimpl);
+}
+
+inline bool SectionRef::isBitcode() const {
+  return OwningObject->isSectionBitcode(SectionPimpl);
 }
 
 inline relocation_iterator SectionRef::relocation_begin() const {

@@ -63,21 +63,19 @@ bool DIEDwarfExpression::isFrameRegister(unsigned MachineReg) {
   return MachineReg == TRI.getFrameRegister(*AP.MF);
 }
 
-DwarfUnit::DwarfUnit(unsigned UID, dwarf::Tag UnitTag,
-                     const DICompileUnit *Node, AsmPrinter *A, DwarfDebug *DW,
-                     DwarfFile *DWU)
-    : UniqueID(UID), CUNode(Node),
-      UnitDie(*DIE::get(DIEValueAllocator, UnitTag)), DebugInfoOffset(0),
-      Asm(A), DD(DW), DU(DWU), IndexTyDie(nullptr), Section(nullptr) {
+DwarfUnit::DwarfUnit(dwarf::Tag UnitTag, const DICompileUnit *Node,
+                     AsmPrinter *A, DwarfDebug *DW, DwarfFile *DWU)
+    : CUNode(Node), UnitDie(*DIE::get(DIEValueAllocator, UnitTag)), Asm(A),
+      DD(DW), DU(DWU), IndexTyDie(nullptr), Section(nullptr) {
   assert(UnitTag == dwarf::DW_TAG_compile_unit ||
          UnitTag == dwarf::DW_TAG_type_unit);
 }
 
-DwarfTypeUnit::DwarfTypeUnit(unsigned UID, DwarfCompileUnit &CU, AsmPrinter *A,
+DwarfTypeUnit::DwarfTypeUnit(DwarfCompileUnit &CU, AsmPrinter *A,
                              DwarfDebug *DW, DwarfFile *DWU,
                              MCDwarfDwoLineTable *SplitLineTable)
-    : DwarfUnit(UID, dwarf::DW_TAG_type_unit, CU.getCUNode(), A, DW, DWU),
-      CU(CU), SplitLineTable(SplitLineTable) {
+    : DwarfUnit(dwarf::DW_TAG_type_unit, CU.getCUNode(), A, DW, DWU), CU(CU),
+      SplitLineTable(SplitLineTable) {
   if (SplitLineTable)
     addSectionOffset(UnitDie, dwarf::DW_AT_stmt_list, 0);
 }
@@ -268,7 +266,7 @@ void DwarfUnit::addDIEEntry(DIE &Die, dwarf::Attribute Attribute, DIE &Entry) {
   addDIEEntry(Die, Attribute, DIEEntry(Entry));
 }
 
-void DwarfUnit::addDIETypeSignature(DIE &Die, const DwarfTypeUnit &Type) {
+void DwarfUnit::addDIETypeSignature(DIE &Die, uint64_t Signature) {
   // Flag the type unit reference as a declaration so that if it contains
   // members (implicit special members, static data member definitions, member
   // declarations for definitions in this CU, etc) consumers don't get confused
@@ -276,7 +274,7 @@ void DwarfUnit::addDIETypeSignature(DIE &Die, const DwarfTypeUnit &Type) {
   addFlag(Die, dwarf::DW_AT_declaration);
 
   Die.addValue(DIEValueAllocator, dwarf::DW_AT_signature,
-               dwarf::DW_FORM_ref_sig8, DIETypeSignature(Type));
+               dwarf::DW_FORM_ref_sig8, DIEInteger(Signature));
 }
 
 void DwarfUnit::addDIETypeSignature(DIE &Die, dwarf::Attribute Attribute,
@@ -1220,10 +1218,12 @@ void DwarfUnit::applySubprogramAttributes(const DISubprogram *SP, DIE &SPDie,
   unsigned VK = SP->getVirtuality();
   if (VK) {
     addUInt(SPDie, dwarf::DW_AT_virtuality, dwarf::DW_FORM_data1, VK);
-    DIELoc *Block = getDIELoc();
-    addUInt(*Block, dwarf::DW_FORM_data1, dwarf::DW_OP_constu);
-    addUInt(*Block, dwarf::DW_FORM_udata, SP->getVirtualIndex());
-    addBlock(SPDie, dwarf::DW_AT_vtable_elem_location, Block);
+    if (SP->getVirtualIndex() != -1u) {
+      DIELoc *Block = getDIELoc();
+      addUInt(*Block, dwarf::DW_FORM_data1, dwarf::DW_OP_constu);
+      addUInt(*Block, dwarf::DW_FORM_udata, SP->getVirtualIndex());
+      addBlock(SPDie, dwarf::DW_AT_vtable_elem_location, Block);
+    }
     ContainingTypeMap.insert(
         std::make_pair(&SPDie, resolve(SP->getContainingType())));
   }
@@ -1524,8 +1524,11 @@ void DwarfUnit::emitHeader(bool UseOffsets) {
   // start of the section. Use a relocatable offset where needed to ensure
   // linking doesn't invalidate that offset.
   const TargetLoweringObjectFile &TLOF = Asm->getObjFileLowering();
-  Asm->emitDwarfSymbolReference(TLOF.getDwarfAbbrevSection()->getBeginSymbol(),
-                                UseOffsets);
+  if (UseOffsets)
+    Asm->EmitInt32(0);
+  else
+    Asm->emitDwarfSymbolReference(
+        TLOF.getDwarfAbbrevSection()->getBeginSymbol(), false);
 
   Asm->OutStreamer->AddComment("Address Size (in bytes)");
   Asm->EmitInt8(Asm->getDataLayout().getPointerSize());

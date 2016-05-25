@@ -31,6 +31,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include <cctype>
+
 using namespace llvm;
 
 static cl::opt<bool> DisableHazardRecognizer(
@@ -76,8 +77,6 @@ void TargetInstrInfo::insertNoop(MachineBasicBlock &MBB,
 /// may be overloaded in the target code to do that.
 unsigned TargetInstrInfo::getInlineAsmLength(const char *Str,
                                              const MCAsmInfo &MAI) const {
-
-
   // Count the number of instructions in the asm.
   bool atInsnStart = true;
   unsigned Length = 0;
@@ -108,13 +107,15 @@ TargetInstrInfo::ReplaceTailWithBranchTo(MachineBasicBlock::iterator Tail,
   while (!MBB->succ_empty())
     MBB->removeSuccessor(MBB->succ_begin());
 
+  // Save off the debug loc before erasing the instruction.
+  DebugLoc DL = Tail->getDebugLoc();
+
   // Remove all the dead instructions from the end of MBB.
   MBB->erase(Tail, MBB->end());
 
   // If MBB isn't immediately before MBB, insert a branch to it.
   if (++MachineFunction::iterator(MBB) != MachineFunction::iterator(NewDest))
-    InsertBranch(*MBB, NewDest, nullptr, SmallVector<MachineOperand, 0>(),
-                 Tail->getDebugLoc());
+    InsertBranch(*MBB, NewDest, nullptr, SmallVector<MachineOperand, 0>(), DL);
   MBB->addSuccessor(NewDest);
 }
 
@@ -257,32 +258,31 @@ bool TargetInstrInfo::findCommutedOpIndices(MachineInstr *MI,
   return true;
 }
 
-bool
-TargetInstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
-  if (!MI->isTerminator()) return false;
+bool TargetInstrInfo::isUnpredicatedTerminator(const MachineInstr &MI) const {
+  if (!MI.isTerminator()) return false;
 
   // Conditional branch is a special case.
-  if (MI->isBranch() && !MI->isBarrier())
+  if (MI.isBranch() && !MI.isBarrier())
     return true;
-  if (!MI->isPredicable())
+  if (!MI.isPredicable())
     return true;
   return !isPredicated(MI);
 }
 
 bool TargetInstrInfo::PredicateInstruction(
-    MachineInstr *MI, ArrayRef<MachineOperand> Pred) const {
+    MachineInstr &MI, ArrayRef<MachineOperand> Pred) const {
   bool MadeChange = false;
 
-  assert(!MI->isBundle() &&
+  assert(!MI.isBundle() &&
          "TargetInstrInfo::PredicateInstruction() can't handle bundles");
 
-  const MCInstrDesc &MCID = MI->getDesc();
-  if (!MI->isPredicable())
+  const MCInstrDesc &MCID = MI.getDesc();
+  if (!MI.isPredicable())
     return false;
 
-  for (unsigned j = 0, i = 0, e = MI->getNumOperands(); i != e; ++i) {
+  for (unsigned j = 0, i = 0, e = MI.getNumOperands(); i != e; ++i) {
     if (MCID.OpInfo[i].isPredicate()) {
-      MachineOperand &MO = MI->getOperand(i);
+      MachineOperand &MO = MI.getOperand(i);
       if (MO.isReg()) {
         MO.setReg(Pred[j].getReg());
         MadeChange = true;
@@ -385,7 +385,7 @@ bool
 TargetInstrInfo::produceSameValue(const MachineInstr *MI0,
                                   const MachineInstr *MI1,
                                   const MachineRegisterInfo *MRI) const {
-  return MI0->isIdenticalTo(MI1, MachineInstr::IgnoreVRegDefs);
+  return MI0->isIdenticalTo(*MI1, MachineInstr::IgnoreVRegDefs);
 }
 
 MachineInstr *TargetInstrInfo::duplicate(MachineInstr *Orig,
@@ -637,7 +637,6 @@ bool TargetInstrInfo::isReassociationCandidate(const MachineInstr &Inst,
 bool TargetInstrInfo::getMachineCombinerPatterns(
     MachineInstr &Root,
     SmallVectorImpl<MachineCombinerPattern> &Patterns) const {
-
   bool Commute;
   if (isReassociationCandidate(Root, Commute)) {
     // We found a sequence of instructions that may be suitable for a
@@ -768,7 +767,6 @@ void TargetInstrInfo::genAlternativeCodeSequence(
   assert(Prev && "Unknown pattern for machine combiner");
 
   reassociateOps(Root, *Prev, Pattern, InsInstrs, DelInstrs, InstIdxForVirtReg);
-  return;
 }
 
 /// foldMemoryOperand - Same as the previous version except it allows folding
@@ -1038,7 +1036,7 @@ unsigned TargetInstrInfo::defaultDefLatency(const MCSchedModel &SchedModel,
   return 1;
 }
 
-unsigned TargetInstrInfo::getPredicationCost(const MachineInstr *) const {
+unsigned TargetInstrInfo::getPredicationCost(const MachineInstr &) const {
   return 0;
 }
 

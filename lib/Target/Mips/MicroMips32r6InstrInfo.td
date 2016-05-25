@@ -71,6 +71,12 @@ class MUL_MMR6_ENC : ARITH_FM_MMR6<"mul", 0x18>;
 class MUH_MMR6_ENC : ARITH_FM_MMR6<"muh", 0x58>;
 class MULU_MMR6_ENC : ARITH_FM_MMR6<"mulu", 0x98>;
 class MUHU_MMR6_ENC : ARITH_FM_MMR6<"muhu", 0xd8>;
+class MTC0_MMR6_ENC : POOL32A_MFTC0_FM_MMR6<"mtc0", 0b01011, 0b111100>;
+class MTC1_MMR6_ENC : POOL32F_MFTC1_FM_MMR6<"mtc1", 0b10100000>;
+class MTC2_MMR6_ENC : POOL32A_MFTC2_FM_MMR6<"mtc2", 0b0101110100>;
+class MTHC0_MMR6_ENC : POOL32A_MFTC0_FM_MMR6<"mthc0", 0b01011, 0b110100>;
+class MTHC1_MMR6_ENC : POOL32F_MFTC1_FM_MMR6<"mthc1", 0b11100000>;
+class MTHC2_MMR6_ENC : POOL32A_MFTC2_FM_MMR6<"mthc2", 0b1001110100>;
 class NOR_MMR6_ENC : ARITH_FM_MMR6<"nor", 0x2d0>;
 class OR_MMR6_ENC : ARITH_FM_MMR6<"or", 0x290>;
 class ORI_MMR6_ENC : ADDI_FM_MMR6<"ori", 0x14>;
@@ -168,6 +174,8 @@ class MOVE16_MMR6_ENC : MOVE_FM_MM16<0b000011>;
 class SDBBP16_MMR6_ENC : POOL16C_BREAKPOINT_FM_MMR6<0b111011>;
 class SUBU16_MMR6_ENC : POOL16A_SUBU16_FM_MMR6;
 class XOR16_MMR6_ENC : POOL16C_OR16_XOR16_FM_MMR6<0b1000>;
+class TLBINV_MMR6_ENC : POOL32A_TLBINV_FM_MMR6<"tlbinv", 0x10d>;
+class TLBINVF_MMR6_ENC : POOL32A_TLBINV_FM_MMR6<"tlbinvf", 0x14d>;
 
 class CMP_CBR_RT_Z_MMR6_DESC_BASE<string instr_asm, DAGOperand opnd,
                                   RegisterOperand GPROpnd>
@@ -499,17 +507,34 @@ class RDHWR_MMR6_DESC : MMR6Arch<"rdhwr">, MipsR6Inst {
 class WAIT_MMR6_DESC : WaitMM<"wait">;
 class SSNOP_MMR6_DESC : Barrier<"ssnop">;
 class SLL_MMR6_DESC : shift_rotate_imm<"sll", uimm5, GPR32Opnd, II_SLL>;
-class DIV_MMR6_DESC : ArithLogicR<"div", GPR32Opnd>;
-class DIVU_MMR6_DESC : ArithLogicR<"divu", GPR32Opnd>;
-class MOD_MMR6_DESC : ArithLogicR<"mod", GPR32Opnd>;
-class MODU_MMR6_DESC : ArithLogicR<"modu", GPR32Opnd>;
+
+class DIVMOD_MMR6_DESC_BASE<string opstr, RegisterOperand GPROpnd,
+                            SDPatternOperator OpNode=null_frag>
+    : MipsR6Inst {
+  dag OutOperandList = (outs GPROpnd:$rd);
+  dag InOperandList = (ins GPROpnd:$rs, GPROpnd:$rt);
+  string AsmString = !strconcat(opstr, "\t$rd, $rs, $rt");
+  list<dag> Pattern = [(set GPROpnd:$rd, (OpNode GPROpnd:$rs, GPROpnd:$rt))];
+  string BaseOpcode = opstr;
+  Format f = FrmR;
+  let isCommutable = 0;
+  let isReMaterializable = 1;
+
+  // This instruction doesn't trap division by zero itself. We must insert
+  // teq instructions as well.
+  bit usesCustomInserter = 1;
+}
+class DIV_MMR6_DESC  : DIVMOD_MMR6_DESC_BASE<"div", GPR32Opnd, sdiv>;
+class DIVU_MMR6_DESC : DIVMOD_MMR6_DESC_BASE<"divu", GPR32Opnd, udiv>;
+class MOD_MMR6_DESC  : DIVMOD_MMR6_DESC_BASE<"mod", GPR32Opnd, srem>;
+class MODU_MMR6_DESC : DIVMOD_MMR6_DESC_BASE<"modu", GPR32Opnd, urem>;
 class AND_MMR6_DESC : ArithLogicR<"and", GPR32Opnd>;
-class ANDI_MMR6_DESC : ArithLogicI<"andi", simm16, GPR32Opnd>;
+class ANDI_MMR6_DESC : ArithLogicI<"andi", uimm16, GPR32Opnd>;
 class NOR_MMR6_DESC : ArithLogicR<"nor", GPR32Opnd>;
 class OR_MMR6_DESC : ArithLogicR<"or", GPR32Opnd>;
-class ORI_MMR6_DESC : ArithLogicI<"ori", simm16, GPR32Opnd>;
+class ORI_MMR6_DESC : ArithLogicI<"ori", uimm16, GPR32Opnd>;
 class XOR_MMR6_DESC : ArithLogicR<"xor", GPR32Opnd>;
-class XORI_MMR6_DESC : ArithLogicI<"xori", simm16, GPR32Opnd>;
+class XORI_MMR6_DESC : ArithLogicI<"xori", uimm16, GPR32Opnd>;
 
 class SWE_MMR6_DESC_BASE<string opstr, DAGOperand RO, DAGOperand MO,
                   SDPatternOperator OpNode = null_frag,
@@ -535,6 +560,62 @@ class WRPGPR_WSBH_MMR6_DESC_BASE<string instr_asm, RegisterOperand RO>
 }
 class WRPGPR_MMR6_DESC : WRPGPR_WSBH_MMR6_DESC_BASE<"wrpgpr", GPR32Opnd>;
 class WSBH_MMR6_DESC : WRPGPR_WSBH_MMR6_DESC_BASE<"wsbh", GPR32Opnd>;
+
+class MTC0_MMR6_DESC_BASE<string opstr, RegisterOperand DstRC,
+                         RegisterOperand SrcRC> {
+  dag InOperandList = (ins SrcRC:$rt, uimm3:$sel);
+  dag OutOperandList = (outs DstRC:$rs);
+  string AsmString = !strconcat(opstr, "\t$rt, $rs, $sel");
+  list<dag> Pattern = [];
+  Format f = FrmFR;
+  string BaseOpcode = opstr;
+}
+class MTC1_MMR6_DESC_BASE<
+      string opstr, RegisterOperand DstRC, RegisterOperand SrcRC,
+      InstrItinClass Itin = NoItinerary, SDPatternOperator OpNode = null_frag>
+      : MipsR6Inst {
+  dag InOperandList = (ins SrcRC:$rt);
+  dag OutOperandList = (outs DstRC:$fs);
+  string AsmString = !strconcat(opstr, "\t$rt, $fs");
+  list<dag> Pattern = [(set DstRC:$fs, (OpNode SrcRC:$rt))];
+  Format f = FrmFR;
+  InstrItinClass Itinerary = Itin;
+  string BaseOpcode = opstr;
+}
+class MTC1_64_MMR6_DESC_BASE<
+      string opstr, RegisterOperand DstRC, RegisterOperand SrcRC,
+      InstrItinClass Itin = NoItinerary> : MipsR6Inst {
+  dag InOperandList = (ins DstRC:$fs_in, SrcRC:$rt);
+  dag OutOperandList = (outs DstRC:$fs);
+  string AsmString = !strconcat(opstr, "\t$rt, $fs");
+  list<dag> Pattern = [];
+  Format f = FrmFR;
+  InstrItinClass Itinerary = Itin;
+  string BaseOpcode = opstr;
+  // $fs_in is part of a white lie to work around a widespread bug in the FPU
+  // implementation. See expandBuildPairF64 for details.
+  let Constraints = "$fs = $fs_in";
+}
+class MTC2_MMR6_DESC_BASE<string opstr, RegisterOperand DstRC,
+                         RegisterOperand SrcRC> {
+  dag InOperandList = (ins SrcRC:$rt);
+  dag OutOperandList = (outs DstRC:$impl);
+  string AsmString = !strconcat(opstr, "\t$rt, $impl");
+  list<dag> Pattern = [];
+  Format f = FrmFR;
+  string BaseOpcode = opstr;
+}
+
+class MTC0_MMR6_DESC : MTC0_MMR6_DESC_BASE<"mtc0", COP0Opnd, GPR32Opnd>;
+class MTC1_MMR6_DESC : MTC1_MMR6_DESC_BASE<"mtc1", FGR32Opnd, GPR32Opnd,
+                                           II_MTC1, bitconvert>, HARDFLOAT;
+class MTC2_MMR6_DESC : MTC2_MMR6_DESC_BASE<"mtc2", COP2Opnd, GPR32Opnd>;
+class MTHC0_MMR6_DESC : MTC0_MMR6_DESC_BASE<"mthc0", COP0Opnd, GPR32Opnd>;
+class MTHC1_D32_MMR6_DESC : MTC1_64_MMR6_DESC_BASE<"mthc1", AFGR64Opnd, GPR32Opnd>,
+                            HARDFLOAT, FGR_32;
+class MTHC1_D64_MMR6_DESC : MTC1_64_MMR6_DESC_BASE<"mthc1", FGR64Opnd, GPR32Opnd>,
+                            HARDFLOAT, FGR_64;
+class MTHC2_MMR6_DESC : MTC2_MMR6_DESC_BASE<"mthc2", COP2Opnd, GPR32Opnd>;
 
 /// Floating Point Instructions
 class FARITH_MMR6_DESC_BASE<string instr_asm, RegisterOperand RC,
@@ -819,7 +900,7 @@ class SRL16_MMR6_DESC : ShiftIMM16<"srl16", uimm3_shift, GPRMM16Opnd, II_SRL>,
       MMR6Arch<"srl16">;
 class BREAK16_MMR6_DESC : BrkSdbbp16MM<"break16">, MMR6Arch<"srl16">,
       MicroMipsR6Inst16;
-class LI16_MMR6_DESC : LoadImmMM16<"li16", li_simm7, GPRMM16Opnd>,
+class LI16_MMR6_DESC : LoadImmMM16<"li16", li16_imm, GPRMM16Opnd>,
       MMR6Arch<"srl16">, MicroMipsR6Inst16, IsAsCheapAsAMove;
 class MOVE16_MMR6_DESC : MoveMM16<"move16", GPR32Opnd>, MMR6Arch<"srl16">,
       MicroMipsR6Inst16;
@@ -828,7 +909,7 @@ class SDBBP16_MMR6_DESC : BrkSdbbp16MM<"sdbbp16">, MMR6Arch<"sdbbp16">,
 class SUBU16_MMR6_DESC : ArithRMM16<"subu16", GPRMM16Opnd, 0, II_SUBU, sub>,
       MMR6Arch<"sdbbp16">, MicroMipsR6Inst16;
 class XOR16_MMR6_DESC : LogicRMM16<"xor16", GPRMM16Opnd, II_XOR, xor>,
-      MMR6Arch<"sdbbp16">, MicroMipsR6Inst16;
+      MMR6Arch<"sdbbp16">;
 
 class LW_MMR6_DESC : MMR6Arch<"lw">, MipsR6Inst {
   dag OutOperandList = (outs GPR32Opnd:$rt);
@@ -924,6 +1005,16 @@ class SWSP_MMR6_DESC
   let mayStore = 1;
 }
 
+class TLBINV_MMR6_DESC_BASE<string opstr> {
+  dag OutOperandList = (outs);
+  dag InOperandList = (ins);
+  string AsmString = opstr;
+  list<dag> Pattern = [];
+}
+
+class TLBINV_MMR6_DESC : TLBINV_MMR6_DESC_BASE<"tlbinv">;
+class TLBINVF_MMR6_DESC : TLBINV_MMR6_DESC_BASE<"tlbinvf">;
+
 //===----------------------------------------------------------------------===//
 //
 // Instruction Definitions
@@ -987,6 +1078,16 @@ def JRCADDIUSP_MMR6 : R6MMR6Rel, JRCADDIUSP_MMR6_DESC, JRCADDIUSP_MMR6_ENC,
 def LSA_MMR6 : R6MMR6Rel, LSA_MMR6_ENC, LSA_MMR6_DESC, ISA_MICROMIPS32R6;
 def LWPC_MMR6 : R6MMR6Rel, LWPC_MMR6_ENC, LWPC_MMR6_DESC, ISA_MICROMIPS32R6;
 def LWM16_MMR6 : StdMMR6Rel, LWM16_MMR6_DESC, LWM16_MMR6_ENC, ISA_MICROMIPS32R6;
+def MTC0_MMR6 : StdMMR6Rel, MTC0_MMR6_ENC, MTC0_MMR6_DESC, ISA_MICROMIPS32R6;
+def MTC1_MMR6 : StdMMR6Rel, MTC1_MMR6_DESC, MTC1_MMR6_ENC, ISA_MICROMIPS32R6;
+def MTC2_MMR6 : StdMMR6Rel, MTC2_MMR6_ENC, MTC2_MMR6_DESC, ISA_MICROMIPS32R6;
+def MTHC0_MMR6 : R6MMR6Rel, MTHC0_MMR6_ENC, MTHC0_MMR6_DESC, ISA_MICROMIPS32R6;
+def MTHC1_D32_MMR6 : StdMMR6Rel, MTHC1_D32_MMR6_DESC, MTHC1_MMR6_ENC, ISA_MICROMIPS32R6;
+let DecoderNamespace = "MicroMips32r6FPU" in {
+  def MTHC1_D64_MMR6 : R6MMR6Rel, MTHC1_D64_MMR6_DESC, MTHC1_MMR6_ENC,
+                       ISA_MICROMIPS32R6;
+}
+def MTHC2_MMR6 : StdMMR6Rel, MTHC2_MMR6_ENC, MTHC2_MMR6_DESC, ISA_MICROMIPS32R6;
 def MOD_MMR6 : R6MMR6Rel, MOD_MMR6_DESC, MOD_MMR6_ENC, ISA_MICROMIPS32R6;
 def MODU_MMR6 : R6MMR6Rel, MODU_MMR6_DESC, MODU_MMR6_ENC, ISA_MICROMIPS32R6;
 def MUL_MMR6 : R6MMR6Rel, MUL_MMR6_DESC, MUL_MMR6_ENC, ISA_MICROMIPS32R6;
@@ -1202,6 +1303,10 @@ def CLASS_S_MMR6 : StdMMR6Rel, CLASS_S_MMR6_ENC, CLASS_S_MMR6_DESC,
                    ISA_MICROMIPS32R6;
 def CLASS_D_MMR6 : StdMMR6Rel, CLASS_D_MMR6_ENC, CLASS_D_MMR6_DESC,
                    ISA_MICROMIPS32R6;
+def TLBINV_MMR6 : StdMMR6Rel, TLBINV_MMR6_ENC, TLBINV_MMR6_DESC,
+                  ISA_MICROMIPS32R6;
+def TLBINVF_MMR6 : StdMMR6Rel, TLBINVF_MMR6_ENC, TLBINVF_MMR6_DESC,
+                   ISA_MICROMIPS32R6;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1221,6 +1326,12 @@ def : MipsInstAlias<"sync", (SYNC_MMR6 0), 1>, ISA_MICROMIPS32R6;
 def : MipsInstAlias<"sdbbp", (SDBBP_MMR6 0), 1>, ISA_MICROMIPS32R6;
 def : MipsInstAlias<"rdhwr $rt, $rs",
                     (RDHWR_MMR6 GPR32Opnd:$rt, HWRegsOpnd:$rs, 0), 1>,
+                    ISA_MICROMIPS32R6;
+def : MipsInstAlias<"mtc0 $rt, $rs",
+                    (MTC0_MMR6 COP0Opnd:$rs, GPR32Opnd:$rt, 0), 0>,
+                    ISA_MICROMIPS32R6;
+def : MipsInstAlias<"mthc0 $rt, $rs",
+                    (MTHC0_MMR6 COP0Opnd:$rs, GPR32Opnd:$rt, 0), 0>,
                     ISA_MICROMIPS32R6;
 
 //===----------------------------------------------------------------------===//

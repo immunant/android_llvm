@@ -133,6 +133,9 @@ namespace llvm {
 
     // copy - Allocate copy in Allocator and return StringRef to it.
     template <typename Allocator> StringRef copy(Allocator &A) const {
+      // Don't request a length 0 copy from the allocator.
+      if (empty())
+        return StringRef();
       char *S = A.template Allocate<char>(Length);
       std::copy(begin(), end(), S);
       return StringRef(S, Length);
@@ -539,16 +542,34 @@ namespace llvm {
       return std::make_pair(slice(0, Idx), slice(Idx+1, npos));
     }
 
+    /// Return string with consecutive \p Char characters starting from the
+    /// the left removed.
+    StringRef ltrim(char Char) const {
+      return drop_front(std::min(Length, find_first_not_of(Char)));
+    }
+
     /// Return string with consecutive characters in \p Chars starting from
     /// the left removed.
     StringRef ltrim(StringRef Chars = " \t\n\v\f\r") const {
       return drop_front(std::min(Length, find_first_not_of(Chars)));
     }
 
+    /// Return string with consecutive \p Char characters starting from the
+    /// right removed.
+    StringRef rtrim(char Char) const {
+      return drop_back(Length - std::min(Length, find_last_not_of(Char) + 1));
+    }
+
     /// Return string with consecutive characters in \p Chars starting from
     /// the right removed.
     StringRef rtrim(StringRef Chars = " \t\n\v\f\r") const {
       return drop_back(Length - std::min(Length, find_last_not_of(Chars) + 1));
+    }
+
+    /// Return string with consecutive \p Char characters starting from the
+    /// left and right removed.
+    StringRef trim(char Char) const {
+      return ltrim(Char).rtrim(Char);
     }
 
     /// Return string with consecutive characters in \p Chars starting from

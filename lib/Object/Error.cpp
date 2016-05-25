@@ -47,8 +47,6 @@ std::string _object_error_category::message(int EV) const {
     return "Invalid section index";
   case object_error::bitcode_section_not_found:
     return "Bitcode section not found in object file";
-  case object_error::elf_invalid_dynamic_table_size:
-    return "Invalid dynamic table size";
   case object_error::macho_small_load_command:
     return "Mach-O load command with size < 8 bytes";
   case object_error::macho_load_segment_too_many_sections:
@@ -58,6 +56,21 @@ std::string _object_error_category::message(int EV) const {
   }
   llvm_unreachable("An enumerator of object_error does not have a message "
                    "defined.");
+}
+
+char BinaryError::ID = 0;
+char GenericBinaryError::ID = 0;
+
+GenericBinaryError::GenericBinaryError(std::string FileName, Twine Msg)
+    : FileName(std::move(FileName)), Msg(Msg.str()) {}
+
+GenericBinaryError::GenericBinaryError(std::string FileName, Twine Msg, object_error ECOverride)
+    : FileName(std::move(FileName)), Msg(Msg.str()) {
+  setErrorCode(make_error_code(ECOverride));
+}
+
+void GenericBinaryError::log(raw_ostream &OS) const {
+  OS << "Error in " << FileName << ": " << Msg;
 }
 
 static ManagedStatic<_object_error_category> error_category;

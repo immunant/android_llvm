@@ -35,13 +35,13 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/StringSaver.h"
 #include <vector>
+
 using namespace llvm;
 
 #undef  DEBUG_TYPE
 #define DEBUG_TYPE "reloc-info"
 
 namespace {
-
 typedef DenseMap<const MCSectionELF *, uint32_t> SectionIndexMapTy;
 
 class ELFObjectWriter;
@@ -129,9 +129,9 @@ class ELFObjectWriter : public MCObjectWriter {
     bool hasRelocationAddend() const {
       return TargetObjectWriter->hasRelocationAddend();
     }
-    unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                          bool IsPCRel) const {
-      return TargetObjectWriter->GetRelocType(Target, Fixup, IsPCRel);
+    unsigned getRelocType(MCContext &Ctx, const MCValue &Target,
+                          const MCFixup &Fixup, bool IsPCRel) const {
+      return TargetObjectWriter->getRelocType(Ctx, Target, Fixup, IsPCRel);
     }
 
     void align(unsigned Alignment);
@@ -232,7 +232,7 @@ class ELFObjectWriter : public MCObjectWriter {
                       uint32_t GroupSymbolIndex, uint64_t Offset, uint64_t Size,
                       const MCSectionELF &Section);
   };
-}
+} // end anonymous namespace
 
 void ELFObjectWriter::align(unsigned Alignment) {
   uint64_t Padding = OffsetToAlignment(getStream().tell(), Alignment);
@@ -375,9 +375,24 @@ uint64_t ELFObjectWriter::SymbolValue(const MCSymbol &Sym,
 
 void ELFObjectWriter::executePostLayoutBinding(MCAssembler &Asm,
                                                const MCAsmLayout &Layout) {
+  // Section symbols are used as definitions for undefined symbols with matching
+  // names. If there are multiple sections with the same name, the first one is
+  // used.
+  for (const MCSection &Sec : Asm) {
+    const MCSymbol *Begin = Sec.getBeginSymbol();
+    if (!Begin)
+      continue;
+
+    const MCSymbol *Alias = Asm.getContext().lookupSymbol(Begin->getName());
+    if (!Alias || !Alias->isUndefined())
+      continue;
+
+    Renames.insert(
+        std::make_pair(cast<MCSymbolELF>(Alias), cast<MCSymbolELF>(Begin)));
+  }
+
   // The presence of symbol versions causes undefined symbols and
   // versions declared with @@@ to be renamed.
-
   for (const MCSymbol &A : Asm.symbols()) {
     const auto &Alias = cast<MCSymbolELF>(A);
     // Not an alias.
@@ -618,6 +633,7 @@ void ELFObjectWriter::recordRelocation(MCAssembler &Asm,
   const MCSectionELF &FixupSection = cast<MCSectionELF>(*Fragment->getParent());
   uint64_t C = Target.getConstant();
   uint64_t FixupOffset = Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
+  MCContext &Ctx = Asm.getContext();
 
   if (const MCSymbolRefExpr *RefB = Target.getSymB()) {
     assert(RefB->getKind() == MCSymbolRefExpr::VK_None &&
@@ -631,7 +647,7 @@ void ELFObjectWriter::recordRelocation(MCAssembler &Asm,
     // or (A + C - R). If B = R + K and the relocation is not pcrel, we can
     // replace B to implement it: (A - R - K + C)
     if (IsPCRel) {
-      Asm.getContext().reportError(
+      Ctx.reportError(
           Fixup.getLoc(),
           "No relocation available to represent this relative expression");
       return;
@@ -640,24 +656,17 @@ void ELFObjectWriter::recordRelocation(MCAssembler &Asm,
     const auto &SymB = cast<MCSymbolELF>(RefB->getSymbol());
 
     if (SymB.isUndefined()) {
-      Asm.getContext().reportError(
-          Fixup.getLoc(),
-          Twine("symbol '") + SymB.getName() +
-              "' can not be undefined in a subtraction expression");
+      Ctx.reportError(Fixup.getLoc(),
+                      Twine("symbol '") + SymB.getName() +
+                          "' can not be undefined in a subtraction expression");
       return;
     }
 
     assert(!SymB.isAbsolute() && "Should have been folded");
     const MCSection &SecB = SymB.getSection();
     if (&SecB != &FixupSection) {
-      Asm.getContext().reportError(
-          Fixup.getLoc(), "Cannot represent a difference across sections");
-      return;
-    }
-
-    if (::isWeak(SymB)) {
-      Asm.getContext().reportError(
-          Fixup.getLoc(), "Cannot represent a subtraction with a weak symbol");
+      Ctx.reportError(Fixup.getLoc(),
+                      "Cannot represent a difference across sections");
       return;
     }
 
@@ -682,7 +691,7 @@ void ELFObjectWriter::recordRelocation(MCAssembler &Asm,
     }
   }
 
-  unsigned Type = GetRelocType(Target, Fixup, IsPCRel);
+  unsigned Type = getRelocType(Ctx, Target, Fixup, IsPCRel);
   bool RelocateWithSymbol = shouldRelocateWithSymbol(Asm, RefA, SymA, C, Type);
   if (!RelocateWithSymbol && SymA && !SymA->isUndefined())
     C += Layout.getSymbolOffset(*SymA);
@@ -719,7 +728,6 @@ void ELFObjectWriter::recordRelocation(MCAssembler &Asm,
   }
   ELFRelocationEntry Rec(FixupOffset, SymA, Type, Addend);
   Relocations[&FixupSection].push_back(Rec);
-  return;
 }
 
 bool ELFObjectWriter::isInSymtab(const MCAsmLayout &Layout,
@@ -1279,7 +1287,7 @@ void ELFObjectWriter::writeObject(MCAssembler &Asm,
   uint64_t NaturalAlignment = is64Bit() ? 8 : 4;
   align(NaturalAlignment);
 
-  const unsigned SectionHeaderOffset = getStream().tell();
+  const uint64_t SectionHeaderOffset = getStream().tell();
 
   // ... then the section header table ...
   writeSectionHeader(Layout, SectionIndexMap, SectionOffsets);

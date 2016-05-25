@@ -12,11 +12,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/IR/GlobalValue.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalAlias.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
@@ -42,7 +43,7 @@ void GlobalValue::destroyConstantImpl() {
   llvm_unreachable("You can't GV->destroyConstantImpl()!");
 }
 
-Value *GlobalValue::handleOperandChangeImpl(Value *From, Value *To, Use *U) {
+Value *GlobalValue::handleOperandChangeImpl(Value *From, Value *To) {
   llvm_unreachable("Unsupported class for handleOperandChange()!");
 }
 
@@ -98,6 +99,35 @@ void GlobalObject::copyAttributesFrom(const GlobalValue *Src) {
   }
 }
 
+std::string GlobalValue::getGlobalIdentifier(StringRef Name,
+                                             GlobalValue::LinkageTypes Linkage,
+                                             StringRef FileName) {
+
+  // Value names may be prefixed with a binary '1' to indicate
+  // that the backend should not modify the symbols due to any platform
+  // naming convention. Do not include that '1' in the PGO profile name.
+  if (Name[0] == '\1')
+    Name = Name.substr(1);
+
+  std::string NewName = Name;
+  if (llvm::GlobalValue::isLocalLinkage(Linkage)) {
+    // For local symbols, prepend the main file name to distinguish them.
+    // Do not include the full path in the file name since there's no guarantee
+    // that it will stay the same, e.g., if the files are checked out from
+    // version control in different locations.
+    if (FileName.empty())
+      NewName = NewName.insert(0, "<unknown>:");
+    else
+      NewName = NewName.insert(0, FileName.str() + ":");
+  }
+  return NewName;
+}
+
+std::string GlobalValue::getGlobalIdentifier() {
+  return getGlobalIdentifier(getName(), getLinkage(),
+                             getParent()->getSourceFileName());
+}
+
 const char *GlobalValue::getSection() const {
   if (auto *GA = dyn_cast<GlobalAlias>(this)) {
     // In general we cannot compute this at the IR level, but we try.
@@ -132,6 +162,47 @@ bool GlobalValue::isDeclaration() const {
   // Aliases are always definitions.
   assert(isa<GlobalAlias>(this));
   return false;
+}
+
+bool GlobalValue::canIncreaseAlignment() const {
+  // Firstly, can only increase the alignment of a global if it
+  // is a strong definition.
+  if (!isStrongDefinitionForLinker())
+    return false;
+
+  // It also has to either not have a section defined, or, not have
+  // alignment specified. (If it is assigned a section, the global
+  // could be densely packed with other objects in the section, and
+  // increasing the alignment could cause padding issues.)
+  if (hasSection() && getAlignment() > 0)
+    return false;
+
+  // On ELF platforms, we're further restricted in that we can't
+  // increase the alignment of any variable which might be emitted
+  // into a shared library, and which is exported. If the main
+  // executable accesses a variable found in a shared-lib, the main
+  // exe actually allocates memory for and exports the symbol ITSELF,
+  // overriding the symbol found in the library. That is, at link
+  // time, the observed alignment of the variable is copied into the
+  // executable binary. (A COPY relocation is also generated, to copy
+  // the initial data from the shadowed variable in the shared-lib
+  // into the location in the main binary, before running code.)
+  //
+  // And thus, even though you might think you are defining the
+  // global, and allocating the memory for the global in your object
+  // file, and thus should be able to set the alignment arbitrarily,
+  // that's not actually true. Doing so can cause an ABI breakage; an
+  // executable might have already been built with the previous
+  // alignment of the variable, and then assuming an increased
+  // alignment will be incorrect.
+
+  // Conservatively assume ELF if there's no parent pointer.
+  bool isELF =
+      (!Parent || Triple(Parent->getTargetTriple()).isOSBinFormatELF());
+  if (isELF && hasDefaultVisibility() && !hasLocalLinkage())
+    return false;
+
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -200,7 +271,7 @@ void GlobalVariable::setInitializer(Constant *InitVal) {
       setGlobalVariableNumOperands(0);
     }
   } else {
-    assert(InitVal->getType() == getType()->getElementType() &&
+    assert(InitVal->getType() == getValueType() &&
            "Initializer type must match GlobalVariable type");
     // Note, the num operands is used to compute the offset of the operand, so
     // the order here matters.  We need to set num operands to 1 first so that

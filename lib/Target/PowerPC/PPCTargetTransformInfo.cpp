@@ -21,6 +21,18 @@ using namespace llvm;
 static cl::opt<bool> DisablePPCConstHoist("disable-ppc-constant-hoisting",
 cl::desc("disable constant hoisting on PPC"), cl::init(false), cl::Hidden);
 
+// This is currently only used for the data prefetch pass which is only enabled
+// for BG/Q by default.
+static cl::opt<unsigned>
+CacheLineSize("ppc-loop-prefetch-cache-line", cl::Hidden, cl::init(64),
+              cl::desc("The loop prefetch cache line size"));
+
+// This seems like a reasonable default for the BG/Q (this pass is enabled, by
+// default, only on the BG/Q).
+static cl::opt<unsigned>
+PrefDist("ppc-loop-prefetch-distance", cl::Hidden, cl::init(300),
+         cl::desc("The loop prefetch distance"));
+
 //===----------------------------------------------------------------------===//
 //
 // PPC cost model.
@@ -31,7 +43,7 @@ TargetTransformInfo::PopcntSupportKind
 PPCTTIImpl::getPopcntSupport(unsigned TyWidth) {
   assert(isPowerOf2_32(TyWidth) && "Ty width must be power of 2");
   if (ST->hasPOPCNTD() && TyWidth <= 64)
-    return TTI::PSK_FastHardware;
+    return ST->isPOPCNTDSlow() ? TTI::PSK_SlowHardware : TTI::PSK_FastHardware;
   return TTI::PSK_Software;
 }
 
@@ -230,6 +242,14 @@ unsigned PPCTTIImpl::getRegisterBitWidth(bool Vector) {
 
 }
 
+unsigned PPCTTIImpl::getCacheLineSize() {
+  // This is currently only used for the data prefetch pass which is only
+  // enabled for BG/Q by default.
+  return CacheLineSize;
+}
+
+unsigned PPCTTIImpl::getPrefetchDistance() { return PrefDist; }
+
 unsigned PPCTTIImpl::getMaxInterleaveFactor(unsigned VF) {
   unsigned Directive = ST->getDarwinDirective();
   // The 440 has no SIMD support, but floating-point instructions
@@ -355,7 +375,7 @@ int PPCTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src, unsigned Alignment,
   // If we can use the permutation-based load sequence, then this is also
   // relatively cheap (not counting loop-invariant instructions): one load plus
   // one permute (the last load in a series has extra cost, but we're
-  // neglecting that here). Note that on the P7, we should do unaligned loads
+  // neglecting that here). Note that on the P7, we could do unaligned loads
   // for Altivec types using the VSX instructions, but that's more expensive
   // than using the permutation-based load sequence. On the P8, that's no
   // longer true.

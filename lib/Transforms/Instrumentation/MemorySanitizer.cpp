@@ -191,6 +191,12 @@ static cl::opt<bool> ClCheckConstantShadow("msan-check-constant-shadow",
        cl::desc("Insert checks for constant shadow values"),
        cl::Hidden, cl::init(false));
 
+// This is off by default because of a bug in gold:
+// https://sourceware.org/bugzilla/show_bug.cgi?id=19002
+static cl::opt<bool> ClWithComdat("msan-with-comdat",
+       cl::desc("Place MSan constructors in comdat sections"),
+       cl::Hidden, cl::init(false));
+
 static const char *const kMsanModuleCtorName = "msan.module_ctor";
 static const char *const kMsanInitName = "__msan_init";
 
@@ -540,8 +546,14 @@ bool MemorySanitizer::doInitialization(Module &M) {
       createSanitizerCtorAndInitFunctions(M, kMsanModuleCtorName, kMsanInitName,
                                           /*InitArgTypes=*/{},
                                           /*InitArgs=*/{});
+  if (ClWithComdat) {
+    Comdat *MsanCtorComdat = M.getOrInsertComdat(kMsanModuleCtorName);
+    MsanCtorFunction->setComdat(MsanCtorComdat);
+    appendToGlobalCtors(M, MsanCtorFunction, 0, MsanCtorFunction);
+  } else {
+    appendToGlobalCtors(M, MsanCtorFunction, 0);
+  }
 
-  appendToGlobalCtors(M, MsanCtorFunction, 0);
 
   if (TrackOrigins)
     new GlobalVariable(M, IRB.getInt32Ty(), true, GlobalValue::WeakODRLinkage,
@@ -692,7 +704,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     const DataLayout &DL = F.getParent()->getDataLayout();
     unsigned OriginAlignment = std::max(kMinOriginAlignment, Alignment);
     unsigned StoreSize = DL.getTypeStoreSize(Shadow->getType());
-    if (isa<StructType>(Shadow->getType())) {
+    if (Shadow->getType()->isAggregateType()) {
       paintOrigin(IRB, updateOrigin(Origin, IRB),
                   getOriginPtr(Addr, IRB, Alignment), StoreSize,
                   OriginAlignment);
@@ -1142,7 +1154,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
             setOrigin(A, getCleanOrigin());
           }
         }
-        ArgOffset += RoundUpToAlignment(Size, kShadowTLSAlignment);
+        ArgOffset += alignTo(Size, kShadowTLSAlignment);
       }
       assert(*ShadowPtr && "Could not find shadow for an argument");
       return *ShadowPtr;
@@ -2275,10 +2287,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     case llvm::Intrinsic::bswap:
       handleBswap(I);
       break;
-    case llvm::Intrinsic::x86_avx512_cvtsd2usi64:
-    case llvm::Intrinsic::x86_avx512_cvtsd2usi:
-    case llvm::Intrinsic::x86_avx512_cvtss2usi64:
-    case llvm::Intrinsic::x86_avx512_cvtss2usi:
+    case llvm::Intrinsic::x86_avx512_vcvtsd2usi64:
+    case llvm::Intrinsic::x86_avx512_vcvtsd2usi32:
+    case llvm::Intrinsic::x86_avx512_vcvtss2usi64:
+    case llvm::Intrinsic::x86_avx512_vcvtss2usi32:
     case llvm::Intrinsic::x86_avx512_cvttss2usi64:
     case llvm::Intrinsic::x86_avx512_cvttss2usi:
     case llvm::Intrinsic::x86_avx512_cvttsd2usi64:
@@ -2498,7 +2510,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       (void)Store;
       assert(Size != 0 && Store != nullptr);
       DEBUG(dbgs() << "  Param:" << *Store << "\n");
-      ArgOffset += RoundUpToAlignment(Size, 8);
+      ArgOffset += alignTo(Size, 8);
     }
     DEBUG(dbgs() << "  done with call args\n");
 
@@ -2818,7 +2830,7 @@ struct VarArgAMD64Helper : public VarArgHelper {
         Type *RealTy = A->getType()->getPointerElementType();
         uint64_t ArgSize = DL.getTypeAllocSize(RealTy);
         Value *Base = getShadowPtrForVAArgument(RealTy, IRB, OverflowOffset);
-        OverflowOffset += RoundUpToAlignment(ArgSize, 8);
+        OverflowOffset += alignTo(ArgSize, 8);
         IRB.CreateMemCpy(Base, MSV.getShadowPtr(A, IRB.getInt8Ty(), IRB),
                          ArgSize, kShadowTLSAlignment);
       } else {
@@ -2840,7 +2852,7 @@ struct VarArgAMD64Helper : public VarArgHelper {
           case AK_Memory:
             uint64_t ArgSize = DL.getTypeAllocSize(A->getType());
             Base = getShadowPtrForVAArgument(A->getType(), IRB, OverflowOffset);
-            OverflowOffset += RoundUpToAlignment(ArgSize, 8);
+            OverflowOffset += alignTo(ArgSize, 8);
         }
         IRB.CreateAlignedStore(MSV.getShadow(A), Base, kShadowTLSAlignment);
       }
@@ -2965,7 +2977,7 @@ struct VarArgMIPS64Helper : public VarArgHelper {
 #endif
       Base = getShadowPtrForVAArgument(A->getType(), IRB, VAArgOffset);
       VAArgOffset += ArgSize;
-      VAArgOffset = RoundUpToAlignment(VAArgOffset, 8);
+      VAArgOffset = alignTo(VAArgOffset, 8);
       IRB.CreateAlignedStore(MSV.getShadow(A), Base, kShadowTLSAlignment);
     }
 
@@ -3110,7 +3122,7 @@ struct VarArgAArch64Helper : public VarArgHelper {
         case AK_Memory:
           uint64_t ArgSize = DL.getTypeAllocSize(A->getType());
           Base = getShadowPtrForVAArgument(A->getType(), IRB, OverflowOffset);
-          OverflowOffset += RoundUpToAlignment(ArgSize, 8);
+          OverflowOffset += alignTo(ArgSize, 8);
           break;
       }
       IRB.CreateAlignedStore(MSV.getShadow(A), Base, kShadowTLSAlignment);

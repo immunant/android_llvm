@@ -378,6 +378,8 @@ public:
     return AArch64::X1;
   }
 
+  bool isIntDivCheap(EVT VT, AttributeSet Attr) const override;
+
   bool isCheapToSpeculateCttz() const override {
     return true;
   }
@@ -488,6 +490,8 @@ private:
   SDValue LowerCTPOP(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerF128Call(SDValue Op, SelectionDAG &DAG,
                         RTLIB::Libcall Call) const;
+  SDValue LowerAND(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFCOPYSIGN(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFP_EXTEND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFP_ROUND(SDValue Op, SelectionDAG &DAG) const;

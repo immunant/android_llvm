@@ -30,6 +30,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include <queue>
@@ -97,6 +98,11 @@ public:
   /// Tell the pass manager which passes we depend on and what
   /// information we preserve.
   void getAnalysisUsage(AnalysisUsage &AU) const override;
+
+  MachineFunctionProperties getRequiredProperties() const override {
+    return MachineFunctionProperties().set(
+        MachineFunctionProperties::Property::AllVRegsAllocated);
+  }
 
   /// Print to ostream with a message.
   void printVarLocInMBB(const VarLocInMBB &V, const char *msg,
@@ -208,18 +214,33 @@ void LiveDebugValues::transferDebugValue(MachineInstr &MI,
 /// A definition of a register may mark the end of a range.
 void LiveDebugValues::transferRegisterDef(MachineInstr &MI,
                                           VarLocList &OpenRanges) {
+  MachineFunction *MF = MI.getParent()->getParent();
+  const TargetLowering *TLI = MF->getSubtarget().getTargetLowering();
+  unsigned SP = TLI->getStackPointerRegisterToSaveRestore();
   for (const MachineOperand &MO : MI.operands()) {
-    if (!(MO.isReg() && MO.isDef() && MO.getReg() &&
-          TRI->isPhysicalRegister(MO.getReg())))
-      continue;
-    // Remove ranges of all aliased registers.
-    for (MCRegAliasIterator RAI(MO.getReg(), TRI, true); RAI.isValid(); ++RAI)
+    if (MO.isReg() && MO.isDef() && MO.getReg() &&
+        TRI->isPhysicalRegister(MO.getReg())) {
+      // Remove ranges of all aliased registers.
+      for (MCRegAliasIterator RAI(MO.getReg(), TRI, true); RAI.isValid(); ++RAI)
+        OpenRanges.erase(std::remove_if(OpenRanges.begin(), OpenRanges.end(),
+                                        [&](const VarLoc &V) {
+                                          return (*RAI ==
+                                                  isDescribedByReg(*V.MI));
+                                        }),
+                         OpenRanges.end());
+    } else if (MO.isRegMask()) {
+      // Remove ranges of all clobbered registers. Register masks don't usually
+      // list SP as preserved.  While the debug info may be off for an
+      // instruction or two around callee-cleanup calls, transferring the
+      // DEBUG_VALUE across the call is still a better user experience.
       OpenRanges.erase(std::remove_if(OpenRanges.begin(), OpenRanges.end(),
                                       [&](const VarLoc &V) {
-                                        return (*RAI ==
-                                                isDescribedByReg(*V.MI));
+                                        unsigned Reg = isDescribedByReg(*V.MI);
+                                        return Reg && Reg != SP &&
+                                               MO.clobbersPhysReg(Reg);
                                       }),
                        OpenRanges.end());
+    }
   }
 }
 
@@ -235,14 +256,7 @@ bool LiveDebugValues::transferTerminatorInst(MachineInstr &MI,
   if (OpenRanges.empty())
     return false;
 
-  if (OutLocs.find(CurMBB) == OutLocs.end()) {
-    // Create space for new Outgoing locs entries.
-    VarLocList VLL;
-    OutLocs.insert(std::make_pair(CurMBB, std::move(VLL)));
-  }
-  auto OL = OutLocs.find(CurMBB);
-  assert(OL != OutLocs.end());
-  VarLocList &VLL = OL->second;
+  VarLocList &VLL = OutLocs[CurMBB];
 
   for (auto OR : OpenRanges) {
     // Copy OpenRanges to OutLocs, if not already present.
@@ -305,14 +319,7 @@ bool LiveDebugValues::join(MachineBasicBlock &MBB, VarLocInMBB &OutLocs,
   if (InLocsT.empty())
     return false;
 
-  if (InLocs.find(&MBB) == InLocs.end()) {
-    // Create space for new Incoming locs entries.
-    VarLocList VLL;
-    InLocs.insert(std::make_pair(&MBB, std::move(VLL)));
-  }
-  auto IL = InLocs.find(&MBB);
-  assert(IL != InLocs.end());
-  VarLocList &ILL = IL->second;
+  VarLocList &ILL = InLocs[&MBB];
 
   // Insert DBG_VALUE instructions, if not already inserted.
   for (auto ILT : InLocsT) {

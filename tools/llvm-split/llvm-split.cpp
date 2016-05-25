@@ -14,6 +14,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
@@ -34,6 +35,10 @@ OutputFilename("o", cl::desc("Override output filename"),
 
 static cl::opt<unsigned> NumOutputs("j", cl::Prefix, cl::init(2),
                                     cl::desc("Number of output files"));
+
+static cl::opt<bool>
+    PreserveLocals("preserve-locals", cl::Prefix, cl::init(false),
+                   cl::desc("Split without externalizing locals"));
 
 int main(int argc, char **argv) {
   LLVMContext &Context = getGlobalContext();
@@ -57,11 +62,12 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
+    verifyModule(*MPart);
     WriteBitcodeToFile(MPart.get(), Out->os());
 
     // Declare success.
     Out->keep();
-  });
+  }, PreserveLocals);
 
   return 0;
 }
