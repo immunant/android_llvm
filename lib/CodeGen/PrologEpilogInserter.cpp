@@ -59,6 +59,11 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 
+  MachineFunctionProperties getRequiredProperties() const override {
+    return MachineFunctionProperties().set(
+        MachineFunctionProperties::Property::AllVRegsAllocated);
+  }
+
   /// runOnMachineFunction - Insert prolog/epilog code and replace abstract
   /// frame indexes with appropriate references.
   ///
@@ -323,14 +328,13 @@ void PEI::assignCalleeSavedSpillSlots(MachineFunction &F,
 
     // Now that we know which registers need to be saved and restored, allocate
     // stack slots for them.
-    for (std::vector<CalleeSavedInfo>::iterator I = CSI.begin(), E = CSI.end();
-         I != E; ++I) {
-      unsigned Reg = I->getReg();
+    for (auto &CS : CSI) {
+      unsigned Reg = CS.getReg();
       const TargetRegisterClass *RC = RegInfo->getMinimalPhysRegClass(Reg);
 
       int FrameIdx;
       if (RegInfo->hasReservedSpillSlot(F, Reg, FrameIdx)) {
-        I->setFrameIdx(FrameIdx);
+        CS.setFrameIdx(FrameIdx);
         continue;
       }
 
@@ -359,7 +363,7 @@ void PEI::assignCalleeSavedSpillSlots(MachineFunction &F,
             MFI->CreateFixedSpillStackObject(RC->getSize(), FixedSlot->Offset);
       }
 
-      I->setFrameIdx(FrameIdx);
+      CS.setFrameIdx(FrameIdx);
     }
   }
 
@@ -512,7 +516,7 @@ AdjustStackOffset(MachineFrameInfo *MFI, int FrameIdx,
   MaxAlign = std::max(MaxAlign, Align);
 
   // Adjust to alignment boundary.
-  Offset = RoundUpToAlignment(Offset, Align, Skew);
+  Offset = alignTo(Offset, Align, Skew);
 
   if (StackGrowsDown) {
     DEBUG(dbgs() << "alloc FI(" << FrameIdx << ") at SP[" << -Offset << "]\n");
@@ -596,8 +600,9 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
 
       unsigned Align = MFI->getObjectAlignment(i);
       // Adjust to alignment boundary
-      Offset = RoundUpToAlignment(Offset, Align, Skew);
+      Offset = alignTo(Offset, Align, Skew);
 
+      DEBUG(dbgs() << "alloc FI(" << i << ") at SP[" << -Offset << "]\n");
       MFI->setObjectOffset(i, -Offset);        // Set the computed offset
     }
   } else {
@@ -605,8 +610,9 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     for (int i = MaxCSFI; i >= MinCSFI ; --i) {
       unsigned Align = MFI->getObjectAlignment(i);
       // Adjust to alignment boundary
-      Offset = RoundUpToAlignment(Offset, Align, Skew);
+      Offset = alignTo(Offset, Align, Skew);
 
+      DEBUG(dbgs() << "alloc FI(" << i << ") at SP[" << Offset << "]\n");
       MFI->setObjectOffset(i, Offset);
       Offset += MFI->getObjectSize(i);
     }
@@ -638,7 +644,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     unsigned Align = MFI->getLocalFrameMaxAlign();
 
     // Adjust to alignment boundary.
-    Offset = RoundUpToAlignment(Offset, Align, Skew);
+    Offset = alignTo(Offset, Align, Skew);
 
     DEBUG(dbgs() << "Local frame base offset: " << Offset << "\n");
 
@@ -705,8 +711,14 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
                           Offset, MaxAlign, Skew);
   }
 
-  // Then assign frame offsets to stack objects that are not used to spill
-  // callee saved registers.
+  SmallVector<int, 8> ObjectsToAllocate;
+
+  int EHRegNodeFrameIndex = INT_MAX;
+  if (const WinEHFuncInfo *FuncInfo = Fn.getWinEHFuncInfo())
+    EHRegNodeFrameIndex = FuncInfo->EHRegNodeFrameIndex;
+
+  // Then prepare to assign frame offsets to stack objects that are not used to
+  // spill callee saved registers.
   for (unsigned i = 0, e = MFI->getObjectIndexEnd(); i != e; ++i) {
     if (MFI->isObjectPreAllocated(i) &&
         MFI->getUseLocalStackAllocationBlock())
@@ -719,11 +731,28 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
       continue;
     if (MFI->getStackProtectorIndex() == (int)i)
       continue;
+    if (EHRegNodeFrameIndex == (int)i)
+      continue;
     if (ProtectedObjs.count(i))
       continue;
 
-    AdjustStackOffset(MFI, i, StackGrowsDown, Offset, MaxAlign, Skew);
+    // Add the objects that we need to allocate to our working set.
+    ObjectsToAllocate.push_back(i);
   }
+
+  // Allocate the EH registration node first if one is present.
+  if (EHRegNodeFrameIndex != INT_MAX)
+    AdjustStackOffset(MFI, EHRegNodeFrameIndex, StackGrowsDown, Offset,
+                      MaxAlign, Skew);
+
+  // Give the targets a chance to order the objects the way they like it.
+  if (Fn.getTarget().getOptLevel() != CodeGenOpt::None &&
+      Fn.getTarget().Options.StackSymbolOrdering)
+    TFI.orderFrameObjects(Fn, ObjectsToAllocate);
+  
+  // Now walk the objects and actually assign base offsets to them.
+  for (auto &Object : ObjectsToAllocate)
+    AdjustStackOffset(MFI, Object, StackGrowsDown, Offset, MaxAlign, Skew);
 
   // Make sure the special register scavenging spill slot is closest to the
   // stack pointer.
@@ -757,7 +786,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     // If the frame pointer is eliminated, all frame offsets will be relative to
     // SP not FP. Align to MaxAlign so this works.
     StackAlign = std::max(StackAlign, MaxAlign);
-    Offset = RoundUpToAlignment(Offset, StackAlign, Skew);
+    Offset = alignTo(Offset, StackAlign, Skew);
   }
 
   // Update frame info to pretend that this is part of the stack...

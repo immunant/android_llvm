@@ -12,15 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_LIB_TARGET_R600_AMDGPUASMPRINTER_H
-#define LLVM_LIB_TARGET_R600_AMDGPUASMPRINTER_H
+#ifndef LLVM_LIB_TARGET_AMDGPU_AMDGPUASMPRINTER_H
+#define LLVM_LIB_TARGET_AMDGPU_AMDGPUASMPRINTER_H
 
 #include "llvm/CodeGen/AsmPrinter.h"
 #include <vector>
 
 namespace llvm {
 
-class AMDGPUAsmPrinter : public AsmPrinter {
+class AMDGPUAsmPrinter final : public AsmPrinter {
 private:
   struct SIProgramInfo {
     SIProgramInfo() :
@@ -102,6 +102,8 @@ public:
   void EmitFunctionEntryLabel() override;
 
   void EmitGlobalVariable(const GlobalVariable *GV) override;
+
+  void EmitStartOfAsmFile(Module &M) override;
 
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        unsigned AsmVariant, const char *ExtraCode,

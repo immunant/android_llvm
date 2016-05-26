@@ -3282,21 +3282,55 @@ let isCall = 1, isBarrier = 1, isReturn = 1, isTerminator = 1,
     Defs = [R29, R30, R31, PC], isPredicable = 0, isAsmParserOnly = 1 in {
   def RESTORE_DEALLOC_RET_JMP_V4 : T_JMP<"">;
   let isExtended = 1, opExtendable = 0 in
-    def RESTORE_DEALLOC_RET_JMP_V4_EXT : T_JMP<"">;
+  def RESTORE_DEALLOC_RET_JMP_V4_EXT : T_JMP<"">;
+
+  let Defs = [R14, R15, R28, R29, R30, R31, PC] in {
+    def RESTORE_DEALLOC_RET_JMP_V4_PIC : T_JMP<"">;
+
+    let isExtended = 1, opExtendable = 0 in
+    def RESTORE_DEALLOC_RET_JMP_V4_EXT_PIC : T_JMP<"">;
+  }
 }
 
 // Restore registers and dealloc frame before a tail call.
 let isCall = 1, Defs = [R29, R30, R31, PC], isAsmParserOnly = 1 in {
   def RESTORE_DEALLOC_BEFORE_TAILCALL_V4 : T_Call<"">, PredRel;
+
   let isExtended = 1, opExtendable = 0 in
-    def RESTORE_DEALLOC_BEFORE_TAILCALL_V4_EXT : T_Call<"">, PredRel;
+  def RESTORE_DEALLOC_BEFORE_TAILCALL_V4_EXT : T_Call<"">, PredRel;
+
+  let Defs = [R14, R15, R28, R29, R30, R31, PC] in {
+    def RESTORE_DEALLOC_BEFORE_TAILCALL_V4_PIC : T_Call<"">, PredRel;
+
+    let isExtended = 1, opExtendable = 0 in
+    def RESTORE_DEALLOC_BEFORE_TAILCALL_V4_EXT_PIC : T_Call<"">, PredRel;
+  }
 }
 
 // Save registers function call.
 let isCall = 1, Uses = [R29, R31], isAsmParserOnly = 1 in {
   def SAVE_REGISTERS_CALL_V4 : T_Call<"">, PredRel;
+
   let isExtended = 1, opExtendable = 0 in
-    def SAVE_REGISTERS_CALL_V4_EXT : T_Call<"">, PredRel;
+  def SAVE_REGISTERS_CALL_V4_EXT : T_Call<"">, PredRel;
+
+  let Defs = [P0] in
+  def SAVE_REGISTERS_CALL_V4STK : T_Call<"">, PredRel;
+
+  let Defs = [P0], isExtended = 1, opExtendable = 0 in
+  def SAVE_REGISTERS_CALL_V4STK_EXT : T_Call<"">, PredRel;
+
+  let Defs = [R14, R15, R28] in
+  def SAVE_REGISTERS_CALL_V4_PIC : T_Call<"">, PredRel;
+
+  let Defs = [R14, R15, R28], isExtended = 1, opExtendable = 0 in
+  def SAVE_REGISTERS_CALL_V4_EXT_PIC : T_Call<"">, PredRel;
+
+  let Defs = [R14, R15, R28, P0] in
+  def SAVE_REGISTERS_CALL_V4STK_PIC : T_Call<"">, PredRel;
+
+  let Defs = [R14, R15, R28, P0], isExtended = 1, opExtendable = 0 in
+  def SAVE_REGISTERS_CALL_V4STK_EXT_PIC : T_Call<"">, PredRel;
 }
 
 //===----------------------------------------------------------------------===//
@@ -3320,6 +3354,7 @@ class T_StoreAbsGP <string mnemonic, RegisterClass RC, Operand ImmOp,
                                       /* u16_0Imm */ addr{15-0})));
     // Store upper-half and store doubleword cannot be NV.
     let isNVStorable = !if (!eq(mnemonic, "memd"), 0, !if(isHalf,0,1));
+    let Uses = !if (isAbs, [], [GP]);
 
     let IClass = 0b0100;
     let Inst{27} = 1;
@@ -3425,6 +3460,7 @@ class T_StoreAbsGP_NV <string mnemonic, Operand ImmOp, bits<2>MajOp, bit isAbs>
                      !if (!eq(ImmOpStr, "u16_2Imm"), addr{17-2},
                      !if (!eq(ImmOpStr, "u16_1Imm"), addr{16-1},
                                       /* u16_0Imm */ addr{15-0})));
+    let Uses = !if (isAbs, [], [GP]);
     let IClass = 0b0100;
 
     let Inst{27} = 1;
@@ -3736,7 +3772,7 @@ defm loadrd  : LD_Abs<"memd",  "LDrid", DoubleRegs, u16_3Imm, 0b110>;
 // if ([!]Pv[.new]) Rx=mem[bhwd](##global)
 //===----------------------------------------------------------------------===//
 
-let isAsmParserOnly = 1 in
+let isAsmParserOnly = 1, Uses = [GP] in
 class T_LoadGP <string mnemonic, string BaseOp, RegisterClass RC, Operand ImmOp,
                 bits<3> MajOp>
   : T_LoadAbsGP <mnemonic, RC, ImmOp, MajOp>, PredNewRel {
@@ -3777,14 +3813,14 @@ class LoadGP_pats <PatFrag ldOp, InstHexagon MI, ValueType VT = i32>
          (VT (MI tglobaladdr:$global))>;
 
 let AddedComplexity = 100 in {
-  def: LoadGP_pats <extloadi8, L2_loadrbgp>;
-  def: LoadGP_pats <sextloadi8, L2_loadrbgp>;
-  def: LoadGP_pats <zextloadi8, L2_loadrubgp>;
-  def: LoadGP_pats <extloadi16, L2_loadrhgp>;
+  def: LoadGP_pats <extloadi8,   L2_loadrubgp>;
+  def: LoadGP_pats <sextloadi8,  L2_loadrbgp>;
+  def: LoadGP_pats <zextloadi8,  L2_loadrubgp>;
+  def: LoadGP_pats <extloadi16,  L2_loadruhgp>;
   def: LoadGP_pats <sextloadi16, L2_loadrhgp>;
   def: LoadGP_pats <zextloadi16, L2_loadruhgp>;
-  def: LoadGP_pats <load, L2_loadrigp>;
-  def: LoadGP_pats <load, L2_loadrdgp, i64>;
+  def: LoadGP_pats <load,        L2_loadrigp>;
+  def: LoadGP_pats <load,        L2_loadrdgp, i64>;
 }
 
 // When the Interprocedural Global Variable optimizer realizes that a certain
@@ -3993,6 +4029,10 @@ def Y2_dcfetchbo : LD0Inst<(outs), (ins IntRegs:$Rs, u11_3Imm:$u11_3),
   let Inst{13} = 0b0;
   let Inst{10-0} = u11_3{13-3};
 }
+
+
+def: Pat<(HexagonDCFETCH (i32 (add IntRegs:$Rs, u11_3ImmPred:$u11_3)), (i32 0)),
+         (Y2_dcfetchbo IntRegs:$Rs, u11_3ImmPred:$u11_3)>;
 
 //===----------------------------------------------------------------------===//
 // Compound instructions

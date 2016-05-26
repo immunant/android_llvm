@@ -142,8 +142,8 @@ unsigned CFStack::getSubEntrySize(CFStack::StackItem Item) {
 }
 
 void CFStack::updateMaxStackSize() {
-  unsigned CurrentStackSize = CurrentEntries +
-                              (RoundUpToAlignment(CurrentSubEntries, 4) / 4);
+  unsigned CurrentStackSize =
+      CurrentEntries + (alignTo(CurrentSubEntries, 4) / 4);
   MaxStackSize = std::max(CurrentStackSize, MaxStackSize);
 }
 
@@ -625,15 +625,16 @@ public:
         case AMDGPU::RETURN: {
           BuildMI(MBB, MI, MBB.findDebugLoc(MI), getHWInstrDesc(CF_END));
           CfCount++;
-          MI->eraseFromParent();
           if (CfCount % 2) {
             BuildMI(MBB, I, MBB.findDebugLoc(MI), TII->get(AMDGPU::PAD));
             CfCount++;
           }
+          MI->eraseFromParent();
           for (unsigned i = 0, e = FetchClauses.size(); i < e; i++)
             EmitFetchClause(I, FetchClauses[i], CfCount);
           for (unsigned i = 0, e = AluClauses.size(); i < e; i++)
             EmitALUClause(I, AluClauses[i], CfCount);
+          break;
         }
         default:
           if (TII->isExport(MI->getOpcode())) {

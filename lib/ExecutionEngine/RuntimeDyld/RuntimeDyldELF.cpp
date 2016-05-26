@@ -1190,7 +1190,10 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
   RTDyldSymbolTable::const_iterator gsi = GlobalSymbolTable.end();
   if (Symbol != Obj.symbol_end()) {
     gsi = GlobalSymbolTable.find(TargetName.data());
-    SymType = Symbol->getType();
+    ErrorOr<SymbolRef::Type> SymTypeOrErr = Symbol->getType();
+    if (std::error_code EC = SymTypeOrErr.getError())
+      report_fatal_error(EC.message());
+    SymType = *SymTypeOrErr;
   }
   if (gsi != GlobalSymbolTable.end()) {
     const auto &SymInfo = gsi->second;
@@ -1289,7 +1292,7 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
     if (RelType == ELF::R_ARM_PC24 || RelType == ELF::R_ARM_CALL ||
       RelType == ELF::R_ARM_JUMP24) {
       // This is an ARM branch relocation, need to use a stub function.
-      DEBUG(dbgs() << "\t\tThis is an ARM branch relocation.");
+      DEBUG(dbgs() << "\t\tThis is an ARM branch relocation.\n");
       SectionEntry &Section = Sections[SectionID];
 
       // Look for an existing stub.

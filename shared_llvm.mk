@@ -48,6 +48,7 @@ llvm_post_static_libraries := \
   libLLVMAsmPrinter \
   libLLVMSelectionDAG \
   libLLVMCodeGen \
+  libLLVMDebugInfoCodeView \
   libLLVMObject \
   libLLVMScalarOpts \
   libLLVMInstCombine \
@@ -56,6 +57,7 @@ llvm_post_static_libraries := \
   libLLVMTransformUtils \
   libLLVMAnalysis \
   libLLVMTarget \
+  libLLVMGlobalISel \
   libLLVMMCDisassembler \
   libLLVMMC \
   libLLVMMCParser \

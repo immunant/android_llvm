@@ -1451,6 +1451,10 @@ public:
   /// \returns a byte-swapped representation of this APInt Value.
   APInt LLVM_ATTRIBUTE_UNUSED_RESULT byteSwap() const;
 
+  /// \returns the value with the bit representation reversed of this APInt
+  /// Value.
+  APInt LLVM_ATTRIBUTE_UNUSED_RESULT reverseBits() const;
+
   /// \brief Converts this APInt to a double value.
   double roundToDouble(bool isSigned) const;
 
@@ -1744,16 +1748,24 @@ inline raw_ostream &operator<<(raw_ostream &OS, const APInt &I) {
 namespace APIntOps {
 
 /// \brief Determine the smaller of two APInts considered to be signed.
-inline APInt smin(const APInt &A, const APInt &B) { return A.slt(B) ? A : B; }
+inline const APInt &smin(const APInt &A, const APInt &B) {
+  return A.slt(B) ? A : B;
+}
 
 /// \brief Determine the larger of two APInts considered to be signed.
-inline APInt smax(const APInt &A, const APInt &B) { return A.sgt(B) ? A : B; }
+inline const APInt &smax(const APInt &A, const APInt &B) {
+  return A.sgt(B) ? A : B;
+}
 
 /// \brief Determine the smaller of two APInts considered to be signed.
-inline APInt umin(const APInt &A, const APInt &B) { return A.ult(B) ? A : B; }
+inline const APInt &umin(const APInt &A, const APInt &B) {
+  return A.ult(B) ? A : B;
+}
 
 /// \brief Determine the larger of two APInts considered to be unsigned.
-inline APInt umax(const APInt &A, const APInt &B) { return A.ugt(B) ? A : B; }
+inline const APInt &umax(const APInt &A, const APInt &B) {
+  return A.ugt(B) ? A : B;
+}
 
 /// \brief Check if the specified APInt has a N-bits unsigned integer value.
 inline bool isIntN(unsigned N, const APInt &APIVal) { return APIVal.isIntN(N); }

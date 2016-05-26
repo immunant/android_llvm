@@ -12,6 +12,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCCodeView.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCLabel.h"
 #include "llvm/MC/MCObjectFileInfo.h"
@@ -43,11 +44,6 @@ MCContext::MCContext(const MCAsmInfo *mai, const MCRegisterInfo *mri,
       GenDwarfForAssembly(false), GenDwarfFileNumber(0), DwarfVersion(4),
       AllowTemporaryLabels(true), DwarfCompileUnitID(0),
       AutoReset(DoAutoReset), HadError(false) {
-
-  std::error_code EC = llvm::sys::fs::current_path(CompilationDir);
-  if (EC)
-    CompilationDir.clear();
-
   SecureLogFile = getenv("AS_SECURE_LOG_FILE");
   SecureLog = nullptr;
   SecureLogUsed = false;
@@ -90,6 +86,8 @@ void MCContext::reset() {
   DwarfCompileUnitID = 0;
   CurrentDwarfLoc = MCDwarfLoc(0, 0, 0, DWARF2_FLAG_IS_STMT, 0, 0);
 
+  CVContext.reset();
+
   MachOUniquingMap.clear();
   ELFUniquingMap.clear();
   COFFUniquingMap.clear();
@@ -126,18 +124,8 @@ MCSymbolELF *MCContext::getOrCreateSectionSymbol(const MCSectionELF &Section) {
     return Sym;
 
   StringRef Name = Section.getSectionName();
-
-  MCSymbol *&OldSym = Symbols[Name];
-  if (OldSym && OldSym->isUndefined()) {
-    Sym = cast<MCSymbolELF>(OldSym);
-    return Sym;
-  }
-
-  auto NameIter = UsedNames.insert(std::make_pair(Name, true)).first;
+  auto NameIter = UsedNames.insert(std::make_pair(Name, false)).first;
   Sym = new (&*NameIter, *this) MCSymbolELF(&*NameIter, /*isTemporary*/ false);
-
-  if (!OldSym)
-    OldSym = Sym;
 
   return Sym;
 }
@@ -194,9 +182,12 @@ MCSymbol *MCContext::createSymbol(StringRef Name, bool AlwaysAddSuffix,
       raw_svector_ostream(NewName) << NextUniqueID++;
     }
     auto NameEntry = UsedNames.insert(std::make_pair(NewName, true));
-    if (NameEntry.second) {
-      // Ok, we found a name. Have the MCSymbol object itself refer to the copy
-      // of the string that is embedded in the UsedNames entry.
+    if (NameEntry.second || !NameEntry.first->second) {
+      // Ok, we found a name.
+      // Mark it as used for a non-section symbol.
+      NameEntry.first->second = true;
+      // Have the MCSymbol object itself refer to the copy of the string that is
+      // embedded in the UsedNames entry.
       return createSymbolImpl(&*NameEntry.first, IsTemporary);
     }
     assert(IsTemporary && "Cannot rename non-temporary symbols");
@@ -472,6 +463,20 @@ bool MCContext::isValidDwarfFileNumber(unsigned FileNumber, unsigned CUID) {
 void MCContext::finalizeDwarfSections(MCStreamer &MCOS) {
   SectionsForRanges.remove_if(
       [&](MCSection *Sec) { return !MCOS.mayHaveInstructions(*Sec); });
+}
+
+CodeViewContext &MCContext::getCVContext() {
+  if (!CVContext.get())
+    CVContext.reset(new CodeViewContext);
+  return *CVContext.get();
+}
+
+unsigned MCContext::getCVFile(StringRef FileName, unsigned FileNumber) {
+  return getCVContext().addFile(FileNumber, FileName) ? FileNumber : 0;
+}
+
+bool MCContext::isValidCVFileNumber(unsigned FileNumber) {
+  return getCVContext().isValidFileNumber(FileNumber);
 }
 
 //===----------------------------------------------------------------------===//

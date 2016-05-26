@@ -578,7 +578,7 @@ unsigned ARMFastISel::ARMMaterializeInt(const Constant *C, MVT VT) {
 
 unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, MVT VT) {
   // For now 32-bit only.
-  if (VT != MVT::i32) return 0;
+  if (VT != MVT::i32 || GV->isThreadLocal()) return 0;
 
   Reloc::Model RelocM = TM.getRelocationModel();
   bool IsIndirect = Subtarget->GVIsIndirectSymbol(GV, RelocM);
@@ -1847,6 +1847,7 @@ CCAssignFn *ARMFastISel::CCAssignFnForCall(CallingConv::ID CC,
     }
     // Fallthrough
   case CallingConv::C:
+  case CallingConv::CXX_FAST_TLS:
     // Use target triple & subtarget features to do actual dispatch.
     if (Subtarget->isAAPCS_ABI()) {
       if (Subtarget->hasVFP2() &&
@@ -2083,6 +2084,9 @@ bool ARMFastISel::SelectRet(const Instruction *I) {
   if (!FuncInfo.CanLowerReturn)
     return false;
 
+  if (TLI.supportSplitCSR(FuncInfo.MF))
+    return false;
+
   // Build a list of return value registers.
   SmallVector<unsigned, 4> RetRegs;
 
@@ -2292,8 +2296,7 @@ bool ARMFastISel::SelectCall(const Instruction *I,
 
   // TODO: Avoid some calling conventions?
 
-  PointerType *PT = cast<PointerType>(CS.getCalledValue()->getType());
-  FunctionType *FTy = cast<FunctionType>(PT->getElementType());
+  FunctionType *FTy = CS.getFunctionType();
   bool isVarArg = FTy->isVarArg();
 
   // Handle *simple* calls for now.

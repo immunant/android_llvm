@@ -146,9 +146,12 @@ RuntimeDyldImpl::loadObjectImpl(const object::ObjectFile &Obj) {
   // Compute the memory size required to load all sections to be loaded
   // and pass this information to the memory manager
   if (MemMgr.needsToReserveAllocationSpace()) {
-    uint64_t CodeSize = 0, DataSizeRO = 0, DataSizeRW = 0;
-    computeTotalAllocSize(Obj, CodeSize, DataSizeRO, DataSizeRW);
-    MemMgr.reserveAllocationSpace(CodeSize, DataSizeRO, DataSizeRW);
+    uint64_t CodeSize = 0, RODataSize = 0, RWDataSize = 0;
+    uint32_t CodeAlign = 1, RODataAlign = 1, RWDataAlign = 1;
+    computeTotalAllocSize(Obj, CodeSize, CodeAlign, RODataSize, RODataAlign,
+                          RWDataSize, RWDataAlign);
+    MemMgr.reserveAllocationSpace(CodeSize, CodeAlign, RODataSize, RODataAlign,
+                                  RWDataSize, RWDataAlign);
   }
 
   // Used sections from the object file
@@ -166,7 +169,9 @@ RuntimeDyldImpl::loadObjectImpl(const object::ObjectFile &Obj) {
     if (Flags & SymbolRef::SF_Common)
       CommonSymbols.push_back(*I);
     else {
-      object::SymbolRef::Type SymType = I->getType();
+      ErrorOr<object::SymbolRef::Type> SymTypeOrErr = I->getType();
+      Check(SymTypeOrErr.getError());
+      object::SymbolRef::Type SymType = *SymTypeOrErr;
 
       // Get symbol name.
       ErrorOr<StringRef> NameOrErr = I->getName();
@@ -335,13 +340,15 @@ static bool isZeroInit(const SectionRef Section) {
 // sections
 void RuntimeDyldImpl::computeTotalAllocSize(const ObjectFile &Obj,
                                             uint64_t &CodeSize,
-                                            uint64_t &DataSizeRO,
-                                            uint64_t &DataSizeRW) {
+                                            uint32_t &CodeAlign,
+                                            uint64_t &RODataSize,
+                                            uint32_t &RODataAlign,
+                                            uint64_t &RWDataSize,
+                                            uint32_t &RWDataAlign) {
   // Compute the size of all sections required for execution
   std::vector<uint64_t> CodeSectionSizes;
   std::vector<uint64_t> ROSectionSizes;
   std::vector<uint64_t> RWSectionSizes;
-  uint64_t MaxAlignment = sizeof(void *);
 
   // Collect sizes of all sections to be loaded;
   // also determine the max alignment of all sections
@@ -376,16 +383,14 @@ void RuntimeDyldImpl::computeTotalAllocSize(const ObjectFile &Obj,
         SectionSize = 1;
 
       if (IsCode) {
+        CodeAlign = std::max(CodeAlign, Alignment);
         CodeSectionSizes.push_back(SectionSize);
       } else if (IsReadOnly) {
+        RODataAlign = std::max(RODataAlign, Alignment);
         ROSectionSizes.push_back(SectionSize);
       } else {
+        RWDataAlign = std::max(RWDataAlign, Alignment);
         RWSectionSizes.push_back(SectionSize);
-      }
-
-      // update the max alignment
-      if (Alignment > MaxAlignment) {
-        MaxAlignment = Alignment;
       }
     }
   }
@@ -410,9 +415,9 @@ void RuntimeDyldImpl::computeTotalAllocSize(const ObjectFile &Obj,
   // allocated with the max alignment. Note that we cannot compute with the
   // individual alignments of the sections, because then the required size
   // depends on the order, in which the sections are allocated.
-  CodeSize = computeAllocationSizeForSections(CodeSectionSizes, MaxAlignment);
-  DataSizeRO = computeAllocationSizeForSections(ROSectionSizes, MaxAlignment);
-  DataSizeRW = computeAllocationSizeForSections(RWSectionSizes, MaxAlignment);
+  CodeSize = computeAllocationSizeForSections(CodeSectionSizes, CodeAlign);
+  RODataSize = computeAllocationSizeForSections(ROSectionSizes, RODataAlign);
+  RWDataSize = computeAllocationSizeForSections(RWSectionSizes, RWDataAlign);
 }
 
 // compute stub buffer size for the given section
@@ -937,7 +942,9 @@ RuntimeDyld::loadObject(const ObjectFile &Obj) {
   if (!Dyld->isCompatibleFile(Obj))
     report_fatal_error("Incompatible object format!");
 
-  return Dyld->loadObject(Obj);
+  auto LoadedObjInfo = Dyld->loadObject(Obj);
+  MemMgr.notifyObjectLoaded(*this, Obj);
+  return LoadedObjInfo;
 }
 
 void *RuntimeDyld::getSymbolLocalAddress(StringRef Name) const {
@@ -966,6 +973,17 @@ void RuntimeDyld::mapSectionAddress(const void *LocalAddress,
 bool RuntimeDyld::hasError() { return Dyld->hasError(); }
 
 StringRef RuntimeDyld::getErrorString() { return Dyld->getErrorString(); }
+
+void RuntimeDyld::finalizeWithMemoryManagerLocking() {
+  bool MemoryFinalizationLocked = MemMgr.FinalizationLocked;
+  MemMgr.FinalizationLocked = true;
+  resolveRelocations();
+  registerEHFrames();
+  if (!MemoryFinalizationLocked) {
+    MemMgr.finalizeMemory();
+    MemMgr.FinalizationLocked = false;
+  }
+}
 
 void RuntimeDyld::registerEHFrames() {
   if (Dyld)

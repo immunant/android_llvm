@@ -170,6 +170,8 @@ private:
   std::unique_ptr<GVMaterializer>
   Materializer;                   ///< Used to materialize GlobalValues
   std::string ModuleID;           ///< Human readable identifier for the module
+  std::string SourceFileName;     ///< Original source file name for module,
+                                  ///< recorded in bitcode.
   std::string TargetTriple;       ///< Platform target triple Module compiled on
                                   ///< Format: (arch)(sub)-(vendor)-(sys0-(abi)
   void *NamedMDSymTab;            ///< NamedMDNode names.
@@ -194,6 +196,12 @@ public:
   /// Get the module identifier which is, essentially, the name of the module.
   /// @returns the module identifier as a string
   const std::string &getModuleIdentifier() const { return ModuleID; }
+
+  /// Get the module's original source file name. When compiling from
+  /// bitcode, this is taken from a bitcode record where it was recorded.
+  /// For other compiles it is the same as the ModuleID, which would
+  /// contain the source file name.
+  const std::string &getSourceFileName() const { return SourceFileName; }
 
   /// \brief Get a short "name" for the module.
   ///
@@ -240,6 +248,9 @@ public:
   /// Set the module identifier.
   void setModuleIdentifier(StringRef ID) { ModuleID = ID; }
 
+  /// Set the module's original source file name.
+  void setSourceFileName(StringRef Name) { SourceFileName = Name; }
+
   /// Set the data layout
   void setDataLayout(StringRef Desc);
   void setDataLayout(const DataLayout &Other);
@@ -251,8 +262,7 @@ public:
   /// A trailing newline is added if the input doesn't have one.
   void setModuleInlineAsm(StringRef Asm) {
     GlobalScopeAsm = Asm;
-    if (!GlobalScopeAsm.empty() &&
-        GlobalScopeAsm[GlobalScopeAsm.size()-1] != '\n')
+    if (!GlobalScopeAsm.empty() && GlobalScopeAsm.back() != '\n')
       GlobalScopeAsm += '\n';
   }
 
@@ -260,8 +270,7 @@ public:
   /// A trailing newline is added if the input doesn't have one.
   void appendModuleInlineAsm(StringRef Asm) {
     GlobalScopeAsm += Asm;
-    if (!GlobalScopeAsm.empty() &&
-        GlobalScopeAsm[GlobalScopeAsm.size()-1] != '\n')
+    if (!GlobalScopeAsm.empty() && GlobalScopeAsm.back() != '\n')
       GlobalScopeAsm += '\n';
   }
 
@@ -628,7 +637,7 @@ public:
   void setPICLevel(PICLevel::Level PL);
 /// @}
 
-  /// @name Utility functions for querying and setting PGO counts
+  /// @name Utility functions for querying and setting PGO summary
   /// @{
 
   /// \brief Set maximum function count in PGO mode
@@ -636,6 +645,12 @@ public:
 
   /// \brief Returns maximum function count in PGO mode
   Optional<uint64_t> getMaximumFunctionCount();
+
+  /// \brief Attach profile summary metadata to this module.
+  void setProfileSummary(Metadata *M);
+
+  /// \brief Returns profile summary metadata
+  Metadata *getProfileSummary();
   /// @}
 };
 

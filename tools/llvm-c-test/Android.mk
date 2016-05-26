@@ -10,6 +10,7 @@ LLVM_ROOT_PATH := $(LOCAL_PATH)/../..
 llvm_c_test_SRC_FILES := \
   calc.c                 \
   disassemble.c          \
+  echo.cpp               \
   helpers.c              \
   include-all.c          \
   main.c                 \
@@ -45,6 +46,8 @@ llvm_c_test_STATIC_LIBRARIES := \
   libLLVMAsmPrinter \
   libLLVMSelectionDAG \
   libLLVMCodeGen \
+  libLLVMGlobalISel \
+  libLLVMProfileData \
   libLLVMInstrumentation \
   libLLVMScalarOpts \
   libLLVMTransformUtils \

@@ -106,6 +106,11 @@ public:
   /// PBQP analysis usage.
   void getAnalysisUsage(AnalysisUsage &au) const override;
 
+  MachineFunctionProperties getSetProperties() const override {
+    return MachineFunctionProperties().set(
+        MachineFunctionProperties::Property::AllVRegsAllocated);
+  }
+
   /// Perform register allocation
   bool runOnMachineFunction(MachineFunction &MF) override;
 
@@ -839,7 +844,7 @@ void PBQP::RegAlloc::PBQPRAGraph::dump(raw_ostream &OS) const {
   }
 }
 
-void PBQP::RegAlloc::PBQPRAGraph::dump() const { dump(dbgs()); }
+LLVM_DUMP_METHOD void PBQP::RegAlloc::PBQPRAGraph::dump() const { dump(dbgs()); }
 
 void PBQP::RegAlloc::PBQPRAGraph::printDot(raw_ostream &OS) const {
   OS << "graph {\n";

@@ -236,14 +236,14 @@ public:
   /// on any known one. This returns false if the integer width is not legal.
   ///
   /// The width is specified in bits.
-  bool isLegalInteger(unsigned Width) const {
+  bool isLegalInteger(uint64_t Width) const {
     for (unsigned LegalIntWidth : LegalIntWidths)
       if (LegalIntWidth == Width)
         return true;
     return false;
   }
 
-  bool isIllegalInteger(unsigned Width) const { return !isLegalInteger(Width); }
+  bool isIllegalInteger(uint64_t Width) const { return !isLegalInteger(Width); }
 
   /// Returns true if the given alignment exceeds the natural stack alignment.
   bool exceedsNaturalStackAlignment(unsigned Align) const {
@@ -387,7 +387,7 @@ public:
   /// returns 12 or 16 for x86_fp80, depending on alignment.
   uint64_t getTypeAllocSize(Type *Ty) const {
     // Round up to the next alignment boundary.
-    return RoundUpToAlignment(getTypeStoreSize(Ty), getABITypeAlignment(Ty));
+    return alignTo(getTypeStoreSize(Ty), getABITypeAlignment(Ty));
   }
 
   /// \brief Returns the offset in bits between successive objects of the
@@ -441,8 +441,9 @@ public:
   /// \brief Returns the offset from the beginning of the type for the specified
   /// indices.
   ///
+  /// Note that this takes the element type, not the pointer type.
   /// This is used to implement getelementptr.
-  uint64_t getIndexedOffset(Type *Ty, ArrayRef<Value *> Indices) const;
+  uint64_t getIndexedOffsetInType(Type *ElemTy, ArrayRef<Value *> Indices) const;
 
   /// \brief Returns a StructLayout object, indicating the alignment of the
   /// struct, its size, and the offsets of its fields.
@@ -475,7 +476,7 @@ inline LLVMTargetDataRef wrap(const DataLayout *P) {
 class StructLayout {
   uint64_t StructSize;
   unsigned StructAlignment;
-  bool IsPadded : 1;
+  unsigned IsPadded : 1;
   unsigned NumElements : 31;
   uint64_t MemberOffsets[1]; // variable sized array!
 public:

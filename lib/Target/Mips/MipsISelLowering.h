@@ -434,7 +434,6 @@ namespace llvm {
     SDValue lowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerSELECT(SDValue Op, SelectionDAG &DAG) const;
-    SDValue lowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerSETCC(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerVASTART(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerVAARG(SDValue Op, SelectionDAG &DAG) const;
@@ -565,6 +564,10 @@ namespace llvm {
 
     unsigned getJumpTableEncoding() const override;
     bool useSoftFloat() const override;
+
+    bool shouldInsertFencesForAtomic(const Instruction *I) const override {
+      return true;
+    }
 
     /// Emit a sign-extension using sll/sra, seb, or seh appropriately.
     MachineBasicBlock *emitSignExtendToI32InReg(MachineInstr *MI,
