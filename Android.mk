@@ -137,6 +137,7 @@ subdirs += \
   tools/obj2yaml \
   tools/opt \
   tools/sancov \
+  tools/sanstats \
   tools/verify-uselistorder \
   tools/yaml2obj \
 
