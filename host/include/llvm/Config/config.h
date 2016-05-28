@@ -685,7 +685,13 @@
 #define LTDL_SHLIBPATH_VAR "LD_LIBRARY_PATH"
 
 /* Define to the extension used for shared libraries, say, ".so". */
+#if defined(__APPLE__)
+#define LTDL_SHLIB_EXT ".dylib"
+#elif defined(_WIN32)
+#define LTDL_SHLIB_EXT ".dll"
+#else
 #define LTDL_SHLIB_EXT ".so"
+#endif  /* __APPLE__ */
 
 /* Define to the system default library search path. */
 #define LTDL_SYSSEARCHPATH "/lib:/usr/lib:/usr/local/lib:/lib:/usr/lib:/lib64:/usr/lib64:/usr/local/lib64:/lib32:/usr/lib32:/usr/local/lib32:/usr/x86_64-pc-linux-gnu/lib:/usr/lib/gcc/x86_64-pc-linux-gnu/4.3.4:/usr/lib/gcc/x86_64-pc-linux-gnu/4.3.4/32:/usr/lib/gcc/x86_64-pc-linux-gnu/4.1.2:/usr/lib/gcc/x86_64-pc-linux-gnu/4.1.2/32"
