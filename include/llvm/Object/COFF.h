@@ -439,19 +439,31 @@ struct coff_aux_function_definition {
   support::ulittle32_t TotalSize;
   support::ulittle32_t PointerToLinenumber;
   support::ulittle32_t PointerToNextFunction;
+  char Unused1[2];
 };
+
+static_assert(sizeof(coff_aux_function_definition) == 18,
+              "auxiliary entry must be 18 bytes");
 
 struct coff_aux_bf_and_ef_symbol {
   char Unused1[4];
   support::ulittle16_t Linenumber;
   char Unused2[6];
   support::ulittle32_t PointerToNextFunction;
+  char Unused3[2];
 };
+
+static_assert(sizeof(coff_aux_bf_and_ef_symbol) == 18,
+              "auxiliary entry must be 18 bytes");
 
 struct coff_aux_weak_external {
   support::ulittle32_t TagIndex;
   support::ulittle32_t Characteristics;
+  char Unused1[10];
 };
+
+static_assert(sizeof(coff_aux_weak_external) == 18,
+              "auxiliary entry must be 18 bytes");
 
 struct coff_aux_section_definition {
   support::ulittle32_t Length;
@@ -470,11 +482,18 @@ struct coff_aux_section_definition {
   }
 };
 
+static_assert(sizeof(coff_aux_section_definition) == 18,
+              "auxiliary entry must be 18 bytes");
+
 struct coff_aux_clr_token {
   uint8_t              AuxType;
   uint8_t              Reserved;
   support::ulittle32_t SymbolTableIndex;
+  char                 MBZ[12];
 };
+
+static_assert(sizeof(coff_aux_clr_token) == 18,
+              "auxiliary entry must be 18 bytes");
 
 struct coff_import_header {
   support::ulittle16_t Sig1;
@@ -679,13 +698,13 @@ public:
   }
 protected:
   void moveSymbolNext(DataRefImpl &Symb) const override;
-  ErrorOr<StringRef> getSymbolName(DataRefImpl Symb) const override;
+  Expected<StringRef> getSymbolName(DataRefImpl Symb) const override;
   ErrorOr<uint64_t> getSymbolAddress(DataRefImpl Symb) const override;
   uint64_t getSymbolValueImpl(DataRefImpl Symb) const override;
   uint64_t getCommonSymbolSizeImpl(DataRefImpl Symb) const override;
   uint32_t getSymbolFlags(DataRefImpl Symb) const override;
-  ErrorOr<SymbolRef::Type> getSymbolType(DataRefImpl Symb) const override;
-  ErrorOr<section_iterator> getSymbolSection(DataRefImpl Symb) const override;
+  Expected<SymbolRef::Type> getSymbolType(DataRefImpl Symb) const override;
+  Expected<section_iterator> getSymbolSection(DataRefImpl Symb) const override;
   void moveSectionNext(DataRefImpl &Sec) const override;
   std::error_code getSectionName(DataRefImpl Sec,
                                  StringRef &Res) const override;
@@ -694,6 +713,7 @@ protected:
   std::error_code getSectionContents(DataRefImpl Sec,
                                      StringRef &Res) const override;
   uint64_t getSectionAlignment(DataRefImpl Sec) const override;
+  bool isSectionCompressed(DataRefImpl Sec) const override;
   bool isSectionText(DataRefImpl Sec) const override;
   bool isSectionData(DataRefImpl Sec) const override;
   bool isSectionBSS(DataRefImpl Sec) const override;

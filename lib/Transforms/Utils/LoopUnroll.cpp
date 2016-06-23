@@ -44,6 +44,11 @@ using namespace llvm;
 STATISTIC(NumCompletelyUnrolled, "Number of loops completely unrolled");
 STATISTIC(NumUnrolled, "Number of loops unrolled (completely or otherwise)");
 
+static cl::opt<bool>
+UnrollRuntimeEpilog("unroll-runtime-epilog", cl::init(true), cl::Hidden,
+                    cl::desc("Allow runtime unrolled loops to be unrolled "
+                             "with epilog instead of prolog."));
+
 /// Convert the instruction operands from referencing the current values into
 /// those specified by VMap.
 static inline void remapInstruction(Instruction *I,
@@ -194,7 +199,7 @@ static bool needToInsertPhisForLCSSA(Loop *L, std::vector<BasicBlock *> Blocks,
 ///
 /// This utility preserves LoopInfo. It will also preserve ScalarEvolution and
 /// DominatorTree if they are non-null.
-bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
+bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount, bool Force,
                       bool AllowRuntime, bool AllowExpensiveTripCount,
                       unsigned TripMultiple, LoopInfo *LI, ScalarEvolution *SE,
                       DominatorTree *DT, AssumptionCache *AC,
@@ -257,6 +262,7 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
   bool CompletelyUnroll = Count == TripCount;
   SmallVector<BasicBlock *, 4> ExitBlocks;
   L->getExitBlocks(ExitBlocks);
+  std::vector<BasicBlock*> OriginalLoopBlocks = L->getBlocks();
 
   // Go through all exits of L and see if there are any phi-nodes there. We just
   // conservatively assume that they're inserted to preserve LCSSA form, which
@@ -278,23 +284,26 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
   DEBUG(
       {
         bool HasConvergent = false;
-        for (auto &BB
-             : L->blocks())
+        for (auto &BB : L->blocks())
           for (auto &I : *BB)
             if (auto CS = CallSite(&I))
               HasConvergent |= CS.isConvergent();
         assert((!HasConvergent || TripMultiple % Count == 0) &&
                "Unroll count must divide trip multiple if loop contains a "
-               "convergent "
-               "operation.");
+               "convergent operation.");
       });
-  // Don't output the runtime loop prolog if Count is a multiple of
-  // TripMultiple.  Such a prolog is never needed, and is unsafe if the loop
+  // Don't output the runtime loop remainder if Count is a multiple of
+  // TripMultiple.  Such a remainder is never needed, and is unsafe if the loop
   // contains a convergent instruction.
   if (RuntimeTripCount && TripMultiple % Count != 0 &&
-      !UnrollRuntimeLoopProlog(L, Count, AllowExpensiveTripCount, LI, SE, DT,
-                               PreserveLCSSA))
-    return false;
+      !UnrollRuntimeLoopRemainder(L, Count, AllowExpensiveTripCount,
+                                  UnrollRuntimeEpilog, LI, SE, DT, 
+                                  PreserveLCSSA)) {
+    if (Force)
+      RuntimeTripCount = false;
+    else
+      return false;
+  }
 
   // Notify ScalarEvolution that the loop will be substantially changed,
   // if not outright eliminated.
@@ -545,20 +554,26 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
       Term->eraseFromParent();
     }
   }
-  // Update dominators of loop exit blocks.
-  // Immediate dominator of an exit block might change, because we add more
+  // Update dominators of blocks we might reach through exits.
+  // Immediate dominator of such block might change, because we add more
   // routes which can lead to the exit: we can now reach it from the copied
-  // iterations too. Thus, the new idom of the exit block will be the nearest
+  // iterations too. Thus, the new idom of the block will be the nearest
   // common dominator of the previous idom and common dominator of all copies of
-  // the exiting block. This is equivalent to the nearest common dominator of
+  // the previous idom. This is equivalent to the nearest common dominator of
   // the previous idom and the first latch, which dominates all copies of the
-  // exiting block.
+  // previous idom.
   if (DT && Count > 1) {
-    for (auto Exit : ExitBlocks) {
-      BasicBlock *PrevIDom = DT->getNode(Exit)->getIDom()->getBlock();
-      BasicBlock *NewIDom =
-          DT->findNearestCommonDominator(PrevIDom, Latches[0]);
-      DT->changeImmediateDominator(Exit, NewIDom);
+    for (auto *BB : OriginalLoopBlocks) {
+      auto *BBDomNode = DT->getNode(BB);
+      SmallVector<BasicBlock *, 16> ChildrenToUpdate;
+      for (auto *ChildDomNode : BBDomNode->getChildren()) {
+        auto *ChildBB = ChildDomNode->getBlock();
+        if (!L->contains(ChildBB))
+          ChildrenToUpdate.push_back(ChildBB);
+      }
+      BasicBlock *NewIDom = DT->findNearestCommonDominator(BB, Latches[0]);
+      for (auto *ChildBB : ChildrenToUpdate)
+        DT->changeImmediateDominator(ChildBB, NewIDom);
     }
   }
 

@@ -76,6 +76,11 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &MF) override;
 
+    MachineFunctionProperties getRequiredProperties() const override {
+      return MachineFunctionProperties().set(
+          MachineFunctionProperties::Property::AllVRegsAllocated);
+    }
+
     const char *getPassName() const override { return "X86 FP Stackifier"; }
 
   private:
@@ -1619,7 +1624,7 @@ void FPS::setKillFlags(MachineBasicBlock &MBB) const {
       MBB.getParent()->getSubtarget().getRegisterInfo();
   LivePhysRegs LPR(TRI);
 
-  LPR.addLiveOuts(&MBB);
+  LPR.addLiveOuts(MBB);
 
   for (MachineBasicBlock::reverse_iterator I = MBB.rbegin(), E = MBB.rend();
        I != E; ++I) {

@@ -125,29 +125,45 @@ FunctionPass *llvm::createSILowerControlFlowPass() {
   return new SILowerControlFlow();
 }
 
+static bool opcodeEmitsNoInsts(unsigned Opc) {
+  switch (Opc) {
+  case TargetOpcode::IMPLICIT_DEF:
+  case TargetOpcode::KILL:
+  case TargetOpcode::BUNDLE:
+  case TargetOpcode::CFI_INSTRUCTION:
+  case TargetOpcode::EH_LABEL:
+  case TargetOpcode::GC_LABEL:
+  case TargetOpcode::DBG_VALUE:
+    return true;
+  default:
+    return false;
+  }
+}
+
 bool SILowerControlFlow::shouldSkip(MachineBasicBlock *From,
                                     MachineBasicBlock *To) {
 
   unsigned NumInstr = 0;
+  MachineFunction *MF = From->getParent();
 
-  for (MachineFunction::iterator MBBI = MachineFunction::iterator(From),
-                                 ToI = MachineFunction::iterator(To); MBBI != ToI; ++MBBI) {
-
+  for (MachineFunction::iterator MBBI(From), ToI(To), End = MF->end();
+       MBBI != End && MBBI != ToI; ++MBBI) {
     MachineBasicBlock &MBB = *MBBI;
 
     for (MachineBasicBlock::iterator I = MBB.begin(), E = MBB.end();
          NumInstr < SkipThreshold && I != E; ++I) {
+      if (opcodeEmitsNoInsts(I->getOpcode()))
+        continue;
 
-      if (I->isBundle() || !I->isBundled()) {
-        // When a uniform loop is inside non-uniform control flow, the branch
-        // leaving the loop might be an S_CBRANCH_VCCNZ, which is never taken
-        // when EXEC = 0. We should skip the loop lest it becomes infinite.
-        if (I->getOpcode() == AMDGPU::S_CBRANCH_VCCNZ)
-          return true;
+      // When a uniform loop is inside non-uniform control flow, the branch
+      // leaving the loop might be an S_CBRANCH_VCCNZ, which is never taken
+      // when EXEC = 0. We should skip the loop lest it becomes infinite.
+      if (I->getOpcode() == AMDGPU::S_CBRANCH_VCCNZ ||
+          I->getOpcode() == AMDGPU::S_CBRANCH_VCCZ)
+        return true;
 
-        if (++NumInstr >= SkipThreshold)
-          return true;
-      }
+      if (++NumInstr >= SkipThreshold)
+        return true;
     }
   }
 
@@ -169,8 +185,7 @@ void SILowerControlFlow::SkipIfDead(MachineInstr &MI) {
   MachineBasicBlock &MBB = *MI.getParent();
   DebugLoc DL = MI.getDebugLoc();
 
-  if (MBB.getParent()->getInfo<SIMachineFunctionInfo>()->getShaderType() !=
-      ShaderType::PIXEL ||
+  if (MBB.getParent()->getFunction()->getCallingConv() != CallingConv::AMDGPU_PS ||
       !shouldSkip(&MBB, &MBB.getParent()->back()))
     return;
 
@@ -328,11 +343,10 @@ void SILowerControlFlow::Kill(MachineInstr &MI) {
   const MachineOperand &Op = MI.getOperand(0);
 
 #ifndef NDEBUG
-  const SIMachineFunctionInfo *MFI
-    = MBB.getParent()->getInfo<SIMachineFunctionInfo>();
+  CallingConv::ID CallConv = MBB.getParent()->getFunction()->getCallingConv();
   // Kill is only allowed in pixel / geometry shaders.
-  assert(MFI->getShaderType() == ShaderType::PIXEL ||
-         MFI->getShaderType() == ShaderType::GEOMETRY);
+  assert(CallConv == CallingConv::AMDGPU_PS ||
+         CallConv == CallingConv::AMDGPU_GS);
 #endif
 
   // Clear this thread from the exec mask if the operand is negative

@@ -34,7 +34,6 @@
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -832,7 +831,7 @@ SDNode *SelectionDAG::FindModifiedNodeSlot(SDNode *N, SDValue Op,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, N->getOpcode(), N->getVTList(), Ops);
   AddNodeIDCustom(ID, N);
-  SDNode *Node = FindNodeOrInsertPos(ID, N->getDebugLoc(), InsertPos);
+  SDNode *Node = FindNodeOrInsertPos(ID, SDLoc(N), InsertPos);
   if (Node)
     if (const SDNodeFlags *Flags = N->getFlags())
       Node->intersectFlagsWith(Flags);
@@ -853,7 +852,7 @@ SDNode *SelectionDAG::FindModifiedNodeSlot(SDNode *N,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, N->getOpcode(), N->getVTList(), Ops);
   AddNodeIDCustom(ID, N);
-  SDNode *Node = FindNodeOrInsertPos(ID, N->getDebugLoc(), InsertPos);
+  SDNode *Node = FindNodeOrInsertPos(ID, SDLoc(N), InsertPos);
   if (Node)
     if (const SDNodeFlags *Flags = N->getFlags())
       Node->intersectFlagsWith(Flags);
@@ -873,7 +872,7 @@ SDNode *SelectionDAG::FindModifiedNodeSlot(SDNode *N, ArrayRef<SDValue> Ops,
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, N->getOpcode(), N->getVTList(), Ops);
   AddNodeIDCustom(ID, N);
-  SDNode *Node = FindNodeOrInsertPos(ID, N->getDebugLoc(), InsertPos);
+  SDNode *Node = FindNodeOrInsertPos(ID, SDLoc(N), InsertPos);
   if (Node)
     if (const SDNodeFlags *Flags = N->getFlags())
       Node->intersectFlagsWith(Flags);
@@ -964,18 +963,24 @@ SDNode *SelectionDAG::FindNodeOrInsertPos(const FoldingSetNodeID &ID,
 }
 
 SDNode *SelectionDAG::FindNodeOrInsertPos(const FoldingSetNodeID &ID,
-                                          DebugLoc DL, void *&InsertPos) {
+                                          SDLoc DL, void *&InsertPos) {
   SDNode *N = CSEMap.FindNodeOrInsertPos(ID, InsertPos);
   if (N) {
     switch (N->getOpcode()) {
-    default: break; // Process only regular (non-target) constant nodes.
     case ISD::Constant:
     case ISD::ConstantFP:
       // Erase debug location from the node if the node is used at several
-      // different places to do not propagate one location to all uses as it
-      // leads to incorrect debug info.
-      if (N->getDebugLoc() != DL)
+      // different places. Do not propagate one location to all uses as it
+      // will cause a worse single stepping debugging experience.
+      if (N->getDebugLoc() != DL.getDebugLoc())
         N->setDebugLoc(DebugLoc());
+      break;
+    default:
+      // When the node's point of use is located earlier in the instruction
+      // sequence than its prior point of use, update its debug info to the
+      // earlier location.
+      if (DL.getIROrder() && DL.getIROrder() < N->getIROrder())
+        N->setDebugLoc(DL.getDebugLoc());
       break;
     }
   }
@@ -1185,7 +1190,7 @@ SDValue SelectionDAG::getConstant(const ConstantInt &Val, SDLoc DL, EVT VT,
   ID.AddBoolean(isO);
   void *IP = nullptr;
   SDNode *N = nullptr;
-  if ((N = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP)))
+  if ((N = FindNodeOrInsertPos(ID, DL, IP)))
     if (!VT.isVector())
       return SDValue(N, 0);
 
@@ -1196,11 +1201,8 @@ SDValue SelectionDAG::getConstant(const ConstantInt &Val, SDLoc DL, EVT VT,
   }
 
   SDValue Result(N, 0);
-  if (VT.isVector()) {
-    SmallVector<SDValue, 8> Ops;
-    Ops.assign(VT.getVectorNumElements(), Result);
-    Result = getNode(ISD::BUILD_VECTOR, DL, VT, Ops);
-  }
+  if (VT.isVector())
+    Result = getSplatBuildVector(VT, DL, Result);
   return Result;
 }
 
@@ -1228,7 +1230,7 @@ SDValue SelectionDAG::getConstantFP(const ConstantFP& V, SDLoc DL, EVT VT,
   ID.AddPointer(&V);
   void *IP = nullptr;
   SDNode *N = nullptr;
-  if ((N = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP)))
+  if ((N = FindNodeOrInsertPos(ID, DL, IP)))
     if (!VT.isVector())
       return SDValue(N, 0);
 
@@ -1239,11 +1241,8 @@ SDValue SelectionDAG::getConstantFP(const ConstantFP& V, SDLoc DL, EVT VT,
   }
 
   SDValue Result(N, 0);
-  if (VT.isVector()) {
-    SmallVector<SDValue, 8> Ops;
-    Ops.assign(VT.getVectorNumElements(), Result);
-    Result = getNode(ISD::BUILD_VECTOR, DL, VT, Ops);
-  }
+  if (VT.isVector())
+    Result = getSplatBuildVector(VT, DL, Result);
   return Result;
 }
 
@@ -1290,7 +1289,7 @@ SDValue SelectionDAG::getGlobalAddress(const GlobalValue *GV, SDLoc DL,
   ID.AddInteger(TargetFlags);
   ID.AddInteger(GV->getType()->getAddressSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP))
+  if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP))
     return SDValue(E, 0);
 
   auto *N = newSDNode<GlobalAddressSDNode>(
@@ -1609,11 +1608,9 @@ SDValue SelectionDAG::getVectorShuffle(EVT VT, SDLoc dl, SDValue N1,
 
       // If the shuffle itself creates a splat, build the vector directly.
       if (AllSame && SameNumElts) {
-        const SDValue &Splatted = BV->getOperand(MaskVec[0]);
-        SmallVector<SDValue, 8> Ops(NElts, Splatted);
-
         EVT BuildVT = BV->getValueType(0);
-        SDValue NewBV = getNode(ISD::BUILD_VECTOR, dl, BuildVT, Ops);
+        const SDValue &Splatted = BV->getOperand(MaskVec[0]);
+        SDValue NewBV = getSplatBuildVector(BuildVT, dl, Splatted);
 
         // We may have jumped through bitcasts, so the type of the
         // BUILD_VECTOR may not match the type of the shuffle.
@@ -1631,7 +1628,7 @@ SDValue SelectionDAG::getVectorShuffle(EVT VT, SDLoc dl, SDValue N1,
     ID.AddInteger(MaskVec[i]);
 
   void* IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP))
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP))
     return SDValue(E, 0);
 
   // Allocate the mask array for the node out of the BumpPtrAllocator, since
@@ -1673,7 +1670,7 @@ SDValue SelectionDAG::getConvertRndSat(EVT VT, SDLoc dl,
   SDValue Ops[] = { Val, DTy, STy, Rnd, Sat };
   AddNodeIDNode(ID, ISD::CONVERT_RNDSAT, getVTList(VT), Ops);
   void* IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP))
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP))
     return SDValue(E, 0);
 
   auto *N =
@@ -1803,7 +1800,7 @@ SDValue SelectionDAG::getAddrSpaceCast(SDLoc dl, EVT VT, SDValue Ptr,
   ID.AddInteger(DestAS);
 
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP))
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP))
     return SDValue(E, 0);
 
   auto *N = newSDNode<AddrSpaceCastSDNode>(dl.getIROrder(), dl.getDebugLoc(),
@@ -2468,6 +2465,12 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
     KnownOne = KnownOne.trunc(BitWidth);
     break;
   }
+  case ISD::BSWAP: {
+    computeKnownBits(Op.getOperand(0), KnownZero2, KnownOne2, Depth+1);
+    KnownZero = KnownZero2.byteSwap();
+    KnownOne = KnownOne2.byteSwap();
+    break;
+  }
   case ISD::SMIN:
   case ISD::SMAX:
   case ISD::UMIN:
@@ -2503,6 +2506,35 @@ void SelectionDAG::computeKnownBits(SDValue Op, APInt &KnownZero,
   }
 
   assert((KnownZero & KnownOne) == 0 && "Bits known to be one AND zero?");
+}
+
+bool SelectionDAG::isKnownToBeAPowerOfTwo(SDValue Val) const {
+  // A left-shift of a constant one will have exactly one bit set because
+  // shifting the bit off the end is undefined.
+  if (Val.getOpcode() == ISD::SHL) {
+    auto *C = dyn_cast<ConstantSDNode>(Val.getOperand(0));
+    if (C && C->getAPIntValue() == 1)
+      return true;
+  }
+
+  // Similarly, a logical right-shift of a constant sign-bit will have exactly
+  // one bit set.
+  if (Val.getOpcode() == ISD::SRL) {
+    auto *C = dyn_cast<ConstantSDNode>(Val.getOperand(0));
+    if (C && C->getAPIntValue().isSignBit())
+      return true;
+  }
+
+  // More could be done here, though the above checks are enough
+  // to handle some common cases.
+
+  // Fall back to computeKnownBits to catch other known cases.
+  EVT OpVT = Val.getValueType();
+  unsigned BitWidth = OpVT.getScalarType().getSizeInBits();
+  APInt KnownZero, KnownOne;
+  computeKnownBits(Val, KnownZero, KnownOne);
+  return (KnownZero.countPopulation() == BitWidth - 1) &&
+         (KnownOne.countPopulation() == 1);
 }
 
 /// ComputeNumSignBits - Return the number of times the sign bit of the
@@ -2839,8 +2871,7 @@ static SDValue FoldCONCAT_VECTORS(SDLoc DL, EVT VT, ArrayRef<SDValue> Ops,
     return Ops[0];
 
   // Concat of UNDEFs is UNDEF.
-  if (std::all_of(Ops.begin(), Ops.end(),
-                  [](SDValue Op) { return Op.isUndef(); }))
+  if (llvm::all_of(Ops, [](SDValue Op) { return Op.isUndef(); }))
     return DAG.getUNDEF(VT);
 
   // A CONCAT_VECTOR with all UNDEF/BUILD_VECTOR operands can be
@@ -2878,7 +2909,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, EVT VT) {
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, Opcode, getVTList(VT), None);
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP))
+  if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP))
     return SDValue(E, 0);
 
   auto *N = newSDNode<SDNode>(Opcode, DL.getIROrder(), DL.getDebugLoc(),
@@ -3149,6 +3180,12 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL,
     if (OpOpcode == ISD::UNDEF)
       return getUNDEF(VT);
     break;
+  case ISD::BITREVERSE:
+    assert(VT.isInteger() && VT == Operand.getValueType() &&
+           "Invalid BITREVERSE!");
+    if (OpOpcode == ISD::UNDEF)
+      return getUNDEF(VT);
+    break;
   case ISD::BITCAST:
     // Basic sanity checking.
     assert(VT.getSizeInBits() == Operand.getValueType().getSizeInBits()
@@ -3198,7 +3235,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL,
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, Opcode, VTs, Ops);
     void *IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP))
+    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP))
       return SDValue(E, 0);
 
     N = newSDNode<SDNode>(Opcode, DL.getIROrder(), DL.getDebugLoc(), VTs);
@@ -3295,18 +3332,10 @@ SDValue SelectionDAG::FoldConstantArithmetic(unsigned Opcode, SDLoc DL, EVT VT,
   // Handle the case of two scalars.
   if (const ConstantSDNode *Scalar1 = dyn_cast<ConstantSDNode>(Cst1)) {
     if (const ConstantSDNode *Scalar2 = dyn_cast<ConstantSDNode>(Cst2)) {
-      if (SDValue Folded =
-          FoldConstantArithmetic(Opcode, DL, VT, Scalar1, Scalar2)) {
-        if (!VT.isVector())
-          return Folded;
-        SmallVector<SDValue, 4> Outputs;
-        // We may have a vector type but a scalar result. Create a splat.
-        Outputs.resize(VT.getVectorNumElements(), Outputs.back());
-        // Build a big vector out of the scalar elements we generated.
-        return getNode(ISD::BUILD_VECTOR, SDLoc(), VT, Outputs);
-      } else {
-        return SDValue();
-      }
+      SDValue Folded = FoldConstantArithmetic(Opcode, DL, VT, Scalar1, Scalar2);
+      assert((!Folded || !VT.isVector()) &&
+             "Can't fold vectors ops with scalar operands");
+      return Folded;
     }
   }
 
@@ -3357,7 +3386,7 @@ SDValue SelectionDAG::FoldConstantArithmetic(unsigned Opcode, SDLoc DL, EVT VT,
   Outputs.resize(VT.getVectorNumElements(), Outputs.back());
 
   // Build a big vector out of the scalar elements we generated.
-  return getNode(ISD::BUILD_VECTOR, SDLoc(), VT, Outputs);
+  return getBuildVector(VT, SDLoc(), Outputs);
 }
 
 SDValue SelectionDAG::FoldConstantVectorArithmetic(unsigned Opcode, SDLoc DL,
@@ -3448,9 +3477,7 @@ SDValue SelectionDAG::FoldConstantVectorArithmetic(unsigned Opcode, SDLoc DL,
     ScalarResults.push_back(ScalarResult);
   }
 
-  assert(ScalarResults.size() == NumElts &&
-         "Unexpected number of scalar results for BUILD_VECTOR");
-  return getNode(ISD::BUILD_VECTOR, DL, VT, ScalarResults);
+  return getBuildVector(VT, DL, ScalarResults);
 }
 
 SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, EVT VT, SDValue N1,
@@ -3664,7 +3691,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, EVT VT, SDValue N1,
         break;
       }
       if (Ops.size() == VT.getVectorNumElements())
-        return getNode(ISD::BUILD_VECTOR, DL, VT, Ops);
+        return getBuildVector(VT, DL, Ops);
     }
     break;
   }
@@ -3911,7 +3938,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, EVT VT, SDValue N1,
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, Opcode, VTs, Ops);
     void *IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP)) {
+    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP)) {
       if (Flags)
         E->intersectFlagsWith(Flags);
       return SDValue(E, 0);
@@ -4013,7 +4040,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, EVT VT,
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, Opcode, VTs, Ops);
     void *IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP))
+    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP))
       return SDValue(E, 0);
 
     N = newSDNode<SDNode>(Opcode, DL.getIROrder(), DL.getDebugLoc(), VTs);
@@ -4095,13 +4122,9 @@ static SDValue getMemsetValue(SDValue Value, EVT VT, SelectionDAG &DAG,
   }
 
   if (VT != Value.getValueType() && !VT.isInteger())
-    Value = DAG.getNode(ISD::BITCAST, dl, VT.getScalarType(), Value);
-  if (VT != Value.getValueType()) {
-    assert(VT.getVectorElementType() == Value.getValueType() &&
-           "value type should be one vector element here");
-    SmallVector<SDValue, 8> BVOps(VT.getVectorNumElements(), Value);
-    Value = DAG.getNode(ISD::BUILD_VECTOR, dl, VT, BVOps);
-  }
+    Value = DAG.getBitcast(VT.getScalarType(), Value);
+  if (VT != Value.getValueType())
+    Value = DAG.getSplatBuildVector(VT, dl, Value);
 
   return Value;
 }
@@ -4394,6 +4417,7 @@ static SDValue getMemcpyLoadsAndStores(SelectionDAG &DAG, SDLoc dl,
                              DAG.getMemBasePlusOffset(Src, SrcOff, dl),
                              SrcPtrInfo.getWithOffset(SrcOff), VT, isVol, false,
                              false, MinAlign(SrcAlign, SrcOff));
+      OutChains.push_back(Value.getValue(1));
       Store = DAG.getTruncStore(Chain, dl, Value,
                                 DAG.getMemBasePlusOffset(Dst, DstOff, dl),
                                 DstPtrInfo.getWithOffset(DstOff), VT, isVol,
@@ -4808,7 +4832,7 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, SDLoc dl, EVT MemVT,
   AddNodeIDNode(ID, Opcode, VTList, Ops);
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void* IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<AtomicSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5004,7 +5028,7 @@ SelectionDAG::getMemIntrinsicNode(unsigned Opcode, SDLoc dl, SDVTList VTList,
     AddNodeIDNode(ID, Opcode, VTList, Ops);
     ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
     void *IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+    if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
       cast<MemIntrinsicSDNode>(E)->refineAlignment(MMO);
       return SDValue(E, 0);
     }
@@ -5130,7 +5154,7 @@ SelectionDAG::getLoad(ISD::MemIndexedMode AM, ISD::LoadExtType ExtType,
                                      MMO->isInvariant()));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<LoadSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5237,7 +5261,7 @@ SDValue SelectionDAG::getStore(SDValue Chain, SDLoc dl, SDValue Val,
                                      MMO->isNonTemporal(), MMO->isInvariant()));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<StoreSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5307,7 +5331,7 @@ SDValue SelectionDAG::getTruncStore(SDValue Chain, SDLoc dl, SDValue Val,
                                      MMO->isNonTemporal(), MMO->isInvariant()));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<StoreSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5333,7 +5357,7 @@ SelectionDAG::getIndexedStore(SDValue OrigStore, SDLoc dl, SDValue Base,
   ID.AddInteger(ST->getRawSubclassData());
   ID.AddInteger(ST->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP))
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP))
     return SDValue(E, 0);
 
   auto *N = newSDNode<StoreSDNode>(dl.getIROrder(), dl.getDebugLoc(), VTs, AM,
@@ -5362,7 +5386,7 @@ SelectionDAG::getMaskedLoad(EVT VT, SDLoc dl, SDValue Chain,
                                      MMO->isInvariant()));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<MaskedLoadSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5390,7 +5414,7 @@ SDValue SelectionDAG::getMaskedStore(SDValue Chain, SDLoc dl, SDValue Val,
                                      MMO->isNonTemporal(), MMO->isInvariant()));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<MaskedStoreSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5418,7 +5442,7 @@ SelectionDAG::getMaskedGather(SDVTList VTs, EVT VT, SDLoc dl,
                                      MMO->isInvariant()));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<MaskedGatherSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5454,7 +5478,7 @@ SDValue SelectionDAG::getMaskedScatter(SDVTList VTs, EVT VT, SDLoc dl,
                                      MMO->isInvariant()));
   ID.AddInteger(MMO->getPointerInfo().getAddrSpace());
   void *IP = nullptr;
-  if (SDNode *E = FindNodeOrInsertPos(ID, dl.getDebugLoc(), IP)) {
+  if (SDNode *E = FindNodeOrInsertPos(ID, dl, IP)) {
     cast<MaskedScatterSDNode>(E)->refineAlignment(MMO);
     return SDValue(E, 0);
   }
@@ -5544,7 +5568,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, EVT VT,
     AddNodeIDNode(ID, Opcode, VTs, Ops);
     void *IP = nullptr;
 
-    if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP))
+    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP))
       return SDValue(E, 0);
 
     N = newSDNode<SDNode>(Opcode, DL.getIROrder(), DL.getDebugLoc(), VTs);
@@ -5599,7 +5623,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, SDVTList VTList,
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, Opcode, VTList, Ops);
     void *IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP))
+    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP))
       return SDValue(E, 0);
 
     N = newSDNode<SDNode>(Opcode, DL.getIROrder(), DL.getDebugLoc(), VTList);
@@ -5952,10 +5976,14 @@ SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
 
 SDNode *SelectionDAG::SelectNodeTo(SDNode *N, unsigned MachineOpc,
                                    SDVTList VTs,ArrayRef<SDValue> Ops) {
-  N = MorphNodeTo(N, ~MachineOpc, VTs, Ops);
+  SDNode *New = MorphNodeTo(N, ~MachineOpc, VTs, Ops);
   // Reset the NodeID to -1.
-  N->setNodeId(-1);
-  return N;
+  New->setNodeId(-1);
+  if (New != N) {
+    ReplaceAllUsesWith(N, New);
+    RemoveDeadNode(N);
+  }
+  return New;
 }
 
 /// UpdadeSDLocOnMergedSDNode - If the opt level is -O0 then it throws away
@@ -5998,7 +6026,7 @@ SDNode *SelectionDAG::MorphNodeTo(SDNode *N, unsigned Opc,
   if (VTs.VTs[VTs.NumVTs-1] != MVT::Glue) {
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, Opc, VTs, Ops);
-    if (SDNode *ON = FindNodeOrInsertPos(ID, N->getDebugLoc(), IP))
+    if (SDNode *ON = FindNodeOrInsertPos(ID, SDLoc(N), IP))
       return UpdadeSDLocOnMergedSDNode(ON, SDLoc(N));
   }
 
@@ -6179,7 +6207,7 @@ SelectionDAG::getMachineNode(unsigned Opcode, SDLoc DL, SDVTList VTs,
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, ~Opcode, VTs, Ops);
     IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, DL.getDebugLoc(), IP)) {
+    if (SDNode *E = FindNodeOrInsertPos(ID, DL, IP)) {
       return cast<MachineSDNode>(UpdadeSDLocOnMergedSDNode(E, DL));
     }
   }
@@ -6226,7 +6254,7 @@ SDNode *SelectionDAG::getNodeIfExists(unsigned Opcode, SDVTList VTList,
     FoldingSetNodeID ID;
     AddNodeIDNode(ID, Opcode, VTList, Ops);
     void *IP = nullptr;
-    if (SDNode *E = FindNodeOrInsertPos(ID, DebugLoc(), IP)) {
+    if (SDNode *E = FindNodeOrInsertPos(ID, SDLoc(), IP)) {
       if (Flags)
         E->intersectFlagsWith(Flags);
       return E;
@@ -6707,6 +6735,10 @@ bool llvm::isOneConstant(SDValue V) {
   return Const != nullptr && Const->isOne();
 }
 
+bool llvm::isBitwiseNot(SDValue V) {
+  return V.getOpcode() == ISD::XOR && isAllOnesConstant(V.getOperand(1));
+}
+
 HandleSDNode::~HandleSDNode() {
   DropOperands();
 }
@@ -6959,12 +6991,14 @@ SDValue SelectionDAG::UnrollVectorOp(SDNode *N, unsigned ResNE) {
                  EVT::getVectorVT(*getContext(), EltVT, ResNE), Scalars);
 }
 
-
-/// isConsecutiveLoad - Return true if LD is loading 'Bytes' bytes from a
-/// location that is 'Dist' units away from the location that the 'Base' load
-/// is loading from.
-bool SelectionDAG::isConsecutiveLoad(LoadSDNode *LD, LoadSDNode *Base,
-                                     unsigned Bytes, int Dist) const {
+bool SelectionDAG::areNonVolatileConsecutiveLoads(LoadSDNode *LD,
+                                                  LoadSDNode *Base,
+                                                  unsigned Bytes,
+                                                  int Dist) const {
+  if (LD->isVolatile() || Base->isVolatile())
+    return false;
+  if (LD->isIndexed() || Base->isIndexed())
+    return false;
   if (LD->getChain() != Base->getChain())
     return false;
   EVT VT = LD->getValueType(0);
@@ -7310,9 +7344,9 @@ void llvm::checkForCycles(const llvm::SDNode *N,
                           bool force) {
 #ifndef NDEBUG
   bool check = force;
-#ifdef XDEBUG
+#ifdef EXPENSIVE_CHECKS
   check = true;
-#endif  // XDEBUG
+#endif  // EXPENSIVE_CHECKS
   if (check) {
     assert(N && "Checking nonexistent SDNode");
     SmallPtrSet<const SDNode*, 32> visited;

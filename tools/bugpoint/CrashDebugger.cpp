@@ -264,8 +264,8 @@ bool ReduceCrashingFunctions::TestFuncs(std::vector<Function*> &Funcs) {
     std::vector<GlobalValue*> ToRemove;
     // First, remove aliases to functions we're about to purge.
     for (GlobalAlias &Alias : M->aliases()) {
-      Constant *Root = Alias.getAliasee()->stripPointerCasts();
-      Function *F = dyn_cast<Function>(Root);
+      GlobalObject *Root = Alias.getBaseObject();
+      Function *F = dyn_cast_or_null<Function>(Root);
       if (F) {
         if (Functions.count(F))
           // We're keeping this function.
@@ -639,7 +639,7 @@ bool ReduceCrashingNamedMDOps::TestNamedMDOps(
     // module, and that they don't include any deleted blocks.
     NamedMDOps.clear();
     for (const MDNode *Node : OldMDNodeOps)
-      NamedMDOps.push_back(cast<MDNode>(VMap.MD()[Node].get()));
+      NamedMDOps.push_back(cast<MDNode>(*VMap.getMappedMD(Node)));
 
     BD.setNewProgram(M); // It crashed, keep the trimmed version...
     return true;

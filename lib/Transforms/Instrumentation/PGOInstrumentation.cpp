@@ -48,8 +48,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/Transforms/PGOInstrumentation.h"
 #include "CFGMST.h"
-#include "llvm/ADT/DenseMap.h"
+#include "IndirectCallSiteVisitor.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/Triple.h"
@@ -60,18 +61,19 @@
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
-#include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/ProfileData/InstrProfReader.h"
+#include "llvm/ProfileData/ProfileCommon.h"
 #include "llvm/Support/BranchProbability.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/JamCRC.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -104,20 +106,30 @@ static cl::opt<bool> DisableValueProfiling("disable-vp", cl::init(false),
                                            cl::desc("Disable Value Profiling"));
 
 // Command line option to set the maximum number of VP annotations to write to
-// the metada for a single indirect call callsite.
-static cl::opt<unsigned>
-    MaxNumAnnotations("icp-max-annotations", cl::init(3), cl::Hidden,
-                     cl::ZeroOrMore,
-                     cl::desc("Max number of annotations for a single indirect "
-                              "call callsite"));
+// the metadata for a single indirect call callsite.
+static cl::opt<unsigned> MaxNumAnnotations(
+    "icp-max-annotations", cl::init(3), cl::Hidden, cl::ZeroOrMore,
+    cl::desc("Max number of annotations for a single indirect "
+             "call callsite"));
+
+// Command line option to enable/disable the warning about missing profile
+// information.
+static cl::opt<bool> NoPGOWarnMissing("no-pgo-warn-missing", cl::init(false),
+                                      cl::Hidden);
+
+// Command line option to enable/disable the warning about a hash mismatch in
+// the profile data.
+static cl::opt<bool> NoPGOWarnMismatch("no-pgo-warn-mismatch", cl::init(false),
+                                       cl::Hidden);
 
 namespace {
-class PGOInstrumentationGen : public ModulePass {
+class PGOInstrumentationGenLegacyPass : public ModulePass {
 public:
   static char ID;
 
-  PGOInstrumentationGen() : ModulePass(ID) {
-    initializePGOInstrumentationGenPass(*PassRegistry::getPassRegistry());
+  PGOInstrumentationGenLegacyPass() : ModulePass(ID) {
+    initializePGOInstrumentationGenLegacyPassPass(
+        *PassRegistry::getPassRegistry());
   }
 
   const char *getPassName() const override {
@@ -132,16 +144,17 @@ private:
   }
 };
 
-class PGOInstrumentationUse : public ModulePass {
+class PGOInstrumentationUseLegacyPass : public ModulePass {
 public:
   static char ID;
 
   // Provide the profile filename as the parameter.
-  PGOInstrumentationUse(std::string Filename = "")
-      : ModulePass(ID), ProfileFileName(Filename) {
+  PGOInstrumentationUseLegacyPass(std::string Filename = "")
+      : ModulePass(ID), ProfileFileName(std::move(Filename)) {
     if (!PGOTestProfileFile.empty())
       ProfileFileName = PGOTestProfileFile;
-    initializePGOInstrumentationUsePass(*PassRegistry::getPassRegistry());
+    initializePGOInstrumentationUseLegacyPassPass(
+        *PassRegistry::getPassRegistry());
   }
 
   const char *getPassName() const override {
@@ -150,37 +163,36 @@ public:
 
 private:
   std::string ProfileFileName;
-  std::unique_ptr<IndexedInstrProfReader> PGOReader;
-  bool runOnModule(Module &M) override;
 
+  bool runOnModule(Module &M) override;
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<BlockFrequencyInfoWrapperPass>();
   }
 };
 } // end anonymous namespace
 
-char PGOInstrumentationGen::ID = 0;
-INITIALIZE_PASS_BEGIN(PGOInstrumentationGen, "pgo-instr-gen",
+char PGOInstrumentationGenLegacyPass::ID = 0;
+INITIALIZE_PASS_BEGIN(PGOInstrumentationGenLegacyPass, "pgo-instr-gen",
                       "PGO instrumentation.", false, false)
 INITIALIZE_PASS_DEPENDENCY(BlockFrequencyInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
-INITIALIZE_PASS_END(PGOInstrumentationGen, "pgo-instr-gen",
+INITIALIZE_PASS_END(PGOInstrumentationGenLegacyPass, "pgo-instr-gen",
                     "PGO instrumentation.", false, false)
 
-ModulePass *llvm::createPGOInstrumentationGenPass() {
-  return new PGOInstrumentationGen();
+ModulePass *llvm::createPGOInstrumentationGenLegacyPass() {
+  return new PGOInstrumentationGenLegacyPass();
 }
 
-char PGOInstrumentationUse::ID = 0;
-INITIALIZE_PASS_BEGIN(PGOInstrumentationUse, "pgo-instr-use",
+char PGOInstrumentationUseLegacyPass::ID = 0;
+INITIALIZE_PASS_BEGIN(PGOInstrumentationUseLegacyPass, "pgo-instr-use",
                       "Read PGO instrumentation profile.", false, false)
 INITIALIZE_PASS_DEPENDENCY(BlockFrequencyInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(BranchProbabilityInfoWrapperPass)
-INITIALIZE_PASS_END(PGOInstrumentationUse, "pgo-instr-use",
+INITIALIZE_PASS_END(PGOInstrumentationUseLegacyPass, "pgo-instr-use",
                     "Read PGO instrumentation profile.", false, false)
 
-ModulePass *llvm::createPGOInstrumentationUsePass(StringRef Filename) {
-  return new PGOInstrumentationUse(Filename.str());
+ModulePass *llvm::createPGOInstrumentationUseLegacyPass(StringRef Filename) {
+  return new PGOInstrumentationUseLegacyPass(Filename.str());
 }
 
 namespace {
@@ -326,20 +338,6 @@ BasicBlock *FuncPGOInstrumentation<Edge, BBInfo>::getInstrBB(Edge *E) {
   return InstrBB;
 }
 
-// Visitor class that finds all indirect call sites.
-struct PGOIndirectCallSiteVisitor
-    : public InstVisitor<PGOIndirectCallSiteVisitor> {
-  std::vector<CallInst *> IndirectCallInsts;
-  PGOIndirectCallSiteVisitor() {}
-
-  void visitCallInst(CallInst &I) {
-    CallSite CS(&I);
-    if (CS.getCalledFunction() || !CS.getCalledValue() || I.isInlineAsm())
-      return;
-    IndirectCallInsts.push_back(&I);
-  }
-};
-
 // Visit all edge and instrument the edges not in MST, and do value profiling.
 // Critical edges will be split.
 static void instrumentOneFunc(Function &F, Module *M,
@@ -373,9 +371,7 @@ static void instrumentOneFunc(Function &F, Module *M,
     return;
 
   unsigned NumIndirectCallSites = 0;
-  PGOIndirectCallSiteVisitor ICV;
-  ICV.visit(F);
-  for (auto &I : ICV.IndirectCallInsts) {
+  for (auto &I : findIndirectCallSites(F)) {
     CallSite CS(I);
     Value *Callee = CS.getCalledValue();
     DEBUG(dbgs() << "Instrument one indirect call: CallSite Index = "
@@ -480,10 +476,11 @@ public:
   // The hotness of the function from the profile count.
   enum FuncFreqAttr { FFA_Normal, FFA_Cold, FFA_Hot };
 
-  // Return the funtion hotness from the profile.
-  FuncFreqAttr getFuncFreqAttr() const {
-    return FreqAttr;
-  }
+  // Return the function hotness from the profile.
+  FuncFreqAttr getFuncFreqAttr() const { return FreqAttr; }
+
+  // Return the profile record for this function;
+  InstrProfRecord &getProfileRecord() { return ProfileRecord; }
 
 private:
   Function &F;
@@ -589,18 +586,28 @@ void PGOUseFunc::setEdgeCount(DirectEdges &Edges, uint64_t Value) {
 // Return true if the profile are successfully read, and false on errors.
 bool PGOUseFunc::readCounters(IndexedInstrProfReader *PGOReader) {
   auto &Ctx = M->getContext();
-  ErrorOr<InstrProfRecord> Result =
+  Expected<InstrProfRecord> Result =
       PGOReader->getInstrProfRecord(FuncInfo.FuncName, FuncInfo.FunctionHash);
-  if (std::error_code EC = Result.getError()) {
-    if (EC == instrprof_error::unknown_function)
-      NumOfPGOMissing++;
-    else if (EC == instrprof_error::hash_mismatch ||
-             EC == llvm::instrprof_error::malformed)
-      NumOfPGOMismatch++;
+  if (Error E = Result.takeError()) {
+    handleAllErrors(std::move(E), [&](const InstrProfError &IPE) {
+      auto Err = IPE.get();
+      bool SkipWarning = false;
+      if (Err == instrprof_error::unknown_function) {
+        NumOfPGOMissing++;
+        SkipWarning = NoPGOWarnMissing;
+      } else if (Err == instrprof_error::hash_mismatch ||
+                 Err == instrprof_error::malformed) {
+        NumOfPGOMismatch++;
+        SkipWarning = NoPGOWarnMismatch;
+      }
 
-    std::string Msg = EC.message() + std::string(" ") + F.getName().str();
-    Ctx.diagnose(
-        DiagnosticInfoPGOProfile(M->getName().data(), Msg, DS_Warning));
+      if (SkipWarning)
+        return;
+
+      std::string Msg = IPE.message() + std::string(" ") + F.getName().str();
+      Ctx.diagnose(
+          DiagnosticInfoPGOProfile(M->getName().data(), Msg, DS_Warning));
+    });
     return false;
   }
   ProfileRecord = std::move(Result.get());
@@ -684,15 +691,16 @@ void PGOUseFunc::populateCounters() {
   }
 
   DEBUG(dbgs() << "Populate counts in " << NumPasses << " passes.\n");
+#ifndef NDEBUG
   // Assert every BB has a valid counter.
-  uint64_t FuncEntryCount = getBBInfo(&*F.begin()).CountValue;
-  uint64_t FuncMaxCount = FuncEntryCount;
-  for (auto &BB : F) {
+  for (auto &BB : F)
     assert(getBBInfo(&BB).CountValid && "BB count is not valid");
-    uint64_t Count = getBBInfo(&BB).CountValue;
-    if (Count > FuncMaxCount)
-      FuncMaxCount = Count;
-  }
+#endif
+  uint64_t FuncEntryCount = getBBInfo(&*F.begin()).CountValue;
+  F.setEntryCount(FuncEntryCount);
+  uint64_t FuncMaxCount = FuncEntryCount;
+  for (auto &BB : F)
+    FuncMaxCount = std::max(FuncMaxCount, getBBInfo(&BB).CountValue);
   markFunctionAttributes(FuncEntryCount, FuncMaxCount);
 
   DEBUG(FuncInfo.dumpInfo("after reading profile."));
@@ -748,12 +756,14 @@ void PGOUseFunc::annotateIndirectCallSites() {
   if (DisableValueProfiling)
     return;
 
+  // Create the PGOFuncName meta data.
+  createPGOFuncNameMetadata(F, FuncInfo.FuncName);
+
   unsigned IndirectCallSiteIndex = 0;
-  PGOIndirectCallSiteVisitor ICV;
-  ICV.visit(F);
+  auto IndirectCallSites = findIndirectCallSites(F);
   unsigned NumValueSites =
       ProfileRecord.getNumValueSites(IPVK_IndirectCallTarget);
-  if (NumValueSites != ICV.IndirectCallInsts.size()) {
+  if (NumValueSites != IndirectCallSites.size()) {
     std::string Msg =
         std::string("Inconsistent number of indirect call sites: ") +
         F.getName().str();
@@ -763,7 +773,7 @@ void PGOUseFunc::annotateIndirectCallSites() {
     return;
   }
 
-  for (auto &I : ICV.IndirectCallInsts) {
+  for (auto &I : IndirectCallSites) {
     DEBUG(dbgs() << "Read one indirect call instrumentation: Index="
                  << IndirectCallSiteIndex << " out of " << NumValueSites
                  << "\n");
@@ -785,51 +795,79 @@ static void createIRLevelProfileFlagVariable(Module &M) {
       INSTR_PROF_QUOTE(IR_LEVEL_PROF_VERSION_VAR));
   IRLevelVersionVariable->setVisibility(GlobalValue::DefaultVisibility);
   Triple TT(M.getTargetTriple());
-  if (TT.isOSBinFormatMachO())
-    IRLevelVersionVariable->setLinkage(GlobalValue::LinkOnceODRLinkage);
+  if (!TT.supportsCOMDAT())
+    IRLevelVersionVariable->setLinkage(GlobalValue::WeakAnyLinkage);
   else
     IRLevelVersionVariable->setComdat(M.getOrInsertComdat(
         StringRef(INSTR_PROF_QUOTE(IR_LEVEL_PROF_VERSION_VAR))));
 }
 
-bool PGOInstrumentationGen::runOnModule(Module &M) {
+static bool InstrumentAllFunctions(
+    Module &M, function_ref<BranchProbabilityInfo *(Function &)> LookupBPI,
+    function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
   createIRLevelProfileFlagVariable(M);
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
-    BranchProbabilityInfo *BPI =
-        &(getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI());
-    BlockFrequencyInfo *BFI =
-        &(getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI());
+    auto *BPI = LookupBPI(F);
+    auto *BFI = LookupBFI(F);
     instrumentOneFunc(F, &M, BPI, BFI);
   }
   return true;
 }
 
-static void setPGOCountOnFunc(PGOUseFunc &Func,
-                              IndexedInstrProfReader *PGOReader) {
-  if (Func.readCounters(PGOReader)) {
-    Func.populateCounters();
-    Func.setBranchWeights();
-    Func.annotateIndirectCallSites();
-  }
+bool PGOInstrumentationGenLegacyPass::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
+  auto LookupBPI = [this](Function &F) {
+    return &this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
+  };
+  auto LookupBFI = [this](Function &F) {
+    return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
+  };
+  return InstrumentAllFunctions(M, LookupBPI, LookupBFI);
 }
 
-bool PGOInstrumentationUse::runOnModule(Module &M) {
+PreservedAnalyses PGOInstrumentationGen::run(Module &M,
+                                             AnalysisManager<Module> &AM) {
+
+  auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  auto LookupBPI = [&FAM](Function &F) {
+    return &FAM.getResult<BranchProbabilityAnalysis>(F);
+  };
+
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
+  };
+
+  if (!InstrumentAllFunctions(M, LookupBPI, LookupBFI))
+    return PreservedAnalyses::all();
+
+  return PreservedAnalyses::none();
+}
+
+static bool annotateAllFunctions(
+    Module &M, StringRef ProfileFileName,
+    function_ref<BranchProbabilityInfo *(Function &)> LookupBPI,
+    function_ref<BlockFrequencyInfo *(Function &)> LookupBFI) {
   DEBUG(dbgs() << "Read in profile counters: ");
   auto &Ctx = M.getContext();
   // Read the counter array from file.
   auto ReaderOrErr = IndexedInstrProfReader::create(ProfileFileName);
-  if (std::error_code EC = ReaderOrErr.getError()) {
-    Ctx.diagnose(
-        DiagnosticInfoPGOProfile(ProfileFileName.data(), EC.message()));
+  if (Error E = ReaderOrErr.takeError()) {
+    handleAllErrors(std::move(E), [&](const ErrorInfoBase &EI) {
+      Ctx.diagnose(
+          DiagnosticInfoPGOProfile(ProfileFileName.data(), EI.message()));
+    });
     return false;
   }
 
-  PGOReader = std::move(ReaderOrErr.get());
+  std::unique_ptr<IndexedInstrProfReader> PGOReader =
+      std::move(ReaderOrErr.get());
   if (!PGOReader) {
     Ctx.diagnose(DiagnosticInfoPGOProfile(ProfileFileName.data(),
-                                          "Cannot get PGOReader"));
+                                          StringRef("Cannot get PGOReader")));
     return false;
   }
   // TODO: might need to change the warning once the clang option is finalized.
@@ -841,23 +879,31 @@ bool PGOInstrumentationUse::runOnModule(Module &M) {
 
   std::vector<Function *> HotFunctions;
   std::vector<Function *> ColdFunctions;
+  InstrProfSummaryBuilder Builder(ProfileSummaryBuilder::DefaultCutoffs);
   for (auto &F : M) {
     if (F.isDeclaration())
       continue;
-    BranchProbabilityInfo *BPI =
-        &(getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI());
-    BlockFrequencyInfo *BFI =
-        &(getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI());
+    auto *BPI = LookupBPI(F);
+    auto *BFI = LookupBFI(F);
     PGOUseFunc Func(F, &M, BPI, BFI);
-    setPGOCountOnFunc(Func, PGOReader.get());
+    if (!Func.readCounters(PGOReader.get()))
+      continue;
+    Func.populateCounters();
+    Func.setBranchWeights();
+    Func.annotateIndirectCallSites();
+    if (!Func.getProfileRecord().Counts.empty())
+      Builder.addRecord(Func.getProfileRecord());
     PGOUseFunc::FuncFreqAttr FreqAttr = Func.getFuncFreqAttr();
     if (FreqAttr == PGOUseFunc::FFA_Cold)
       ColdFunctions.push_back(&F);
     else if (FreqAttr == PGOUseFunc::FFA_Hot)
       HotFunctions.push_back(&F);
   }
-
+  M.setProfileSummary(Builder.getSummary()->getMD(M.getContext()));
   // Set function hotness attribute from the profile.
+  // We have to apply these attributes at the end because their presence
+  // can affect the BranchProbabilityInfo of any callers, resulting in an
+  // inconsistent MST between prof-gen and prof-use.
   for (auto &F : HotFunctions) {
     F->addFnAttr(llvm::Attribute::InlineHint);
     DEBUG(dbgs() << "Set inline attribute to function: " << F->getName()
@@ -869,4 +915,42 @@ bool PGOInstrumentationUse::runOnModule(Module &M) {
   }
 
   return true;
+}
+
+PGOInstrumentationUse::PGOInstrumentationUse(std::string Filename)
+    : ProfileFileName(std::move(Filename)) {
+  if (!PGOTestProfileFile.empty())
+    ProfileFileName = PGOTestProfileFile;
+}
+
+PreservedAnalyses PGOInstrumentationUse::run(Module &M,
+                                             AnalysisManager<Module> &AM) {
+
+  auto &FAM = AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  auto LookupBPI = [&FAM](Function &F) {
+    return &FAM.getResult<BranchProbabilityAnalysis>(F);
+  };
+
+  auto LookupBFI = [&FAM](Function &F) {
+    return &FAM.getResult<BlockFrequencyAnalysis>(F);
+  };
+
+  if (!annotateAllFunctions(M, ProfileFileName, LookupBPI, LookupBFI))
+    return PreservedAnalyses::all();
+
+  return PreservedAnalyses::none();
+}
+
+bool PGOInstrumentationUseLegacyPass::runOnModule(Module &M) {
+  if (skipModule(M))
+    return false;
+
+  auto LookupBPI = [this](Function &F) {
+    return &this->getAnalysis<BranchProbabilityInfoWrapperPass>(F).getBPI();
+  };
+  auto LookupBFI = [this](Function &F) {
+    return &this->getAnalysis<BlockFrequencyInfoWrapperPass>(F).getBFI();
+  };
+
+  return annotateAllFunctions(M, ProfileFileName, LookupBPI, LookupBFI);
 }

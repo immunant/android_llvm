@@ -428,12 +428,14 @@ static BasicBlock *HandleCallsInBlockInlinedThroughInvoke(
       continue;
 
     // We do not need to (and in fact, cannot) convert possibly throwing calls
-    // to @llvm.experimental_deoptimize into invokes.  The caller's "segment" of
-    // the deoptimization continuation attached to the newly inlined
-    // @llvm.experimental_deoptimize call should contain the exception handling
-    // logic, if any.
+    // to @llvm.experimental_deoptimize (resp. @llvm.experimental.guard) into
+    // invokes.  The caller's "segment" of the deoptimization continuation
+    // attached to the newly inlined @llvm.experimental_deoptimize
+    // (resp. @llvm.experimental.guard) call should contain the exception
+    // handling logic, if any.
     if (auto *F = CI->getCalledFunction())
-      if (F->getIntrinsicID() == Intrinsic::experimental_deoptimize)
+      if (F->getIntrinsicID() == Intrinsic::experimental_deoptimize ||
+          F->getIntrinsicID() == Intrinsic::experimental_guard)
         continue;
 
     if (auto FuncletBundle = CI->getOperandBundle(LLVMContext::OB_funclet)) {
@@ -684,6 +686,34 @@ static void HandleInlinedEHPad(InvokeInst *II, BasicBlock *FirstNewBlock,
   // invoke instruction. Eliminate these entries (which might even delete the
   // PHI node) now.
   UnwindDest->removePredecessor(InvokeBB);
+}
+
+/// When inlining a call site that has !llvm.mem.parallel_loop_access metadata,
+/// that metadata should be propagated to all memory-accessing cloned
+/// instructions.
+static void PropagateParallelLoopAccessMetadata(CallSite CS,
+                                                ValueToValueMapTy &VMap) {
+  MDNode *M =
+    CS.getInstruction()->getMetadata(LLVMContext::MD_mem_parallel_loop_access);
+  if (!M)
+    return;
+
+  for (ValueToValueMapTy::iterator VMI = VMap.begin(), VMIE = VMap.end();
+       VMI != VMIE; ++VMI) {
+    if (!VMI->second)
+      continue;
+
+    Instruction *NI = dyn_cast<Instruction>(VMI->second);
+    if (!NI)
+      continue;
+
+    if (MDNode *PM = NI->getMetadata(LLVMContext::MD_mem_parallel_loop_access)) {
+        M = MDNode::concatenate(PM, M);
+      NI->setMetadata(LLVMContext::MD_mem_parallel_loop_access, M);
+    } else if (NI->mayReadOrWriteMemory()) {
+      NI->setMetadata(LLVMContext::MD_mem_parallel_loop_access, M);
+    }
+  }
 }
 
 /// When inlining a function that contains noalias scope metadata,
@@ -1572,6 +1602,9 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
     // Add noalias metadata if necessary.
     AddAliasScopeMetadata(CS, VMap, DL, CalleeAAR);
 
+    // Propagate llvm.mem.parallel_loop_access if necessary.
+    PropagateParallelLoopAccessMetadata(CS, VMap);
+
     // FIXME: We could register any cloned assumptions instead of clearing the
     // whole function's cache.
     if (IFI.ACT)
@@ -1701,10 +1734,13 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
 
       builder.CreateLifetimeStart(AI, AllocaSize);
       for (ReturnInst *RI : Returns) {
-        // Don't insert llvm.lifetime.end calls between a musttail call and a
-        // return.  The return kills all local allocas.
+        // Don't insert llvm.lifetime.end calls between a musttail or deoptimize
+        // call and a return.  The return kills all local allocas.
         if (InlinedMustTailCalls &&
             RI->getParent()->getTerminatingMustTailCall())
+          continue;
+        if (InlinedDeoptimizeCalls &&
+            RI->getParent()->getTerminatingDeoptimizeCall())
           continue;
         IRBuilder<>(RI).CreateLifetimeEnd(AI, AllocaSize);
       }
@@ -1726,9 +1762,11 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
     // Insert a call to llvm.stackrestore before any return instructions in the
     // inlined function.
     for (ReturnInst *RI : Returns) {
-      // Don't insert llvm.stackrestore calls between a musttail call and a
-      // return.  The return will restore the stack pointer.
+      // Don't insert llvm.stackrestore calls between a musttail or deoptimize
+      // call and a return.  The return will restore the stack pointer.
       if (InlinedMustTailCalls && RI->getParent()->getTerminatingMustTailCall())
+        continue;
+      if (InlinedDeoptimizeCalls && RI->getParent()->getTerminatingDeoptimizeCall())
         continue;
       IRBuilder<>(RI).CreateCall(StackRestore, SavedPtr);
     }
@@ -1836,6 +1874,13 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
           continue;
         }
 
+        // The calling convention on the deoptimize call itself may be bogus,
+        // since the code we're inlining may have undefined behavior (and may
+        // never actually execute at runtime); but all
+        // @llvm.experimental.deoptimize declarations have to have the same
+        // calling convention in a well-formed module.
+        auto CallingConv = DeoptCall->getCalledFunction()->getCallingConv();
+        NewDeoptIntrinsic->setCallingConv(CallingConv);
         auto *CurBB = RI->getParent();
         RI->eraseFromParent();
 
@@ -1849,8 +1894,9 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
                "Expected at least the deopt operand bundle");
 
         IRBuilder<> Builder(CurBB);
-        Value *NewDeoptCall =
+        CallInst *NewDeoptCall =
             Builder.CreateCall(NewDeoptIntrinsic, CallArgs, OpBundles);
+        NewDeoptCall->setCallingConv(CallingConv);
         if (NewDeoptCall->getType()->isVoidTy())
           Builder.CreateRetVoid();
         else

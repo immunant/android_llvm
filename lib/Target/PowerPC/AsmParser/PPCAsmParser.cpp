@@ -11,8 +11,6 @@
 #include "MCTargetDesc/PPCMCTargetDesc.h"
 #include "PPCTargetStreamer.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCContext.h"
@@ -294,7 +292,7 @@ public:
                const MCInstrInfo &MII, const MCTargetOptions &Options)
     : MCTargetAsmParser(Options, STI), MII(MII) {
     // Check for 64-bit vs. 32-bit pointer mode.
-    Triple TheTriple(STI.getTargetTriple());
+    const Triple &TheTriple = STI.getTargetTriple();
     IsPPC64 = (TheTriple.getArch() == Triple::ppc64 ||
                TheTriple.getArch() == Triple::ppc64le);
     IsDarwin = TheTriple.isMacOSX();
@@ -1197,6 +1195,29 @@ void PPCAsmParser::ProcessInstruction(MCInst &Inst,
       assert(Inst.getNumOperands() == 2 && "Expecting two operands");
       Inst.setOpcode(PPC::MFSPR);
     }
+    break;
+  }
+  case PPC::CP_COPYx:
+  case PPC::CP_COPY_FIRST: {
+    MCInst TmpInst;
+    TmpInst.setOpcode(PPC::CP_COPY);
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(MCOperand::createImm(Opcode == PPC::CP_COPYx ? 0 : 1));
+
+    Inst = TmpInst;
+    break;
+  }
+  case PPC::CP_PASTEx :
+  case PPC::CP_PASTE_LAST: {
+    MCInst TmpInst;
+    TmpInst.setOpcode(Opcode == PPC::CP_PASTEx ?
+                      PPC::CP_PASTE : PPC::CP_PASTEo);
+    TmpInst.addOperand(Inst.getOperand(0));
+    TmpInst.addOperand(Inst.getOperand(1));
+    TmpInst.addOperand(MCOperand::createImm(Opcode == PPC::CP_PASTEx ? 0 : 1));
+
+    Inst = TmpInst;
     break;
   }
   }

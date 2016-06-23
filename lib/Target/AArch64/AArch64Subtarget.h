@@ -14,12 +14,12 @@
 #ifndef LLVM_LIB_TARGET_AARCH64_AARCH64SUBTARGET_H
 #define LLVM_LIB_TARGET_AARCH64_AARCH64SUBTARGET_H
 
-#include "AArch64CallLowering.h"
 #include "AArch64FrameLowering.h"
 #include "AArch64ISelLowering.h"
 #include "AArch64InstrInfo.h"
 #include "AArch64RegisterInfo.h"
 #include "AArch64SelectionDAGInfo.h"
+#include "llvm/CodeGen/GlobalISel/GISelAccessor.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include <string>
@@ -45,27 +45,27 @@ protected:
   };
 
   /// ARMProcFamily - ARM processor family: Cortex-A53, Cortex-A57, and others.
-  ARMProcFamilyEnum ARMProcFamily;
+  ARMProcFamilyEnum ARMProcFamily = Others;
 
-  bool HasV8_1aOps;
-  bool HasV8_2aOps;
+  bool HasV8_1aOps = false;
+  bool HasV8_2aOps = false;
 
-  bool HasFPARMv8;
-  bool HasNEON;
-  bool HasCrypto;
-  bool HasCRC;
-  bool HasPerfMon;
-  bool HasFullFP16;
-  bool HasSPE;
+  bool HasFPARMv8 = false;
+  bool HasNEON = false;
+  bool HasCrypto = false;
+  bool HasCRC = false;
+  bool HasPerfMon = false;
+  bool HasFullFP16 = false;
+  bool HasSPE = false;
 
   // HasZeroCycleRegMove - Has zero-cycle register mov instructions.
-  bool HasZeroCycleRegMove;
+  bool HasZeroCycleRegMove = false;
 
   // HasZeroCycleZeroing - Has zero-cycle zeroing instructions.
-  bool HasZeroCycleZeroing;
+  bool HasZeroCycleZeroing = false;
 
   // StrictAlign - Disallow unaligned memory accesses.
-  bool StrictAlign;
+  bool StrictAlign = false;
 
   // ReserveX18 - X18 is not available as a general purpose register.
   bool ReserveX18;
@@ -82,7 +82,10 @@ protected:
   AArch64InstrInfo InstrInfo;
   AArch64SelectionDAGInfo TSInfo;
   AArch64TargetLowering TLInfo;
-  mutable std::unique_ptr<AArch64CallLowering> CallLoweringInfo;
+  /// Gather the accessor points to GlobalISel-related APIs.
+  /// This is used to avoid ifndefs spreading around while GISel is
+  /// an optional library.
+  std::unique_ptr<GISelAccessor> GISel;
 
 private:
   /// initializeSubtargetDependencies - Initializes using CPUString and the
@@ -96,6 +99,11 @@ public:
   AArch64Subtarget(const Triple &TT, const std::string &CPU,
                    const std::string &FS, const TargetMachine &TM,
                    bool LittleEndian);
+
+  /// This object will take onwership of \p GISelAccessor.
+  void setGISelAccessor(GISelAccessor &GISel) {
+    this->GISel.reset(&GISel);
+  }
 
   const AArch64SelectionDAGInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
@@ -111,6 +119,7 @@ public:
     return &getInstrInfo()->getRegisterInfo();
   }
   const CallLowering *getCallLowering() const override;
+  const RegisterBankInfo *getRegBankInfo() const override;
   const Triple &getTargetTriple() const { return TargetTriple; }
   bool enableMachineScheduler() const override { return true; }
   bool enablePostRAScheduler() const override {

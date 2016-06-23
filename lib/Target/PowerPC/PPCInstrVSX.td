@@ -775,7 +775,9 @@ let Uses = [RM] in {
                        "xxsldwi $XT, $XA, $XB, $SHW", IIC_VecPerm, []>;
   def XXSPLTW : XX2Form_2<60, 164,
                        (outs vsrc:$XT), (ins vsrc:$XB, u2imm:$UIM),
-                       "xxspltw $XT, $XB, $UIM", IIC_VecPerm, []>;
+                       "xxspltw $XT, $XB, $UIM", IIC_VecPerm,
+                       [(set v4i32:$XT,
+                             (PPCxxsplt v4i32:$XB, imm32SExt16:$UIM))]>;
 } // hasSideEffects
 
 // SELECT_CC_* - Used to implement the SELECT_CC DAG operation.  Expanded after
@@ -1216,7 +1218,7 @@ let AddedComplexity = 400 in { // Prefer VSX patterns over non-VSX patterns.
 } // AddedComplexity = 400
 } // HasP8Vector
 
-let Predicates = [HasDirectMove, HasVSX] in {
+let Predicates = [HasDirectMove] in {
   // VSX direct move instructions
   def MFVSRD : XX1_RS6_RD5_XO<31, 51, (outs g8rc:$rA), (ins vsfrc:$XT),
                               "mfvsrd $rA, $XT", IIC_VecGeneral,
@@ -1235,7 +1237,22 @@ let Predicates = [HasDirectMove, HasVSX] in {
   def MTVSRWZ : XX1_RS6_RD5_XO<31, 243, (outs vsfrc:$XT), (ins gprc:$rA),
                                "mtvsrwz $XT, $rA", IIC_VecGeneral,
                                [(set f64:$XT, (PPCmtvsrz i32:$rA))]>;
-} // HasDirectMove, HasVSX
+} // HasDirectMove
+
+let Predicates = [IsISA3_0, HasDirectMove] in {
+  def MTVSRWS: XX1_RS6_RD5_XO<31, 403, (outs vsrc:$XT), (ins gprc:$rA),
+                              "mtvsrws $XT, $rA", IIC_VecGeneral,
+                              []>;
+
+  def MTVSRDD: XX1Form<31, 435, (outs vsrc:$XT), (ins g8rc:$rA, g8rc:$rB),
+                       "mtvsrdd $XT, $rA, $rB", IIC_VecGeneral,
+                       []>, Requires<[In64BitMode]>;
+
+  def MFVSRLD: XX1_RS6_RD5_XO<31, 307, (outs g8rc:$rA), (ins vsrc:$XT),
+                              "mfvsrld $rA, $XT", IIC_VecGeneral,
+                              []>, Requires<[In64BitMode]>;
+
+} // IsISA3_0, HasDirectMove
 
 /*  Direct moves of various widths from GPR's into VSR's. Each move lines
     the value up into element 0 (both BE and LE). Namely, entities smaller than
