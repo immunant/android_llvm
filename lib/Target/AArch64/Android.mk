@@ -16,6 +16,12 @@ aarch64_codegen_TBLGEN_TABLES := \
 
 aarch64_codegen_SRC_FILES := $(sort $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)))
 
+# Global ISEL is an experimental feature.  If LLVM_BUILD_GLOBAL_ISEL is not
+# set, these files fail compilation based on a macro check.
+aarch64_global_isel_SRC_FILES := AArch64CallLowering.cpp \
+                                 AArch64RegisterBankInfo.cpp
+aarch64_codegen_SRC_FILES := $(filter-out $(aarch64_global_isel_SRC_FILES),$(aarch64_codegen_SRC_FILES))
+
 # For the host
 # =====================================================
 include $(CLEAR_VARS)

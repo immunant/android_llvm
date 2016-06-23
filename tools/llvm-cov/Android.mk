@@ -19,6 +19,7 @@ llvm_cov_SRC_FILES := \
 
 llvm_cov_STATIC_LIBRARIES := \
   libLLVMObject              \
+  libLLVMProfileDataCoverage \
   libLLVMProfileData         \
   libLLVMMC                  \
   libLLVMMCParser            \

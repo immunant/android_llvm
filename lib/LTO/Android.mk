@@ -1,9 +1,6 @@
 LOCAL_PATH:= $(call my-dir)
 
-lto_SRC_FILES := \
-  LTOModule.cpp \
-  LTOCodeGenerator.cpp \
-  ThinLTOCodeGenerator.cpp \
+lto_SRC_FILES := $(sort $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)))
 
 # For the host
 # =====================================================

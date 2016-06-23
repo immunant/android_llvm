@@ -7,8 +7,7 @@ LLVM_ROOT_PATH := $(LOCAL_PATH)/../..
 # llvm-dwp command line tool
 #===---------------------------------------------------------------===
 
-llvm_dwp_SRC_FILES := \
-  llvm-dwp.cpp
+llvm_dwp_SRC_FILES := $(sort $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)))
 
 llvm_dwp_STATIC_LIBRARIES := \
   libLLVMDebugInfoDWARF \

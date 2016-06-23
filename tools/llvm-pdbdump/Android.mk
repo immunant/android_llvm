@@ -18,6 +18,7 @@ llvm_pdbdump_SRC_FILES := \
 
 llvm_pdbdump_STATIC_LIBRARIES := \
   libLLVMDebugInfoPDB \
+  libLLVMDebugInfoCodeView \
   libLLVMSupport
 
 include $(CLEAR_VARS)

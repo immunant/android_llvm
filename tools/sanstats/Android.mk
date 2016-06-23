@@ -14,6 +14,7 @@ llvm_sanstats_STATIC_LIBRARIES := \
   libLLVMSymbolize \
   libLLVMDebugInfoDWARF \
   libLLVMDebugInfoPDB \
+  libLLVMDebugInfoCodeView \
   libLLVMObject \
   libLLVMBitReader \
   libLLVMCore \
