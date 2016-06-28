@@ -296,8 +296,9 @@ LLVMSymbolizer::getOrCreateObject(const std::string &Path,
   const auto &I = BinaryForPath.find(Path);
   Binary *Bin = nullptr;
   if (I == BinaryForPath.end()) {
-    ErrorOr<OwningBinary<Binary>> BinOrErr = createBinary(Path);
-    if (auto EC = BinOrErr.getError()) {
+    Expected<OwningBinary<Binary>> BinOrErr = createBinary(Path);
+    if (!BinOrErr) {
+      auto EC = errorToErrorCode(BinOrErr.takeError());
       BinaryForPath.insert(std::make_pair(Path, EC));
       return EC;
     }
@@ -318,9 +319,10 @@ LLVMSymbolizer::getOrCreateObject(const std::string &Path,
         return EC;
       return I->second->get();
     }
-    ErrorOr<std::unique_ptr<ObjectFile>> ObjOrErr =
+    Expected<std::unique_ptr<ObjectFile>> ObjOrErr =
         UB->getObjectForArch(ArchName);
-    if (auto EC = ObjOrErr.getError()) {
+    if (!ObjOrErr) {
+      auto EC = errorToErrorCode(ObjOrErr.takeError());
       ObjectForUBPathAndArch.insert(
           std::make_pair(std::make_pair(Path, ArchName), EC));
       return EC;
@@ -366,13 +368,18 @@ LLVMSymbolizer::getOrCreateModuleInfo(const std::string &ModuleName) {
 
   std::unique_ptr<DIContext> Context;
   if (auto CoffObject = dyn_cast<COFFObjectFile>(Objects.first)) {
+    using namespace pdb;
     // If this is a COFF object, assume it contains PDB debug information.  If
     // we don't find any we will fall back to the DWARF case.
     std::unique_ptr<IPDBSession> Session;
-    PDB_ErrorCode Error = loadDataForEXE(PDB_ReaderType::DIA,
-                                         Objects.first->getFileName(), Session);
-    if (Error == PDB_ErrorCode::Success) {
+    auto Error = loadDataForEXE(
+        PDB_ReaderType::DIA, Objects.first->getFileName(), Session);
+    if (!Error) {
       Context.reset(new PDBContext(*CoffObject, std::move(Session)));
+    } else {
+      // Drop error
+      handleAllErrors(std::move(Error),
+                      [](const ErrorInfoBase &) { return Error::success(); });
     }
   }
   if (!Context)

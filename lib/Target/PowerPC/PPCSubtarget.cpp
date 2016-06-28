@@ -84,7 +84,6 @@ void PPCSubtarget::initializeEnvironment() {
   HasFPRND = false;
   HasFPCVT = false;
   HasISEL = false;
-  HasPOPCNTD = false;
   HasBPERMD = false;
   HasExtDiv = false;
   HasCMPB = false;
@@ -105,7 +104,9 @@ void PPCSubtarget::initializeEnvironment() {
   HasHTM = false;
   HasFusion = false;
   HasFloat128 = false;
-  SlowPOPCNTD = false;
+  IsISA3_0 = false;
+
+  HasPOPCNTD = POPCNTD_Unavailable;
 }
 
 void PPCSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
@@ -169,6 +170,8 @@ static bool needsAggressiveScheduling(unsigned Directive) {
   case PPC::DIR_E5500:
   case PPC::DIR_PWR7:
   case PPC::DIR_PWR8:
+  // FIXME: Same as P8 until POWER9 scheduling info is available
+  case PPC::DIR_PWR9:
     return true;
   }
 }

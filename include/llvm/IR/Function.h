@@ -19,7 +19,6 @@
 #define LLVM_IR_FUNCTION_H
 
 #include "llvm/ADT/iterator_range.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -30,6 +29,7 @@
 
 namespace llvm {
 
+template <typename T> class Optional;
 class FunctionType;
 class LLVMContext;
 class DISubprogram;
@@ -72,13 +72,8 @@ private:
   /// Bits from GlobalObject::GlobalObjectSubclassData.
   enum {
     /// Whether this function is materializable.
-    IsMaterializableBit = 1 << 0,
-    HasMetadataHashEntryBit = 1 << 1
+    IsMaterializableBit = 0,
   };
-  void setGlobalObjectBit(unsigned Mask, bool Value) {
-    setGlobalObjectSubClassData((~Mask & getGlobalObjectSubClassData()) |
-                                (Value ? Mask : 0u));
-  }
 
   friend class SymbolTableListTraits<Function>;
 
@@ -88,9 +83,12 @@ private:
   /// built on demand, so that the list isn't allocated until the first client
   /// needs it.  The hasLazyArguments predicate returns true if the arg list
   /// hasn't been set up yet.
+public:
   bool hasLazyArguments() const {
     return getSubclassDataFromValue() & (1<<0);
   }
+
+private:
   void CheckLazyArguments() const {
     if (hasLazyArguments())
       BuildLazyArguments();
@@ -228,7 +226,7 @@ public:
     return getSubclassDataFromValue() & (1<<14);
   }
   const std::string &getGC() const;
-  void setGC(const std::string Str);
+  void setGC(std::string Str);
   void clearGC();
 
   /// @brief adds the attribute to the list of attributes.
@@ -442,6 +440,12 @@ public:
   ///
   void eraseFromParent() override;
 
+  /// Steal arguments from another function.
+  ///
+  /// Drop this function's arguments and splice in the ones from \c Src.
+  /// Requires that this has no function body.
+  void stealArgumentListFrom(Function &Src);
+
   /// Get the underlying elements of the Function... the basic block list is
   /// empty for external functions.
   ///
@@ -605,35 +609,6 @@ public:
   /// setjmp or other function that gcc recognizes as "returning twice".
   bool callsFunctionThatReturnsTwice() const;
 
-  /// \brief Check if this has any metadata.
-  bool hasMetadata() const { return hasMetadataHashEntry(); }
-
-  /// \brief Get the current metadata attachment, if any.
-  ///
-  /// Returns \c nullptr if such an attachment is missing.
-  /// @{
-  MDNode *getMetadata(unsigned KindID) const;
-  MDNode *getMetadata(StringRef Kind) const;
-  /// @}
-
-  /// \brief Set a particular kind of metadata attachment.
-  ///
-  /// Sets the given attachment to \c MD, erasing it if \c MD is \c nullptr or
-  /// replacing it if it already exists.
-  /// @{
-  void setMetadata(unsigned KindID, MDNode *MD);
-  void setMetadata(StringRef Kind, MDNode *MD);
-  /// @}
-
-  /// \brief Get all current metadata attachments.
-  void
-  getAllMetadata(SmallVectorImpl<std::pair<unsigned, MDNode *>> &MDs) const;
-
-  /// \brief Drop metadata not in the given list.
-  ///
-  /// Drop all metadata from \c this not included in \c KnownIDs.
-  void dropUnknownMetadata(ArrayRef<unsigned> KnownIDs);
-
   /// \brief Set the attached subprogram.
   ///
   /// Calls \a setMetadata() with \a LLVMContext::MD_dbg.
@@ -655,15 +630,6 @@ private:
     Value::setValueSubclassData(D);
   }
   void setValueSubclassDataBit(unsigned Bit, bool On);
-
-  bool hasMetadataHashEntry() const {
-    return getGlobalObjectSubClassData() & HasMetadataHashEntryBit;
-  }
-  void setHasMetadataHashEntry(bool HasEntry) {
-    setGlobalObjectBit(HasMetadataHashEntryBit, HasEntry);
-  }
-
-  void clearMetadata();
 };
 
 template <>

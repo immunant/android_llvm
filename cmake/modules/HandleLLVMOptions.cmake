@@ -44,6 +44,11 @@ if( LLVM_ENABLE_ASSERTIONS )
   endif()
 endif()
 
+if(LLVM_ENABLE_EXPENSIVE_CHECKS)
+  add_definitions(-DEXPENSIVE_CHECKS)
+  add_definitions(-D_GLIBCXX_DEBUG)
+endif()
+
 string(TOUPPER "${LLVM_ABI_BREAKING_CHECKS}" uppercase_LLVM_ABI_BREAKING_CHECKS)
 
 if( uppercase_LLVM_ABI_BREAKING_CHECKS STREQUAL "WITH_ASSERTS" )
@@ -347,17 +352,15 @@ if( MSVC )
   # "Enforce type conversion rules".
   append("/Zc:rvalueCast" CMAKE_CXX_FLAGS)
 
-  if (NOT LLVM_ENABLE_TIMESTAMPS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # clang-cl and cl by default produce non-deterministic binaries because
     # link.exe /incremental requires a timestamp in the .obj file.  clang-cl
-    # has the flag /Brepro to force deterministic binaries, so pass that when
-    # LLVM_ENABLE_TIMESTAMPS is turned off.
+    # has the flag /Brepro to force deterministic binaries. We want to pass that
+    # whenever you're building with clang unless you're passing /incremental.
     # This checks CMAKE_CXX_COMPILER_ID in addition to check_cxx_compiler_flag()
     # because cl.exe does not emit an error on flags it doesn't understand,
     # letting check_cxx_compiler_flag() claim it understands all flags.
     check_cxx_compiler_flag("/Brepro" SUPPORTS_BREPRO)
-    append_if(SUPPORTS_BREPRO "/Brepro" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
-
     if (SUPPORTS_BREPRO)
       # Check if /INCREMENTAL is passed to the linker and complain that it
       # won't work with /Brepro.
@@ -365,14 +368,13 @@ if( MSVC )
       string(TOUPPER "${CMAKE_MODULE_LINKER_FLAGS}" upper_module_flags)
       string(TOUPPER "${CMAKE_SHARED_LINKER_FLAGS}" upper_shared_flags)
 
-      string(FIND "${upper_exe_flags}" "/INCREMENTAL" exe_index)
-      string(FIND "${upper_module_flags}" "/INCREMENTAL" module_index)
-      string(FIND "${upper_shared_flags}" "/INCREMENTAL" shared_index)
+      string(FIND "${upper_exe_flags} ${upper_module_flags} ${upper_shared_flags}"
+        "/INCREMENTAL" linker_flag_idx)
       
-      if (${exe_index} GREATER -1 OR
-          ${module_index} GREATER -1 OR
-          ${shared_index} GREATER -1)
-        message(FATAL_ERROR "LLVM_ENABLE_TIMESTAMPS not compatible with /INCREMENTAL linking")
+      if (${linker_flag_idx} GREATER -1)
+        message(WARNING "/Brepro not compatible with /INCREMENTAL linking - builds will be non-deterministic")
+      else()
+        append("/Brepro" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
       endif()
     endif()
   endif()
@@ -438,9 +440,7 @@ elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
     endif()
   endif (LLVM_ENABLE_WARNINGS)
   append_if(LLVM_ENABLE_WERROR "-Werror" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
-  if (NOT LLVM_ENABLE_TIMESTAMPS)
-    add_flag_if_supported("-Werror=date-time" WERROR_DATE_TIME)
-  endif ()
+  add_flag_if_supported("-Werror=date-time" WERROR_DATE_TIME)
   if (LLVM_ENABLE_CXX1Y)
     check_cxx_compiler_flag("-std=c++1y" CXX_SUPPORTS_CXX1Y)
     append_if(CXX_SUPPORTS_CXX1Y "-std=c++1y" CMAKE_CXX_FLAGS)
@@ -460,7 +460,7 @@ elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
   endif()
   if (LLVM_ENABLE_MODULES)
     set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
-    set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fmodules")
+    set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fmodules -Xclang -fmodules-local-submodule-visibility -fmodules-cache-path=module.cache")
     # Check that we can build code with modules enabled, and that repeatedly
     # including <cassert> still manages to respect NDEBUG properly.
     CHECK_CXX_SOURCE_COMPILES("#undef NDEBUG
@@ -471,8 +471,7 @@ elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
                                CXX_SUPPORTS_MODULES)
     set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
     if (CXX_SUPPORTS_MODULES)
-      append_if(CXX_SUPPORTS_MODULES "-fmodules" CMAKE_C_FLAGS)
-      append_if(CXX_SUPPORTS_MODULES "-fmodules -fcxx-modules" CMAKE_CXX_FLAGS)
+      append_if(CXX_SUPPORTS_MODULES "-fmodules -Xclang -fmodules-local-submodule-visibility -fmodules-cache-path=module.cache" CMAKE_CXX_FLAGS)
     else()
       message(FATAL_ERROR "LLVM_ENABLE_MODULES is not supported by this compiler")
     endif()
@@ -582,15 +581,6 @@ if(NOT CYGWIN AND NOT WIN32)
   endif()
 endif()
 
-if(CYGWIN OR MINGW)
-  # Prune --out-implib from executables. It doesn't make sense even
-  # with --export-all-symbols.
-  string(REGEX REPLACE "-Wl,--out-implib,[^ ]+ " " "
-    CMAKE_C_LINK_EXECUTABLE "${CMAKE_C_LINK_EXECUTABLE}")
-  string(REGEX REPLACE "-Wl,--out-implib,[^ ]+ " " "
-    CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE}")
-endif()
-
 if(MSVC)
   # Remove flags here, for exceptions and RTTI.
   # Each target property or source property should be responsible to control
@@ -626,6 +616,19 @@ elseif(uppercase_LLVM_ENABLE_LTO STREQUAL "FULL")
 elseif(LLVM_ENABLE_LTO)
   append("-flto" CMAKE_CXX_FLAGS CMAKE_C_FLAGS
                  CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+endif()
+
+# This option makes utils/extract_symbols.py be used to determine the list of
+# symbols to export from LLVM tools. This is necessary when using MSVC if you
+# want to allow plugins, though note that the plugin has to explicitly link
+# against (exactly one) tool so we can't unilaterally turn on
+# LLVM_ENABLE_PLUGINS when it's enabled.
+option(LLVM_EXPORT_SYMBOLS_FOR_PLUGINS "Export symbols from LLVM tools so that plugins can import them" OFF)
+if(BUILD_SHARED_LIBS AND LLVM_EXPORT_SYMBOLS_FOR_PLUGINS)
+  message(FATAL_ERROR "BUILD_SHARED_LIBS not compatible with LLVM_EXPORT_SYMBOLS_FOR_PLUGINS")
+endif()
+if(LLVM_LINK_LLVM_DYLIB AND LLVM_EXPORT_SYMBOLS_FOR_PLUGINS)
+  message(FATAL_ERROR "LLVM_LINK_LLVM_DYLIB not compatible with LLVM_EXPORT_SYMBOLS_FOR_PLUGINS")
 endif()
 
 # Plugin support

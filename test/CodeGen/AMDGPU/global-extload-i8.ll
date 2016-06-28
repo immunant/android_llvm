@@ -1,4 +1,4 @@
-; RUN: llc -march=amdgcn -mcpu=SI -verify-machineinstrs< %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -march=amdgcn -verify-machineinstrs< %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
 ; RUN: llc -march=amdgcn -mcpu=tonga -verify-machineinstrs< %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
 ; RUN: llc -march=r600 -mcpu=cypress < %s | FileCheck -check-prefix=EG -check-prefix=FUNC %s
 
@@ -151,8 +151,8 @@ define void @sextload_global_v16i8_to_v16i32(<16 x i32> addrspace(1)* %out, <16 
 ; }
 
 ; FUNC-LABEL: {{^}}zextload_global_i8_to_i64:
-; SI: buffer_load_ubyte v[[LO:[0-9]+]],
-; SI: v_mov_b32_e32 v[[HI:[0-9]+]], 0{{$}}
+; SI-DAG: buffer_load_ubyte v[[LO:[0-9]+]],
+; SI-DAG: v_mov_b32_e32 v[[HI:[0-9]+]], 0{{$}}
 ; SI: buffer_store_dwordx2 v{{\[}}[[LO]]:[[HI]]]
 define void @zextload_global_i8_to_i64(i64 addrspace(1)* %out, i8 addrspace(1)* %in) nounwind {
   %a = load i8, i8 addrspace(1)* %in
@@ -262,26 +262,26 @@ define void @sextload_global_v16i8_to_v16i64(<16 x i64> addrspace(1)* %out, <16 
   ret void
 }
 
-; XFUNC-LABEL: {{^}}zextload_global_v32i8_to_v32i64:
-; XSI: s_endpgm
-; define void @zextload_global_v32i8_to_v32i64(<32 x i64> addrspace(1)* %out, <32 x i8> addrspace(1)* nocapture %in) nounwind {
-;   %load = load <32 x i8>, <32 x i8> addrspace(1)* %in
-;   %ext = zext <32 x i8> %load to <32 x i64>
-;   store <32 x i64> %ext, <32 x i64> addrspace(1)* %out
-;   ret void
-; }
+; FUNC-LABEL: {{^}}zextload_global_v32i8_to_v32i64:
+; SI: s_endpgm
+define void @zextload_global_v32i8_to_v32i64(<32 x i64> addrspace(1)* %out, <32 x i8> addrspace(1)* nocapture %in) nounwind {
+  %load = load <32 x i8>, <32 x i8> addrspace(1)* %in
+  %ext = zext <32 x i8> %load to <32 x i64>
+  store <32 x i64> %ext, <32 x i64> addrspace(1)* %out
+  ret void
+}
 
-; XFUNC-LABEL: {{^}}sextload_global_v32i8_to_v32i64:
-; XSI: s_endpgm
-; define void @sextload_global_v32i8_to_v32i64(<32 x i64> addrspace(1)* %out, <32 x i8> addrspace(1)* nocapture %in) nounwind {
-;   %load = load <32 x i8>, <32 x i8> addrspace(1)* %in
-;   %ext = sext <32 x i8> %load to <32 x i64>
-;   store <32 x i64> %ext, <32 x i64> addrspace(1)* %out
-;   ret void
-; }
+; FUNC-LABEL: {{^}}sextload_global_v32i8_to_v32i64:
+; SI: s_endpgm
+define void @sextload_global_v32i8_to_v32i64(<32 x i64> addrspace(1)* %out, <32 x i8> addrspace(1)* nocapture %in) nounwind {
+  %load = load <32 x i8>, <32 x i8> addrspace(1)* %in
+  %ext = sext <32 x i8> %load to <32 x i64>
+  store <32 x i64> %ext, <32 x i64> addrspace(1)* %out
+  ret void
+}
 
-; XFUNC-LABEL: {{^}}zextload_global_v64i8_to_v64i64:
-; XSI: s_endpgm
+; ; XFUNC-LABEL: {{^}}zextload_global_v64i8_to_v64i64:
+; ; XSI: s_endpgm
 ; define void @zextload_global_v64i8_to_v64i64(<64 x i64> addrspace(1)* %out, <64 x i8> addrspace(1)* nocapture %in) nounwind {
 ;   %load = load <64 x i8>, <64 x i8> addrspace(1)* %in
 ;   %ext = zext <64 x i8> %load to <64 x i64>
@@ -289,8 +289,8 @@ define void @sextload_global_v16i8_to_v16i64(<16 x i64> addrspace(1)* %out, <16 
 ;   ret void
 ; }
 
-; XFUNC-LABEL: {{^}}sextload_global_v64i8_to_v64i64:
-; XSI: s_endpgm
+; ; XFUNC-LABEL: {{^}}sextload_global_v64i8_to_v64i64:
+; ; XSI: s_endpgm
 ; define void @sextload_global_v64i8_to_v64i64(<64 x i64> addrspace(1)* %out, <64 x i8> addrspace(1)* nocapture %in) nounwind {
 ;   %load = load <64 x i8>, <64 x i8> addrspace(1)* %in
 ;   %ext = sext <64 x i8> %load to <64 x i64>

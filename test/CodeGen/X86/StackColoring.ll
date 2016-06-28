@@ -1,3 +1,4 @@
+; RUN: llc -mcpu=corei7 -no-stack-coloring=false -stackcoloring-lifetime-start-on-first-use=true < %s | FileCheck %s --check-prefix=FIRSTUSE --check-prefix=CHECK
 ; RUN: llc -mcpu=corei7 -no-stack-coloring=false < %s | FileCheck %s --check-prefix=YESCOLOR --check-prefix=CHECK
 ; RUN: llc -mcpu=corei7 -no-stack-coloring=true  < %s | FileCheck %s --check-prefix=NOCOLOR --check-prefix=CHECK
 
@@ -87,6 +88,7 @@ bb3:
 }
 
 ;CHECK-LABEL: myCall_w4:
+;FIRSTUSE: subq  $120, %rsp
 ;YESCOLOR: subq  $200, %rsp
 ;NOCOLOR: subq  $408, %rsp
 
@@ -217,7 +219,7 @@ bb3:
 
 
 ;CHECK-LABEL: myCall2_nostart:
-;YESCOLOR: subq  $144, %rsp
+;YESCOLOR: subq  $272, %rsp
 ;NOCOLOR: subq  $272, %rsp
 define i32 @myCall2_nostart(i32 %in, i1 %d) {
 entry:
@@ -243,8 +245,8 @@ bb3:
 
 ; Adopt the test from Transforms/Inline/array_merge.ll'
 ;CHECK-LABEL: array_merge:
-;YESCOLOR: subq  $816, %rsp
-;NOCOLOR: subq  $1616, %rsp
+;YESCOLOR: subq  $808, %rsp
+;NOCOLOR: subq  $1608, %rsp
 define void @array_merge() nounwind ssp {
 entry:
   %A.i1 = alloca [100 x i32], align 4
@@ -424,6 +426,168 @@ define i32 @shady_range(i32 %argc, i8** nocapture %argv) uwtable {
   call void @llvm.lifetime.end(i64 -1, i8* %b8)
   ret i32 9
 }
+
+; In this case 'itar1' and 'itar2' can't be overlapped if we treat
+; lifetime.start as the beginning of the lifetime, but we can
+; overlap if we consider first use of the slot as lifetime
+; start. See llvm bug 25776.
+
+;CHECK-LABEL: ifthen_twoslots:
+;FIRSTUSE: subq  $536, %rsp
+;YESCOLOR: subq $1048, %rsp
+;NOCOLOR: subq  $1048, %rsp
+
+define i32 @ifthen_twoslots(i32 %x) #0 {
+entry:
+  %retval = alloca i32, align 4
+  %x.addr = alloca i32, align 4
+  %itar1 = alloca [128 x i32], align 16
+  %itar2 = alloca [128 x i32], align 16
+  %cleanup.dest.slot = alloca i32
+  store i32 %x, i32* %x.addr, align 4
+  %itar1_start_8 = bitcast [128 x i32]* %itar1 to i8*
+  call void @llvm.lifetime.start(i64 512, i8* %itar1_start_8) #3
+  %itar2_start_8 = bitcast [128 x i32]* %itar2 to i8*
+  call void @llvm.lifetime.start(i64 512, i8* %itar2_start_8) #3
+  %xval = load i32, i32* %x.addr, align 4
+  %and = and i32 %xval, 1
+  %tobool = icmp ne i32 %and, 0
+  br i1 %tobool, label %if.then, label %if.else
+
+if.then:                                          ; preds = %entry
+  %arraydecay = getelementptr inbounds [128 x i32], [128 x i32]* %itar1, i32 0, i32 0
+  call void @inita(i32* %arraydecay)
+  store i32 1, i32* %retval, align 4
+  store i32 1, i32* %cleanup.dest.slot, align 4
+  %itar2_end_8 = bitcast [128 x i32]* %itar2 to i8*
+  call void @llvm.lifetime.end(i64 512, i8* %itar2_end_8) #3
+  %itar1_end_8 = bitcast [128 x i32]* %itar1 to i8*
+  call void @llvm.lifetime.end(i64 512, i8* %itar1_end_8) #3
+  br label %cleanup
+
+if.else:                                          ; preds = %entry
+  %arraydecay1 = getelementptr inbounds [128 x i32], [128 x i32]* %itar2, i32 0, i32 0
+  call void @inita(i32* %arraydecay1)
+  store i32 0, i32* %retval, align 4
+  store i32 1, i32* %cleanup.dest.slot, align 4
+  %itar2_end2_8 = bitcast [128 x i32]* %itar2 to i8*
+  call void @llvm.lifetime.end(i64 512, i8* %itar2_end2_8) #3
+  %itar1_end2_8 = bitcast [128 x i32]* %itar1 to i8*
+  call void @llvm.lifetime.end(i64 512, i8* %itar1_end2_8) #3
+  br label %cleanup
+
+cleanup:                                          ; preds = %if.else, %if.then
+  %final_retval = load i32,
+ i32* %retval, align 4
+  ret i32 %final_retval
+}
+
+; This function is intended to test the case where you
+; have a reference to a stack slot that lies outside of
+; the START/END lifetime markers-- the flow analysis
+; should catch this and build the lifetime based on the
+; markers only.
+
+;CHECK-LABEL: while_loop:
+;FIRSTUSE: subq  $1032, %rsp
+;YESCOLOR: subq  $1544, %rsp
+;NOCOLOR: subq  $1544, %rsp
+
+define i32 @while_loop(i32 %x) #0 {
+entry:
+  %b1 = alloca [128 x i32], align 16
+  %b2 = alloca [128 x i32], align 16
+  %b3 = alloca [128 x i32], align 16
+  %tmp = bitcast [128 x i32]* %b1 to i8*
+  call void @llvm.lifetime.start(i64 512, i8* %tmp) #3
+  %tmp1 = bitcast [128 x i32]* %b2 to i8*
+  call void @llvm.lifetime.start(i64 512, i8* %tmp1) #3
+  %and = and i32 %x, 1
+  %tobool = icmp eq i32 %and, 0
+  br i1 %tobool, label %if.else, label %if.then
+
+if.then:                                          ; preds = %entry
+  %arraydecay = getelementptr inbounds [128 x i32], [128 x i32]* %b2, i64 0, i64 0
+  call void @inita(i32* %arraydecay) #3
+  br label %if.end
+
+if.else:                                          ; preds = %entry
+  %arraydecay1 = getelementptr inbounds [128 x i32], [128 x i32]* %b1, i64 0, i64 0
+  call void @inita(i32* %arraydecay1) #3
+  %arraydecay3 = getelementptr inbounds [128 x i32], [128 x i32]* %b3, i64 0, i64 0
+  call void @inita(i32* %arraydecay3) #3
+  %tobool25 = icmp eq i32 %x, 0
+  br i1 %tobool25, label %if.end, label %while.body.lr.ph
+
+while.body.lr.ph:                                 ; preds = %if.else
+  %tmp2 = bitcast [128 x i32]* %b3 to i8*
+  br label %while.body
+
+while.body:                                       ; preds = %while.body.lr.ph, %while.body
+  %x.addr.06 = phi i32 [ %x, %while.body.lr.ph ], [ %dec, %while.body ]
+  %dec = add nsw i32 %x.addr.06, -1
+  call void @llvm.lifetime.start(i64 512, i8* %tmp2) #3
+  call void @inita(i32* %arraydecay3) #3
+  call void @llvm.lifetime.end(i64 512, i8* %tmp2) #3
+  %tobool2 = icmp eq i32 %dec, 0
+  br i1 %tobool2, label %if.end.loopexit, label %while.body
+
+if.end.loopexit:                                  ; preds = %while.body
+  br label %if.end
+
+if.end:                                           ; preds = %if.end.loopexit, %if.else, %if.then
+  call void @llvm.lifetime.end(i64 512, i8* %tmp1) #3
+  call void @llvm.lifetime.end(i64 512, i8* %tmp) #3
+  ret i32 0
+}
+
+; Test case motivated by PR27903. Same routine inlined multiple times
+; into a caller results in a multi-segment lifetime, but the second
+; lifetime has no explicit references to the stack slot.
+;
+; FIXME: the "FIRSTUSE" stack size (56) below represents buggy/incorrect
+; behavior not currently exposed on trunk, due to the fact that
+; the "stackcoloring-lifetime-start-on-first-use" now defaults to
+; false. When a better fix for PR27903 is checked in, this result
+; will change to 96.
+
+;CHECK-LABEL: twobod_b27903:
+;FIRSTUSE: subq  $56, %rsp
+;YESCOLOR: subq  $96, %rsp
+;NOCOLOR: subq  $96, %rsp
+
+define i32 @twobod_b27903(i32 %y, i32 %x) {
+entry:
+  %buffer.i = alloca [12 x i32], align 16
+  %abc = alloca [12 x i32], align 16
+  %tmp = bitcast [12 x i32]* %buffer.i to i8*
+  call void @llvm.lifetime.start(i64 48, i8* %tmp)
+  %idxprom.i = sext i32 %y to i64
+  %arrayidx.i = getelementptr inbounds [12 x i32], [12 x i32]* %buffer.i, i64 0, i64 %idxprom.i
+  call void @inita(i32* %arrayidx.i)
+  %add.i = add nsw i32 %x, %y
+  call void @llvm.lifetime.end(i64 48, i8* %tmp)
+  %tobool = icmp eq i32 %y, 0
+  br i1 %tobool, label %if.end, label %if.then
+
+if.then:                                          ; preds = %entry
+  %tmp1 = bitcast [12 x i32]* %abc to i8*
+  call void @llvm.lifetime.start(i64 48, i8* %tmp1)
+  %arrayidx = getelementptr inbounds [12 x i32], [12 x i32]* %abc, i64 0, i64 %idxprom.i
+  call void @inita(i32* %arrayidx)
+  call void @llvm.lifetime.start(i64 48, i8* %tmp)
+  call void @inita(i32* %arrayidx.i)
+  %add.i9 = add nsw i32 %add.i, %y
+  call void @llvm.lifetime.end(i64 48, i8* %tmp)
+  call void @llvm.lifetime.end(i64 48, i8* %tmp1)
+  br label %if.end
+
+if.end:                                           ; preds = %if.then, %entry
+  %x.addr.0 = phi i32 [ %add.i9, %if.then ], [ %add.i, %entry ]
+  ret i32 %x.addr.0
+}
+
+declare void @inita(i32*) #2
 
 declare void @bar([100 x i32]* , [100 x i32]*) nounwind
 

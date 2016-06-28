@@ -23,14 +23,15 @@
 #include "SIISelLowering.h"
 #include "SIInstrInfo.h"
 #include "llvm/Analysis/Passes.h"
+#include "llvm/CodeGen/GlobalISel/IRTranslator.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
-#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Transforms/IPO.h"
@@ -48,23 +49,19 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeSILowerI1CopiesPass(*PR);
   initializeSIFixSGPRCopiesPass(*PR);
   initializeSIFoldOperandsPass(*PR);
-  initializeSIFixSGPRLiveRangesPass(*PR);
   initializeSIFixControlFlowLiveIntervalsPass(*PR);
   initializeSILoadStoreOptimizerPass(*PR);
   initializeAMDGPUAnnotateKernelFeaturesPass(*PR);
   initializeAMDGPUAnnotateUniformValuesPass(*PR);
   initializeAMDGPUPromoteAllocaPass(*PR);
   initializeSIAnnotateControlFlowPass(*PR);
-  initializeSIInsertNopsPass(*PR);
+  initializeSIDebuggerInsertNopsPass(*PR);
   initializeSIInsertWaitsPass(*PR);
   initializeSIWholeQuadModePass(*PR);
   initializeSILowerControlFlowPass(*PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
-  if (TT.getOS() == Triple::AMDHSA)
-    return make_unique<AMDGPUHSATargetObjectFile>();
-
   return make_unique<AMDGPUTargetObjectFile>();
 }
 
@@ -80,18 +77,18 @@ static MachineSchedRegistry
 SISchedRegistry("si", "Run SI's custom scheduler",
                 createSIMachineScheduler);
 
-static std::string computeDataLayout(const Triple &TT) {
-  std::string Ret = "e-p:32:32";
-
-  if (TT.getArch() == Triple::amdgcn) {
-    // 32-bit private, local, and region pointers. 64-bit global and constant.
-    Ret += "-p1:64:64-p2:64:64-p3:32:32-p4:64:64-p5:32:32-p24:64:64";
+static StringRef computeDataLayout(const Triple &TT) {
+  if (TT.getArch() == Triple::r600) {
+    // 32-bit pointers.
+    return "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128"
+            "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64";
   }
 
-  Ret += "-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256"
-         "-v512:512-v1024:1024-v2048:2048-n32:64";
-
-  return Ret;
+  // 32-bit private, local, and region pointers. 64-bit global, constant and
+  // flat.
+  return "e-p:32:32-p1:64:64-p2:64:64-p3:32:32-p4:64:64-p5:32:32"
+         "-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128"
+         "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64";
 }
 
 LLVM_READNONE
@@ -106,17 +103,22 @@ static StringRef getGPUOrDefault(const Triple &TT, StringRef GPU) {
   return "";
 }
 
+static Reloc::Model getEffectiveRelocModel(Optional<Reloc::Model> RM) {
+  if (!RM.hasValue())
+    return Reloc::PIC_;
+  return *RM;
+}
+
 AMDGPUTargetMachine::AMDGPUTargetMachine(const Target &T, const Triple &TT,
                                          StringRef CPU, StringRef FS,
-                                         TargetOptions Options, Reloc::Model RM,
+                                         TargetOptions Options,
+                                         Optional<Reloc::Model> RM,
                                          CodeModel::Model CM,
                                          CodeGenOpt::Level OptLevel)
-    : LLVMTargetMachine(T, computeDataLayout(TT), TT,
-                        getGPUOrDefault(TT, CPU), FS, Options, RM, CM,
-                        OptLevel),
+    : LLVMTargetMachine(T, computeDataLayout(TT), TT, getGPUOrDefault(TT, CPU),
+                        FS, Options, getEffectiveRelocModel(RM), CM, OptLevel),
       TLOF(createTLOF(getTargetTriple())),
-      Subtarget(TT, getTargetCPU(), FS, *this),
-      IntrinsicInfo() {
+      Subtarget(TT, getTargetCPU(), FS, *this), IntrinsicInfo() {
   setRequiresStructuredCFG(true);
   initAsmInfo();
 }
@@ -129,7 +131,8 @@ AMDGPUTargetMachine::~AMDGPUTargetMachine() { }
 
 R600TargetMachine::R600TargetMachine(const Target &T, const Triple &TT,
                                      StringRef CPU, StringRef FS,
-                                     TargetOptions Options, Reloc::Model RM,
+                                     TargetOptions Options,
+                                     Optional<Reloc::Model> RM,
                                      CodeModel::Model CM, CodeGenOpt::Level OL)
     : AMDGPUTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL) {}
 
@@ -139,7 +142,8 @@ R600TargetMachine::R600TargetMachine(const Target &T, const Triple &TT,
 
 GCNTargetMachine::GCNTargetMachine(const Target &T, const Triple &TT,
                                    StringRef CPU, StringRef FS,
-                                   TargetOptions Options, Reloc::Model RM,
+                                   TargetOptions Options,
+                                   Optional<Reloc::Model> RM,
                                    CodeModel::Model CM, CodeGenOpt::Level OL)
     : AMDGPUTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL) {}
 
@@ -148,11 +152,6 @@ GCNTargetMachine::GCNTargetMachine(const Target &T, const Triple &TT,
 //===----------------------------------------------------------------------===//
 
 namespace {
-
-cl::opt<bool> InsertNops(
-  "amdgpu-insert-nops",
-  cl::desc("Insert two nop instructions for each high level source statement"),
-  cl::init(false));
 
 class AMDGPUPassConfig : public TargetPassConfig {
 public:
@@ -202,11 +201,15 @@ public:
   GCNPassConfig(TargetMachine *TM, PassManagerBase &PM)
     : AMDGPUPassConfig(TM, PM) { }
   bool addPreISel() override;
+  void addMachineSSAOptimization() override;
   bool addInstSelector() override;
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+  bool addIRTranslator() override;
+  bool addRegBankSelect() override;
+#endif
   void addFastRegAlloc(FunctionPass *RegAllocPass) override;
   void addOptimizedRegAlloc(FunctionPass *RegAllocPass) override;
   void addPreRegAlloc() override;
-  void addPostRegAlloc() override;
   void addPreSched2() override;
   void addPreEmitPass() override;
 };
@@ -221,6 +224,11 @@ TargetIRAnalysis AMDGPUTargetMachine::getTargetIRAnalysis() {
 }
 
 void AMDGPUPassConfig::addIRPasses() {
+  // There is no reason to run these.
+  disablePass(&StackMapLivenessID);
+  disablePass(&FuncletLayoutID);
+  disablePass(&PatchableFunctionID);
+
   // Function calls are not supported, so make sure we inline everything.
   addPass(createAMDGPUAlwaysInlinePass());
   addPass(createAlwaysInlinerPass());
@@ -319,13 +327,37 @@ bool GCNPassConfig::addPreISel() {
   return false;
 }
 
+void GCNPassConfig::addMachineSSAOptimization() {
+  TargetPassConfig::addMachineSSAOptimization();
+
+  // We want to fold operands after PeepholeOptimizer has run (or as part of
+  // it), because it will eliminate extra copies making it easier to fold the
+  // real source operand. We want to eliminate dead instructions after, so that
+  // we see fewer uses of the copies. We then need to clean up the dead
+  // instructions leftover after the operands are folded as well.
+  //
+  // XXX - Can we get away without running DeadMachineInstructionElim again?
+  addPass(&SIFoldOperandsID);
+  addPass(&DeadMachineInstructionElimID);
+}
+
 bool GCNPassConfig::addInstSelector() {
   AMDGPUPassConfig::addInstSelector();
   addPass(createSILowerI1CopiesPass());
   addPass(&SIFixSGPRCopiesID);
-  addPass(createSIFoldOperandsPass());
   return false;
 }
+
+#ifdef LLVM_BUILD_GLOBAL_ISEL
+bool GCNPassConfig::addIRTranslator() {
+  addPass(new IRTranslator());
+  return false;
+}
+
+bool GCNPassConfig::addRegBankSelect() {
+  return false;
+}
+#endif
 
 void GCNPassConfig::addPreRegAlloc() {
   const AMDGPUSubtarget &ST = *getAMDGPUTargetMachine().getSubtargetImpl();
@@ -351,32 +383,32 @@ void GCNPassConfig::addPreRegAlloc() {
 }
 
 void GCNPassConfig::addFastRegAlloc(FunctionPass *RegAllocPass) {
-  addPass(&SIFixSGPRLiveRangesID);
   TargetPassConfig::addFastRegAlloc(RegAllocPass);
 }
 
 void GCNPassConfig::addOptimizedRegAlloc(FunctionPass *RegAllocPass) {
-  // We want to run this after LiveVariables is computed to avoid computing them
-  // twice.
-  // FIXME: We shouldn't disable the verifier here. r249087 introduced a failure
-  // that needs to be fixed.
-  insertPass(&LiveVariablesID, &SIFixSGPRLiveRangesID, /*VerifyAfter=*/false);
   TargetPassConfig::addOptimizedRegAlloc(RegAllocPass);
-}
-
-void GCNPassConfig::addPostRegAlloc() {
-  addPass(createSIShrinkInstructionsPass(), false);
 }
 
 void GCNPassConfig::addPreSched2() {
 }
 
 void GCNPassConfig::addPreEmitPass() {
+
+  // The hazard recognizer that runs as part of the post-ra scheduler does not
+  // gaurantee to be able handle all hazards correctly.  This is because
+  // if there are multiple scheduling regions in a basic block, the regions
+  // are scheduled bottom up, so when we begin to schedule a region we don't
+  // know what instructions were emitted directly before it.
+  //
+  // Here we add a stand-alone hazard recognizer pass which can handle all cases.
+  // hazard recognizer pass.
+  addPass(&PostRAHazardRecognizerID);
+
   addPass(createSIInsertWaitsPass(), false);
+  addPass(createSIShrinkInstructionsPass());
   addPass(createSILowerControlFlowPass(), false);
-  if (InsertNops) {
-    addPass(createSIInsertNopsPass(), false);
-  }
+  addPass(createSIDebuggerInsertNopsPass(), false);
 }
 
 TargetPassConfig *GCNTargetMachine::createPassConfig(PassManagerBase &PM) {

@@ -2792,6 +2792,12 @@ def LDRBT_POST
   : ARMAsmPseudo<"ldrbt${q} $Rt, $addr", (ins addr_offset_none:$addr, pred:$q),
                  (outs GPR:$Rt)>;
 
+// Pseudo instruction ldr Rt, =immediate
+def LDRConstPool
+  : ARMAsmPseudo<"ldr${q} $Rt, $immediate",
+                 (ins const_pool_asm_imm:$immediate, pred:$q),
+                 (outs GPR:$Rt)>;
+
 // Store
 
 // Stores with truncate
@@ -3328,7 +3334,7 @@ def MOVi16 : AI1<0b1000, (outs GPR:$Rd), (ins imm0_65535_expr:$imm),
 
 def : InstAlias<"mov${p} $Rd, $imm",
                 (MOVi16 GPR:$Rd, imm0_65535_expr:$imm, pred:$p)>,
-        Requires<[IsARM]>;
+        Requires<[IsARM, HasV6T2]>;
 
 def MOVi16_ga_pcrel : PseudoInst<(outs GPR:$Rd),
                                 (ins i32imm:$addr, pclabel:$id), IIC_iMOVi, []>,
@@ -4006,28 +4012,28 @@ def SMMLSR : AMul2Ia <0b0111010, 0b1111, (outs GPR:$Rd),
                IIC_iMAC32, "smmlsr", "\t$Rd, $Rn, $Rm, $Ra", []>,
             Requires<[IsARM, HasV6]>;
 
-multiclass AI_smul<string opc, SDNode opnode> {
+multiclass AI_smul<string opc> {
   def BB : AMulxyI<0b0001011, 0b00, (outs GPR:$Rd), (ins GPR:$Rn, GPR:$Rm),
               IIC_iMUL16, !strconcat(opc, "bb"), "\t$Rd, $Rn, $Rm",
-              [(set GPR:$Rd, (opnode (sext_inreg GPR:$Rn, i16),
+              [(set GPR:$Rd, (mul (sext_inreg GPR:$Rn, i16),
                                       (sext_inreg GPR:$Rm, i16)))]>,
            Requires<[IsARM, HasV5TE]>;
 
   def BT : AMulxyI<0b0001011, 0b10, (outs GPR:$Rd), (ins GPR:$Rn, GPR:$Rm),
               IIC_iMUL16, !strconcat(opc, "bt"), "\t$Rd, $Rn, $Rm",
-              [(set GPR:$Rd, (opnode (sext_inreg GPR:$Rn, i16),
+              [(set GPR:$Rd, (mul (sext_inreg GPR:$Rn, i16),
                                       (sra GPR:$Rm, (i32 16))))]>,
            Requires<[IsARM, HasV5TE]>;
 
   def TB : AMulxyI<0b0001011, 0b01, (outs GPR:$Rd), (ins GPR:$Rn, GPR:$Rm),
               IIC_iMUL16, !strconcat(opc, "tb"), "\t$Rd, $Rn, $Rm",
-              [(set GPR:$Rd, (opnode (sra GPR:$Rn, (i32 16)),
+              [(set GPR:$Rd, (mul (sra GPR:$Rn, (i32 16)),
                                       (sext_inreg GPR:$Rm, i16)))]>,
            Requires<[IsARM, HasV5TE]>;
 
   def TT : AMulxyI<0b0001011, 0b11, (outs GPR:$Rd), (ins GPR:$Rn, GPR:$Rm),
               IIC_iMUL16, !strconcat(opc, "tt"), "\t$Rd, $Rn, $Rm",
-              [(set GPR:$Rd, (opnode (sra GPR:$Rn, (i32 16)),
+              [(set GPR:$Rd, (mul (sra GPR:$Rn, (i32 16)),
                                       (sra GPR:$Rm, (i32 16))))]>,
             Requires<[IsARM, HasV5TE]>;
 
@@ -4043,13 +4049,13 @@ multiclass AI_smul<string opc, SDNode opnode> {
 }
 
 
-multiclass AI_smla<string opc, SDNode opnode> {
+multiclass AI_smla<string opc> {
   let DecoderMethod = "DecodeSMLAInstruction" in {
   def BB : AMulxyIa<0b0001000, 0b00, (outs GPRnopc:$Rd),
               (ins GPRnopc:$Rn, GPRnopc:$Rm, GPR:$Ra),
               IIC_iMAC16, !strconcat(opc, "bb"), "\t$Rd, $Rn, $Rm, $Ra",
               [(set GPRnopc:$Rd, (add GPR:$Ra,
-                               (opnode (sext_inreg GPRnopc:$Rn, i16),
+                               (mul (sext_inreg GPRnopc:$Rn, i16),
                                        (sext_inreg GPRnopc:$Rm, i16))))]>,
            Requires<[IsARM, HasV5TE, UseMulOps]>;
 
@@ -4057,7 +4063,7 @@ multiclass AI_smla<string opc, SDNode opnode> {
               (ins GPRnopc:$Rn, GPRnopc:$Rm, GPR:$Ra),
               IIC_iMAC16, !strconcat(opc, "bt"), "\t$Rd, $Rn, $Rm, $Ra",
               [(set GPRnopc:$Rd,
-                    (add GPR:$Ra, (opnode (sext_inreg GPRnopc:$Rn, i16),
+                    (add GPR:$Ra, (mul (sext_inreg GPRnopc:$Rn, i16),
                                           (sra GPRnopc:$Rm, (i32 16)))))]>,
            Requires<[IsARM, HasV5TE, UseMulOps]>;
 
@@ -4065,7 +4071,7 @@ multiclass AI_smla<string opc, SDNode opnode> {
               (ins GPRnopc:$Rn, GPRnopc:$Rm, GPR:$Ra),
               IIC_iMAC16, !strconcat(opc, "tb"), "\t$Rd, $Rn, $Rm, $Ra",
               [(set GPRnopc:$Rd,
-                    (add GPR:$Ra, (opnode (sra GPRnopc:$Rn, (i32 16)),
+                    (add GPR:$Ra, (mul (sra GPRnopc:$Rn, (i32 16)),
                                           (sext_inreg GPRnopc:$Rm, i16))))]>,
            Requires<[IsARM, HasV5TE, UseMulOps]>;
 
@@ -4073,7 +4079,7 @@ multiclass AI_smla<string opc, SDNode opnode> {
               (ins GPRnopc:$Rn, GPRnopc:$Rm, GPR:$Ra),
               IIC_iMAC16, !strconcat(opc, "tt"), "\t$Rd, $Rn, $Rm, $Ra",
              [(set GPRnopc:$Rd,
-                   (add GPR:$Ra, (opnode (sra GPRnopc:$Rn, (i32 16)),
+                   (add GPR:$Ra, (mul (sra GPRnopc:$Rn, (i32 16)),
                                          (sra GPRnopc:$Rm, (i32 16)))))]>,
             Requires<[IsARM, HasV5TE, UseMulOps]>;
 
@@ -4091,8 +4097,8 @@ multiclass AI_smla<string opc, SDNode opnode> {
   }
 }
 
-defm SMUL : AI_smul<"smul", mul>;
-defm SMLA : AI_smla<"smla", mul>;
+defm SMUL : AI_smul<"smul">;
+defm SMLA : AI_smla<"smla">;
 
 // Halfword multiply accumulate long: SMLAL<x><y>.
 def SMLALBB : AMulxyI64<0b0001010, 0b00, (outs GPRnopc:$RdLo, GPRnopc:$RdHi),
@@ -4761,7 +4767,7 @@ def : ARMPat<(stlex_2 (and GPR:$Rt, 0xffff), addr_offset_none:$addr),
 class acquiring_load<PatFrag base>
   : PatFrag<(ops node:$ptr), (base node:$ptr), [{
   AtomicOrdering Ordering = cast<AtomicSDNode>(N)->getOrdering();
-  return isAtLeastAcquire(Ordering);
+  return isAcquireOrStronger(Ordering);
 }]>;
 
 def atomic_load_acquire_8  : acquiring_load<atomic_load_8>;
@@ -4771,7 +4777,7 @@ def atomic_load_acquire_32 : acquiring_load<atomic_load_32>;
 class releasing_store<PatFrag base>
   : PatFrag<(ops node:$ptr, node:$val), (base node:$ptr, node:$val), [{
   AtomicOrdering Ordering = cast<AtomicSDNode>(N)->getOrdering();
-  return isAtLeastRelease(Ordering);
+  return isReleaseOrStronger(Ordering);
 }]>;
 
 def atomic_store_release_8  : releasing_store<atomic_store_8>;
@@ -4847,21 +4853,21 @@ def CDP2 : ABXI<0b1110, (outs), (ins p_imm:$cop, imm0_15:$opc1,
 }
 
 class ACI<dag oops, dag iops, string opc, string asm,
-          IndexMode im = IndexModeNone>
+            list<dag> pattern, IndexMode im = IndexModeNone>
   : I<oops, iops, AddrModeNone, 4, im, BrFrm, NoItinerary,
-      opc, asm, "", []> {
+      opc, asm, "", pattern> {
   let Inst{27-25} = 0b110;
 }
 class ACInoP<dag oops, dag iops, string opc, string asm,
-          IndexMode im = IndexModeNone>
+          list<dag> pattern, IndexMode im = IndexModeNone>
   : InoP<oops, iops, AddrModeNone, 4, im, BrFrm, NoItinerary,
-         opc, asm, "", []> {
+         opc, asm, "", pattern> {
   let Inst{31-28} = 0b1111;
   let Inst{27-25} = 0b110;
 }
-multiclass LdStCop<bit load, bit Dbit, string asm> {
+multiclass LdStCop<bit load, bit Dbit, string asm, list<dag> pattern> {
   def _OFFSET : ACI<(outs), (ins p_imm:$cop, c_imm:$CRd, addrmode5:$addr),
-                    asm, "\t$cop, $CRd, $addr"> {
+                    asm, "\t$cop, $CRd, $addr", pattern> {
     bits<13> addr;
     bits<4> cop;
     bits<4> CRd;
@@ -4877,7 +4883,7 @@ multiclass LdStCop<bit load, bit Dbit, string asm> {
     let DecoderMethod = "DecodeCopMemInstruction";
   }
   def _PRE : ACI<(outs), (ins p_imm:$cop, c_imm:$CRd, addrmode5_pre:$addr),
-                 asm, "\t$cop, $CRd, $addr!", IndexModePre> {
+                 asm, "\t$cop, $CRd, $addr!", [], IndexModePre> {
     bits<13> addr;
     bits<4> cop;
     bits<4> CRd;
@@ -4894,7 +4900,7 @@ multiclass LdStCop<bit load, bit Dbit, string asm> {
   }
   def _POST: ACI<(outs), (ins p_imm:$cop, c_imm:$CRd, addr_offset_none:$addr,
                               postidx_imm8s4:$offset),
-                 asm, "\t$cop, $CRd, $addr, $offset", IndexModePost> {
+                 asm, "\t$cop, $CRd, $addr, $offset", [], IndexModePost> {
     bits<9> offset;
     bits<4> addr;
     bits<4> cop;
@@ -4913,7 +4919,7 @@ multiclass LdStCop<bit load, bit Dbit, string asm> {
   def _OPTION : ACI<(outs),
                     (ins p_imm:$cop, c_imm:$CRd, addr_offset_none:$addr,
                          coproc_option_imm:$option),
-      asm, "\t$cop, $CRd, $addr, $option"> {
+      asm, "\t$cop, $CRd, $addr, $option", []> {
     bits<8> option;
     bits<4> addr;
     bits<4> cop;
@@ -4930,9 +4936,9 @@ multiclass LdStCop<bit load, bit Dbit, string asm> {
     let DecoderMethod = "DecodeCopMemInstruction";
   }
 }
-multiclass LdSt2Cop<bit load, bit Dbit, string asm> {
+multiclass LdSt2Cop<bit load, bit Dbit, string asm, list<dag> pattern> {
   def _OFFSET : ACInoP<(outs), (ins p_imm:$cop, c_imm:$CRd, addrmode5:$addr),
-                       asm, "\t$cop, $CRd, $addr"> {
+                       asm, "\t$cop, $CRd, $addr", pattern> {
     bits<13> addr;
     bits<4> cop;
     bits<4> CRd;
@@ -4948,7 +4954,7 @@ multiclass LdSt2Cop<bit load, bit Dbit, string asm> {
     let DecoderMethod = "DecodeCopMemInstruction";
   }
   def _PRE : ACInoP<(outs), (ins p_imm:$cop, c_imm:$CRd, addrmode5_pre:$addr),
-                    asm, "\t$cop, $CRd, $addr!", IndexModePre> {
+                    asm, "\t$cop, $CRd, $addr!", [], IndexModePre> {
     bits<13> addr;
     bits<4> cop;
     bits<4> CRd;
@@ -4965,7 +4971,7 @@ multiclass LdSt2Cop<bit load, bit Dbit, string asm> {
   }
   def _POST: ACInoP<(outs), (ins p_imm:$cop, c_imm:$CRd, addr_offset_none:$addr,
                                  postidx_imm8s4:$offset),
-                 asm, "\t$cop, $CRd, $addr, $offset", IndexModePost> {
+                 asm, "\t$cop, $CRd, $addr, $offset", [], IndexModePost> {
     bits<9> offset;
     bits<4> addr;
     bits<4> cop;
@@ -4984,7 +4990,7 @@ multiclass LdSt2Cop<bit load, bit Dbit, string asm> {
   def _OPTION : ACInoP<(outs),
                        (ins p_imm:$cop, c_imm:$CRd, addr_offset_none:$addr,
                             coproc_option_imm:$option),
-      asm, "\t$cop, $CRd, $addr, $option"> {
+      asm, "\t$cop, $CRd, $addr, $option", []> {
     bits<8> option;
     bits<4> addr;
     bits<4> cop;
@@ -5002,14 +5008,15 @@ multiclass LdSt2Cop<bit load, bit Dbit, string asm> {
   }
 }
 
-defm LDC   : LdStCop <1, 0, "ldc">;
-defm LDCL  : LdStCop <1, 1, "ldcl">;
-defm STC   : LdStCop <0, 0, "stc">;
-defm STCL  : LdStCop <0, 1, "stcl">;
-defm LDC2  : LdSt2Cop<1, 0, "ldc2">, Requires<[PreV8]>;
-defm LDC2L : LdSt2Cop<1, 1, "ldc2l">, Requires<[PreV8]>;
-defm STC2  : LdSt2Cop<0, 0, "stc2">, Requires<[PreV8]>;
-defm STC2L : LdSt2Cop<0, 1, "stc2l">, Requires<[PreV8]>;
+defm LDC   : LdStCop <1, 0, "ldc", [(int_arm_ldc imm:$cop, imm:$CRd, addrmode5:$addr)]>;
+defm LDCL  : LdStCop <1, 1, "ldcl", [(int_arm_ldcl imm:$cop, imm:$CRd, addrmode5:$addr)]>;
+defm LDC2  : LdSt2Cop<1, 0, "ldc2", [(int_arm_ldc2 imm:$cop, imm:$CRd, addrmode5:$addr)]>, Requires<[PreV8]>;
+defm LDC2L : LdSt2Cop<1, 1, "ldc2l", [(int_arm_ldc2l imm:$cop, imm:$CRd, addrmode5:$addr)]>, Requires<[PreV8]>;
+
+defm STC   : LdStCop <0, 0, "stc", [(int_arm_stc imm:$cop, imm:$CRd, addrmode5:$addr)]>;
+defm STCL  : LdStCop <0, 1, "stcl", [(int_arm_stcl imm:$cop, imm:$CRd, addrmode5:$addr)]>;
+defm STC2  : LdSt2Cop<0, 0, "stc2", [(int_arm_stc2 imm:$cop, imm:$CRd, addrmode5:$addr)]>, Requires<[PreV8]>;
+defm STC2L : LdSt2Cop<0, 1, "stc2l", [(int_arm_stc2l imm:$cop, imm:$CRd, addrmode5:$addr)]>, Requires<[PreV8]>;
 
 //===----------------------------------------------------------------------===//
 // Move between coprocessor and ARM core register.
@@ -5284,8 +5291,8 @@ let usesCustomInserter = 1, Uses = [R4], Defs = [R4, SP] in
 def win__dbzchk : SDNode<"ARMISD::WIN__DBZCHK", SDT_WIN__DBZCHK,
                          [SDNPHasChain, SDNPSideEffect, SDNPOutGlue]>;
 let usesCustomInserter = 1, Defs = [CPSR] in
-  def WIN__DBZCHK : PseudoInst<(outs), (ins GPR:$divisor), NoItinerary,
-                               [(win__dbzchk GPR:$divisor)]>;
+  def WIN__DBZCHK : PseudoInst<(outs), (ins tGPR:$divisor), NoItinerary,
+                               [(win__dbzchk tGPR:$divisor)]>;
 
 //===----------------------------------------------------------------------===//
 // TLS Instructions
@@ -5793,3 +5800,36 @@ let mayLoad = 1, mayStore =1, hasSideEffects = 1 in
 def SPACE : PseudoInst<(outs GPR:$Rd), (ins i32imm:$size, GPR:$Rn),
                        NoItinerary,
                        [(set GPR:$Rd, (int_arm_space imm:$size, GPR:$Rn))]>;
+
+//===----------------------------------
+// Atomic cmpxchg for -O0
+//===----------------------------------
+
+// The fast register allocator used during -O0 inserts spills to cover any VRegs
+// live across basic block boundaries. When this happens between an LDXR and an
+// STXR it can clear the exclusive monitor, causing all cmpxchg attempts to
+// fail.
+
+// Unfortunately, this means we have to have an alternative (expanded
+// post-regalloc) path for -O0 compilations. Fortunately this path can be
+// significantly more naive than the standard expansion: we conservatively
+// assume seq_cst, strong cmpxchg and omit clrex on failure.
+
+let Constraints = "@earlyclobber $Rd,@earlyclobber $status",
+    mayLoad = 1, mayStore = 1 in {
+def CMP_SWAP_8 : PseudoInst<(outs GPR:$Rd, GPR:$status),
+                            (ins GPR:$addr, GPR:$desired, GPR:$new),
+                            NoItinerary, []>, Sched<[]>;
+
+def CMP_SWAP_16 : PseudoInst<(outs GPR:$Rd, GPR:$status),
+                             (ins GPR:$addr, GPR:$desired, GPR:$new),
+                             NoItinerary, []>, Sched<[]>;
+
+def CMP_SWAP_32 : PseudoInst<(outs GPR:$Rd, GPR:$status),
+                             (ins GPR:$addr, GPR:$desired, GPR:$new),
+                             NoItinerary, []>, Sched<[]>;
+
+def CMP_SWAP_64 : PseudoInst<(outs GPRPair:$Rd, GPR:$status),
+                             (ins GPR:$addr, GPRPair:$desired, GPRPair:$new),
+                             NoItinerary, []>, Sched<[]>;
+}

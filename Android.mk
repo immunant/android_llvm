@@ -49,6 +49,7 @@ subdirs := \
   lib/Option \
   lib/Passes \
   lib/ProfileData \
+  lib/ProfileData/Coverage \
   lib/Support \
   lib/TableGen \
   lib/Target \

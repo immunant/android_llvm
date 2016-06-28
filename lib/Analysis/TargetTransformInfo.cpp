@@ -17,6 +17,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <utility>
 
 using namespace llvm;
 
@@ -64,6 +65,10 @@ int TargetTransformInfo::getCallCost(const Function *F,
   int Cost = TTIImpl->getCallCost(F, Arguments);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
+}
+
+unsigned TargetTransformInfo::getInliningThresholdMultiplier() const {
+  return TTIImpl->getInliningThresholdMultiplier();
 }
 
 int TargetTransformInfo::getIntrinsicCost(
@@ -172,6 +177,10 @@ bool TargetTransformInfo::enableInterleavedAccessVectorization() const {
   return TTIImpl->enableInterleavedAccessVectorization();
 }
 
+bool TargetTransformInfo::isFPVectorizationPotentiallyUnsafe() const {
+  return TTIImpl->isFPVectorizationPotentiallyUnsafe();
+}
+
 TargetTransformInfo::PopcntSupportKind
 TargetTransformInfo::getPopcntSupport(unsigned IntTyWidthInBit) const {
   return TTIImpl->getPopcntSupport(IntTyWidthInBit);
@@ -259,6 +268,14 @@ int TargetTransformInfo::getCastInstrCost(unsigned Opcode, Type *Dst,
   return Cost;
 }
 
+int TargetTransformInfo::getExtractWithExtendCost(unsigned Opcode, Type *Dst,
+                                                  VectorType *VecTy,
+                                                  unsigned Index) const {
+  int Cost = TTIImpl->getExtractWithExtendCost(Opcode, Dst, VecTy, Index);
+  assert(Cost >= 0 && "TTI should not produce negative costs!");
+  return Cost;
+}
+
 int TargetTransformInfo::getCFInstrCost(unsigned Opcode) const {
   int Cost = TTIImpl->getCFInstrCost(Opcode);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
@@ -315,15 +332,17 @@ int TargetTransformInfo::getInterleavedMemoryOpCost(
 }
 
 int TargetTransformInfo::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
-                                               ArrayRef<Type *> Tys) const {
-  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Tys);
+                                               ArrayRef<Type *> Tys,
+                                               FastMathFlags FMF) const {
+  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Tys, FMF);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }
 
 int TargetTransformInfo::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
-                                               ArrayRef<Value *> Args) const {
-  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Args);
+                                               ArrayRef<Value *> Args,
+                                               FastMathFlags FMF) const {
+  int Cost = TTIImpl->getIntrinsicInstrCost(ID, RetTy, Args, FMF);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }
@@ -379,7 +398,7 @@ TargetIRAnalysis::TargetIRAnalysis() : TTICallback(&getDefaultTTI) {}
 
 TargetIRAnalysis::TargetIRAnalysis(
     std::function<Result(const Function &)> TTICallback)
-    : TTICallback(TTICallback) {}
+    : TTICallback(std::move(TTICallback)) {}
 
 TargetIRAnalysis::Result TargetIRAnalysis::run(const Function &F) {
   return TTICallback(F);

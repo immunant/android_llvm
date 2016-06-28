@@ -99,6 +99,11 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &Fn) override;
 
+    MachineFunctionProperties getRequiredProperties() const override {
+      return MachineFunctionProperties().set(
+          MachineFunctionProperties::Property::AllVRegsAllocated);
+    }
+
     const char *getPassName() const override {
       return ARM_LOAD_STORE_OPT_NAME;
     }
@@ -561,7 +566,7 @@ void ARMLoadStoreOpt::moveLiveRegsBefore(const MachineBasicBlock &MBB,
   // Initialize if we never queried in this block.
   if (!LiveRegsValid) {
     LiveRegs.init(TRI);
-    LiveRegs.addLiveOuts(&MBB, true);
+    LiveRegs.addLiveOuts(MBB);
     LiveRegPos = MBB.end();
     LiveRegsValid = true;
   }
@@ -1882,6 +1887,9 @@ bool ARMLoadStoreOpt::CombineMovBx(MachineBasicBlock &MBB) {
 }
 
 bool ARMLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
+  if (skipFunction(*Fn.getFunction()))
+    return false;
+
   MF = &Fn;
   STI = &static_cast<const ARMSubtarget &>(Fn.getSubtarget());
   TL = STI->getTargetLowering();
@@ -1957,7 +1965,7 @@ INITIALIZE_PASS(ARMPreAllocLoadStoreOpt, "arm-prera-load-store-opt",
                 ARM_PREALLOC_LOAD_STORE_OPT_NAME, false, false)
 
 bool ARMPreAllocLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
-  if (AssumeMisalignedLoadStores)
+  if (AssumeMisalignedLoadStores || skipFunction(*Fn.getFunction()))
     return false;
 
   TD = &Fn.getDataLayout();
@@ -2369,4 +2377,3 @@ FunctionPass *llvm::createARMLoadStoreOptimizationPass(bool PreAlloc) {
     return new ARMPreAllocLoadStoreOpt();
   return new ARMLoadStoreOpt();
 }
-

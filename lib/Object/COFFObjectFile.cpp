@@ -13,7 +13,6 @@
 
 #include "llvm/Object/COFF.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/iterator_range.h"
@@ -145,12 +144,12 @@ void COFFObjectFile::moveSymbolNext(DataRefImpl &Ref) const {
   }
 }
 
-ErrorOr<StringRef> COFFObjectFile::getSymbolName(DataRefImpl Ref) const {
+Expected<StringRef> COFFObjectFile::getSymbolName(DataRefImpl Ref) const {
   COFFSymbolRef Symb = getCOFFSymbol(Ref);
   StringRef Result;
   std::error_code EC = getSymbolName(Symb, Result);
   if (EC)
-    return EC;
+    return errorCodeToError(EC);
   return Result;
 }
 
@@ -179,7 +178,7 @@ ErrorOr<uint64_t> COFFObjectFile::getSymbolAddress(DataRefImpl Ref) const {
   return Result;
 }
 
-ErrorOr<SymbolRef::Type> COFFObjectFile::getSymbolType(DataRefImpl Ref) const {
+Expected<SymbolRef::Type> COFFObjectFile::getSymbolType(DataRefImpl Ref) const {
   COFFSymbolRef Symb = getCOFFSymbol(Ref);
   int32_t SectionNumber = Symb.getSectionNumber();
 
@@ -235,14 +234,14 @@ uint64_t COFFObjectFile::getCommonSymbolSizeImpl(DataRefImpl Ref) const {
   return Symb.getValue();
 }
 
-ErrorOr<section_iterator>
+Expected<section_iterator>
 COFFObjectFile::getSymbolSection(DataRefImpl Ref) const {
   COFFSymbolRef Symb = getCOFFSymbol(Ref);
   if (COFF::isReservedSectionNumber(Symb.getSectionNumber()))
     return section_end();
   const coff_section *Sec = nullptr;
   if (std::error_code EC = getSection(Symb.getSectionNumber(), Sec))
-    return EC;
+    return errorCodeToError(EC);
   DataRefImpl Ret;
   Ret.p = reinterpret_cast<uintptr_t>(Sec);
   return section_iterator(SectionRef(Ret, this));
@@ -291,6 +290,10 @@ std::error_code COFFObjectFile::getSectionContents(DataRefImpl Ref,
 uint64_t COFFObjectFile::getSectionAlignment(DataRefImpl Ref) const {
   const coff_section *Sec = toSec(Ref);
   return Sec->getAlignment();
+}
+
+bool COFFObjectFile::isSectionCompressed(DataRefImpl Sec) const {
+  return false;
 }
 
 bool COFFObjectFile::isSectionText(DataRefImpl Ref) const {
@@ -947,10 +950,10 @@ uint64_t COFFObjectFile::getSectionSize(const coff_section *Sec) const {
 std::error_code
 COFFObjectFile::getSectionContents(const coff_section *Sec,
                                    ArrayRef<uint8_t> &Res) const {
-  // PointerToRawData and SizeOfRawData won't make sense for BSS sections,
-  // don't do anything interesting for them.
-  assert((Sec->Characteristics & COFF::IMAGE_SCN_CNT_UNINITIALIZED_DATA) == 0 &&
-         "BSS sections don't have contents!");
+  // In COFF, a virtual section won't have any in-file
+  // content, so the file pointer to the content will be zero.
+  if (Sec->PointerToRawData == 0)
+    return object_error::parse_failed;
   // The only thing that we need to verify is that the contents is contained
   // within the file bounds. We don't need to make sure it doesn't cover other
   // data, as there's nothing that says that is not allowed.

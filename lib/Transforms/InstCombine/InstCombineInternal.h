@@ -330,6 +330,8 @@ public:
   Instruction *visitShuffleVectorInst(ShuffleVectorInst &SVI);
   Instruction *visitExtractValueInst(ExtractValueInst &EV);
   Instruction *visitLandingPadInst(LandingPadInst &LI);
+  Instruction *visitVAStartInst(VAStartInst &I);
+  Instruction *visitVACopyInst(VACopyInst &I);
 
   // visitInstruction - Specify what to return for unhandled instructions...
   Instruction *visitInstruction(Instruction &I) { return nullptr; }
@@ -561,7 +563,7 @@ private:
   Value *InsertRangeTest(Value *V, Constant *Lo, Constant *Hi, bool isSigned,
                          bool Inside);
   Instruction *PromoteCastOfAllocation(BitCastInst &CI, AllocaInst &AI);
-  Instruction *MatchBSwapOrBitReverse(BinaryOperator &I);
+  Instruction *MatchBSwap(BinaryOperator &I);
   bool SimplifyStoreAtEndOfBlock(StoreInst &SI);
   Instruction *SimplifyMemTransfer(MemIntrinsic *MI);
   Instruction *SimplifyMemSet(MemSetInst *MI);

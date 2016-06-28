@@ -67,6 +67,7 @@ llvm_post_static_libraries := \
   libLLVMSupport \
   libLLVMVectorize \
   libLLVMProfileData \
+  libLLVMProfileDataCoverage \
   libLLVMLibDriver
 
 llvm_host_static_libraries := \

@@ -26,6 +26,7 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/CFG.h"
+#include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -42,6 +43,19 @@ using namespace llvm;
 static cl::opt<bool>
 PrefetchWrites("loop-prefetch-writes", cl::Hidden, cl::init(false),
                cl::desc("Prefetch write addresses"));
+
+static cl::opt<unsigned>
+    PrefetchDistance("prefetch-distance",
+                     cl::desc("Number of instructions to prefetch ahead"),
+                     cl::Hidden);
+
+static cl::opt<unsigned>
+    MinPrefetchStride("min-prefetch-stride",
+                      cl::desc("Min stride to add prefetches"), cl::Hidden);
+
+static cl::opt<unsigned> MaxPrefetchIterationsAhead(
+    "max-prefetch-iters-ahead",
+    cl::desc("Max number of iterations to prefetch ahead"), cl::Hidden);
 
 STATISTIC(NumPrefetches, "Number of prefetches inserted");
 
@@ -71,13 +85,32 @@ namespace {
     }
 
     bool runOnFunction(Function &F) override;
+
+  private:
     bool runOnLoop(Loop *L);
 
     /// \brief Check if the the stride of the accesses is large enough to
     /// warrant a prefetch.
     bool isStrideLargeEnough(const SCEVAddRecExpr *AR);
 
-  private:
+    unsigned getMinPrefetchStride() {
+      if (MinPrefetchStride.getNumOccurrences() > 0)
+        return MinPrefetchStride;
+      return TTI->getMinPrefetchStride();
+    }
+
+    unsigned getPrefetchDistance() {
+      if (PrefetchDistance.getNumOccurrences() > 0)
+        return PrefetchDistance;
+      return TTI->getPrefetchDistance();
+    }
+
+    unsigned getMaxPrefetchIterationsAhead() {
+      if (MaxPrefetchIterationsAhead.getNumOccurrences() > 0)
+        return MaxPrefetchIterationsAhead;
+      return TTI->getMaxPrefetchIterationsAhead();
+    }
+
     AssumptionCache *AC;
     LoopInfo *LI;
     ScalarEvolution *SE;
@@ -99,7 +132,7 @@ INITIALIZE_PASS_END(LoopDataPrefetch, "loop-data-prefetch",
 FunctionPass *llvm::createLoopDataPrefetchPass() { return new LoopDataPrefetch(); }
 
 bool LoopDataPrefetch::isStrideLargeEnough(const SCEVAddRecExpr *AR) {
-  unsigned TargetMinStride = TTI->getMinPrefetchStride();
+  unsigned TargetMinStride = getMinPrefetchStride();
   // No need to check if any stride goes.
   if (TargetMinStride <= 1)
     return true;
@@ -115,6 +148,9 @@ bool LoopDataPrefetch::isStrideLargeEnough(const SCEVAddRecExpr *AR) {
 }
 
 bool LoopDataPrefetch::runOnFunction(Function &F) {
+  if (skipFunction(F))
+    return false;
+
   LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   DL = &F.getParent()->getDataLayout();
@@ -124,7 +160,7 @@ bool LoopDataPrefetch::runOnFunction(Function &F) {
   // If PrefetchDistance is not set, don't run the pass.  This gives an
   // opportunity for targets to run this pass for selected subtargets only
   // (whose TTI sets PrefetchDistance).
-  if (TTI->getPrefetchDistance() == 0)
+  if (getPrefetchDistance() == 0)
     return false;
   assert(TTI->getCacheLineSize() && "Cache line size is not set for target");
 
@@ -167,16 +203,17 @@ bool LoopDataPrefetch::runOnLoop(Loop *L) {
   if (!LoopSize)
     LoopSize = 1;
 
-  unsigned ItersAhead = TTI->getPrefetchDistance() / LoopSize;
+  unsigned ItersAhead = getPrefetchDistance() / LoopSize;
   if (!ItersAhead)
     ItersAhead = 1;
 
-  if (ItersAhead > TTI->getMaxPrefetchIterationsAhead())
+  if (ItersAhead > getMaxPrefetchIterationsAhead())
     return MadeChange;
 
+  Function *F = L->getHeader()->getParent();
   DEBUG(dbgs() << "Prefetching " << ItersAhead
                << " iterations ahead (loop size: " << LoopSize << ") in "
-               << L->getHeader()->getParent()->getName() << ": " << *L);
+               << F->getName() << ": " << *L);
 
   SmallVector<std::pair<Instruction *, const SCEVAddRecExpr *>, 16> PrefLoads;
   for (Loop::block_iterator I = L->block_begin(), IE = L->block_end();
@@ -256,6 +293,9 @@ bool LoopDataPrefetch::runOnLoop(Loop *L) {
       ++NumPrefetches;
       DEBUG(dbgs() << "  Access: " << *PtrValue << ", SCEV: " << *LSCEV
                    << "\n");
+      emitOptimizationRemark(F->getContext(), DEBUG_TYPE, *F,
+                             MemI->getDebugLoc(), "prefetched memory access");
+
 
       MadeChange = true;
     }
