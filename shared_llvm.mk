@@ -45,6 +45,7 @@ llvm_aarch64_static_libraries := \
   libLLVMAArch64Disassembler
 
 llvm_post_static_libraries := \
+  libLLVMLTO \
   libLLVMAsmPrinter \
   libLLVMSelectionDAG \
   libLLVMCodeGen \
