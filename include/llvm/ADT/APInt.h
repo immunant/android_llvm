@@ -16,7 +16,6 @@
 #ifndef LLVM_ADT_APINT_H
 #define LLVM_ADT_APINT_H
 
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/MathExtras.h"
 #include <cassert>
@@ -31,6 +30,7 @@ class hash_code;
 class raw_ostream;
 
 template <typename T> class SmallVectorImpl;
+template <typename T> class ArrayRef;
 
 // An unsigned host type used as a single part of a multi-part
 // bignum.
@@ -177,11 +177,11 @@ class APInt {
   /// provides a more convenient form of divide for internal use since KnuthDiv
   /// has specific constraints on its inputs. If those constraints are not met
   /// then it provides a simpler form of divide.
-  static void divide(const APInt LHS, unsigned lhsWords, const APInt &RHS,
+  static void divide(const APInt &LHS, unsigned lhsWords, const APInt &RHS,
                      unsigned rhsWords, APInt *Quotient, APInt *Remainder);
 
   /// out-of-line slow case for inline constructor
-  void initSlowCase(unsigned numBits, uint64_t val, bool isSigned);
+  void initSlowCase(uint64_t val, bool isSigned);
 
   /// shared code between two array constructors
   void initFromArray(ArrayRef<uint64_t> array);
@@ -239,7 +239,7 @@ public:
     if (isSingleWord())
       VAL = val;
     else
-      initSlowCase(numBits, val, isSigned);
+      initSlowCase(val, isSigned);
     clearUnusedBits();
   }
 
@@ -625,7 +625,12 @@ public:
   /// Negates *this using two's complement logic.
   ///
   /// \returns An APInt value representing the negation of *this.
-  APInt operator-() const { return APInt(BitWidth, 0) - (*this); }
+  APInt operator-() const {
+    APInt Result(*this);
+    Result.flipAllBits();
+    ++Result;
+    return Result;
+  }
 
   /// \brief Logical negation operator.
   ///
@@ -835,13 +840,13 @@ public:
   ///
   /// Adds RHS to this APInt and returns the result.
   APInt operator+(const APInt &RHS) const;
-  APInt operator+(uint64_t RHS) const { return (*this) + APInt(BitWidth, RHS); }
+  APInt operator+(uint64_t RHS) const;
 
   /// \brief Subtraction operator.
   ///
   /// Subtracts RHS from this APInt and returns the result.
   APInt operator-(const APInt &RHS) const;
-  APInt operator-(uint64_t RHS) const { return (*this) - APInt(BitWidth, RHS); }
+  APInt operator-(uint64_t RHS) const;
 
   /// \brief Left logical shift operator.
   ///
@@ -1780,6 +1785,13 @@ inline bool isSignedIntN(unsigned N, const APInt &APIVal) {
 inline bool isMask(unsigned numBits, const APInt &APIVal) {
   return numBits <= APIVal.getBitWidth() &&
          APIVal == APInt::getLowBitsSet(APIVal.getBitWidth(), numBits);
+}
+
+/// \returns true if the argument is a non-empty sequence of ones starting at
+/// the least significant bit with the remainder zero (32 bit version).
+/// Ex. isMask(0x0000FFFFU) == true.
+inline bool isMask(const APInt &Value) {
+  return (Value != 0) && ((Value + 1) & Value) == 0;
 }
 
 /// \brief Return true if the argument APInt value contains a sequence of ones

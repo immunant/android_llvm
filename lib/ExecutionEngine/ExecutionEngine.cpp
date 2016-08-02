@@ -235,10 +235,8 @@ void ExecutionEngine::clearAllGlobalMappings() {
 void ExecutionEngine::clearGlobalMappingsFromModule(Module *M) {
   MutexGuard locked(lock);
 
-  for (Function &FI : *M)
-    EEState.RemoveMapping(getMangledName(&FI));
-  for (GlobalVariable &GI : M->globals())
-    EEState.RemoveMapping(getMangledName(&GI));
+  for (GlobalObject &GO : M->global_objects())
+    EEState.RemoveMapping(getMangledName(&GO));
 }
 
 uint64_t ExecutionEngine::updateGlobalMapping(const GlobalValue *GV,
@@ -474,8 +472,7 @@ EngineBuilder::EngineBuilder() : EngineBuilder(nullptr) {}
 EngineBuilder::EngineBuilder(std::unique_ptr<Module> M)
     : M(std::move(M)), WhichEngine(EngineKind::Either), ErrorStr(nullptr),
       OptLevel(CodeGenOpt::Default), MemMgr(nullptr), Resolver(nullptr),
-      RelocModel(Reloc::Default), CMModel(CodeModel::JITDefault),
-      UseOrcMCJITReplacement(false) {
+      CMModel(CodeModel::JITDefault), UseOrcMCJITReplacement(false) {
 // IR module verification is enabled by default in debug builds, and disabled
 // by default in release builds.
 #ifndef NDEBUG

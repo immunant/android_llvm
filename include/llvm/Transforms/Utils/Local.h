@@ -21,6 +21,7 @@
 #include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 namespace llvm {
 
@@ -29,6 +30,7 @@ class BasicBlock;
 class Function;
 class BranchInst;
 class Instruction;
+class CallInst;
 class DbgDeclareInst;
 class StoreInst;
 class LoadInst;
@@ -124,13 +126,16 @@ bool TryToSimplifyUncondBranchFromEmptyBlock(BasicBlock *BB);
 /// values, but instcombine orders them so it usually won't matter.
 bool EliminateDuplicatePHINodes(BasicBlock *BB);
 
-/// This function is used to do simplification of a CFG.  For example, it
-/// adjusts branches to branches to eliminate the extra hop, it eliminates
-/// unreachable basic blocks, and does other "peephole" optimization of the CFG.
-/// It returns true if a modification was made, possibly deleting the basic
-/// block that was pointed to.
+/// This function is used to do simplification of a CFG.  For
+/// example, it adjusts branches to branches to eliminate the extra hop, it
+/// eliminates unreachable basic blocks, and does other "peephole" optimization
+/// of the CFG.  It returns true if a modification was made, possibly deleting
+/// the basic block that was pointed to. LoopHeaders is an optional input
+/// parameter, providing the set of loop header that SimplifyCFG should not
+/// eliminate.
 bool SimplifyCFG(BasicBlock *BB, const TargetTransformInfo &TTI,
-                 unsigned BonusInstThreshold, AssumptionCache *AC = nullptr);
+                 unsigned BonusInstThreshold, AssumptionCache *AC = nullptr,
+                 SmallPtrSetImpl<BasicBlock *> *LoopHeaders = nullptr);
 
 /// This function is used to flatten a CFG. For example, it uses parallel-and
 /// and parallel-or mode to collapse if-conditions and merge if-regions with
@@ -277,6 +282,14 @@ bool replaceDbgDeclare(Value *Address, Value *NewAddress,
 bool replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
                                 DIBuilder &Builder, bool Deref, int Offset = 0);
 
+/// Replaces multiple llvm.dbg.value instructions when the alloca it describes
+/// is replaced with a new value. If Offset is non-zero, a constant displacement
+/// is added to the expression (after the mandatory Deref). Offset can be
+/// negative. New llvm.dbg.value instructions are inserted at the locations of
+/// the instructions they replace.
+void replaceDbgValueForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
+                              DIBuilder &Builder, int Offset = 0);
+
 /// Remove all instructions from a basic block other than it's terminator
 /// and any present EH pad instructions.
 unsigned removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB);
@@ -327,7 +340,7 @@ bool callsGCLeafFunction(ImmutableCallSite CS);
 //  Intrinsic pattern matching
 //
 
-/// Try and match a bitreverse or bswap idiom.
+/// Try and match a bswap or bitreverse idiom.
 ///
 /// If an idiom is matched, an intrinsic call is inserted before \c I. Any added
 /// instructions are returned in \c InsertedInsts. They will all have been added
@@ -338,9 +351,20 @@ bool callsGCLeafFunction(ImmutableCallSite CS);
 /// to BW / 4 nodes to be searched, so is significantly faster.
 ///
 /// This function returns true on a successful match or false otherwise.
-bool recognizeBitReverseOrBSwapIdiom(
+bool recognizeBSwapOrBitReverseIdiom(
     Instruction *I, bool MatchBSwaps, bool MatchBitReversals,
     SmallVectorImpl<Instruction *> &InsertedInsts);
+
+//===----------------------------------------------------------------------===//
+//  Sanitizer utilities
+//
+
+/// Given a CallInst, check if it calls a string function known to CodeGen,
+/// and mark it with NoBuiltin if so.  To be used by sanitizers that intend
+/// to intercept string functions and want to avoid converting them to target
+/// specific instructions.
+void maybeMarkSanitizerLibraryCallNoBuiltin(CallInst *CI,
+                                            const TargetLibraryInfo *TLI);
 
 } // End llvm namespace
 

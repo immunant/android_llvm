@@ -78,8 +78,6 @@
 #include "HexagonTargetMachine.h"
 
 #include <functional>
-#include <set>
-#include <vector>
 
 using namespace llvm;
 
@@ -962,7 +960,7 @@ void HexagonEarlyIfConversion::eliminatePhis(MachineBasicBlock *B) {
       // MRI.replaceVregUsesWith does not allow to update the subregister,
       // so instead of doing the use-iteration here, create a copy into a
       // "non-subregistered" register.
-      DebugLoc DL = PN->getDebugLoc();
+      const DebugLoc &DL = PN->getDebugLoc();
       const TargetRegisterClass *RC = MRI->getRegClass(DefR);
       NewR = MRI->createVirtualRegister(RC);
       NonPHI = BuildMI(*B, NonPHI, DL, TII->get(TargetOpcode::COPY), NewR)
@@ -1034,6 +1032,9 @@ void HexagonEarlyIfConversion::simplifyFlowGraph(const FlowPattern &FP) {
 
 
 bool HexagonEarlyIfConversion::runOnMachineFunction(MachineFunction &MF) {
+  if (skipFunction(*MF.getFunction()))
+    return false;
+
   auto &ST = MF.getSubtarget();
   TII = ST.getInstrInfo();
   TRI = ST.getRegisterInfo();

@@ -44,6 +44,11 @@ def AMDGPUFmasOp : SDTypeProfile<1, 4,
 // AMDGPU DAG Nodes
 //
 
+def AMDGPUconstdata_ptr : SDNode<
+  "AMDGPUISD::CONST_DATA_PTR", SDTypeProfile <1, 1, [SDTCisVT<0, iPTR>,
+                                                     SDTCisVT<0, iPTR>]>
+>;
+
 // This argument to this node is a dword address.
 def AMDGPUdwordaddr : SDNode<"AMDGPUISD::DWORDADDR", SDTIntUnaryOp>;
 
@@ -183,6 +188,11 @@ def AMDGPUstore_mskor : SDNode<"AMDGPUISD::STORE_MSKOR",
                         SDTypeProfile<0, 2, []>,
                         [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
 
+def AMDGPUatomic_cmp_swap : SDNode<"AMDGPUISD::ATOMIC_CMP_SWAP",
+                            SDTypeProfile<1, 2, [SDTCisPtrTy<1>, SDTCisVec<2>]>,
+                            [SDNPHasChain, SDNPMayStore, SDNPMayLoad,
+                             SDNPMemOperand]>;
+
 def AMDGPUround : SDNode<"ISD::FROUND",
                          SDTypeProfile<1, 1, [SDTCisFP<0>, SDTCisSameAs<0,1>]>>;
 
@@ -251,5 +261,8 @@ def IL_brcond      : SDNode<"AMDGPUISD::BRANCH_COND", SDTIL_BRCond, [SDNPHasChai
 //===----------------------------------------------------------------------===//
 // Call/Return DAG Nodes
 //===----------------------------------------------------------------------===//
-def IL_retflag       : SDNode<"AMDGPUISD::RET_FLAG", SDTNone,
+def AMDGPUendpgm : SDNode<"AMDGPUISD::ENDPGM", SDTNone,
+    [SDNPHasChain, SDNPOptInGlue]>;
+
+def AMDGPUreturn : SDNode<"AMDGPUISD::RETURN", SDTNone,
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;

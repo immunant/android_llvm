@@ -39,7 +39,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/CodeGen/Analysis.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
@@ -89,6 +88,8 @@ void FastISel::ArgListEntry::setAttributes(ImmutableCallSite *CS,
   IsByVal = CS->paramHasAttr(AttrIdx, Attribute::ByVal);
   IsInAlloca = CS->paramHasAttr(AttrIdx, Attribute::InAlloca);
   IsReturned = CS->paramHasAttr(AttrIdx, Attribute::Returned);
+  IsSwiftSelf = CS->paramHasAttr(AttrIdx, Attribute::SwiftSelf);
+  IsSwiftError = CS->paramHasAttr(AttrIdx, Attribute::SwiftError);
   Alignment = CS->getParamAlignment(AttrIdx);
 }
 
@@ -352,7 +353,8 @@ void FastISel::recomputeInsertPt() {
 
 void FastISel::removeDeadCode(MachineBasicBlock::iterator I,
                               MachineBasicBlock::iterator E) {
-  assert(I && E && std::distance(I, E) > 0 && "Invalid iterator!");
+  assert(static_cast<MachineInstr *>(I) && static_cast<MachineInstr *>(E) &&
+         std::distance(I, E) > 0 && "Invalid iterator!");
   while (I != E) {
     MachineInstr *Dead = &*I;
     ++I;
@@ -373,7 +375,7 @@ FastISel::SavePoint FastISel::enterLocalValueArea() {
 
 void FastISel::leaveLocalValueArea(SavePoint OldInsertPt) {
   if (FuncInfo.InsertPt != FuncInfo.MBB->begin())
-    LastLocalValue = std::prev(FuncInfo.InsertPt);
+    LastLocalValue = &*std::prev(FuncInfo.InsertPt);
 
   // Restore the previous insert position.
   FuncInfo.InsertPt = OldInsertPt.InsertPt;
@@ -957,6 +959,10 @@ bool FastISel::lowerCallTo(CallLoweringInfo &CLI) {
       Flags.setInReg();
     if (Arg.IsSRet)
       Flags.setSRet();
+    if (Arg.IsSwiftSelf)
+      Flags.setSwiftSelf();
+    if (Arg.IsSwiftError)
+      Flags.setSwiftError();
     if (Arg.IsByVal)
       Flags.setByVal();
     if (Arg.IsInAlloca) {
@@ -1318,6 +1324,15 @@ bool FastISel::selectBitCast(const User *I) {
   return true;
 }
 
+// Return true if we should copy from swift error to the final vreg as specified
+// by SwiftErrorWorklist.
+static bool shouldCopySwiftErrorsToFinalVRegs(const TargetLowering &TLI,
+                                              FunctionLoweringInfo &FuncInfo) {
+  if (!TLI.supportSwiftError())
+    return false;
+  return FuncInfo.SwiftErrorWorklist.count(FuncInfo.MBB);
+}
+
 // Remove local value instructions starting from the instruction after
 // SavedLastLocalValue to the current function insert point.
 void FastISel::removeDeadLocalValueCode(MachineInstr *SavedLastLocalValue)
@@ -1341,7 +1356,11 @@ bool FastISel::selectInstruction(const Instruction *I) {
   MachineInstr *SavedLastLocalValue = getLastLocalValue();
   // Just before the terminator instruction, insert instructions to
   // feed PHI nodes in successor blocks.
-  if (isa<TerminatorInst>(I))
+  if (isa<TerminatorInst>(I)) {
+    // If we need to materialize any vreg from worklist, we bail out of
+    // FastISel.
+    if (shouldCopySwiftErrorsToFinalVRegs(TLI, FuncInfo))
+      return false;
     if (!handlePHINodesInSuccessorBlocks(I->getParent())) {
       // PHI node handling may have generated local value instructions,
       // even though it failed to handle all PHI nodes.
@@ -1350,6 +1369,7 @@ bool FastISel::selectInstruction(const Instruction *I) {
       removeDeadLocalValueCode(SavedLastLocalValue);
       return false;
     }
+  }
 
   // FastISel does not handle any operand bundles except OB_funclet.
   if (ImmutableCallSite CS = ImmutableCallSite(I))
@@ -1415,7 +1435,8 @@ bool FastISel::selectInstruction(const Instruction *I) {
 
 /// Emit an unconditional branch to the given block, unless it is the immediate
 /// (fall-through) successor, and update the CFG.
-void FastISel::fastEmitBranch(MachineBasicBlock *MSucc, DebugLoc DbgLoc) {
+void FastISel::fastEmitBranch(MachineBasicBlock *MSucc,
+                              const DebugLoc &DbgLoc) {
   if (FuncInfo.MBB->getBasicBlock()->size() > 1 &&
       FuncInfo.MBB->isLayoutSuccessor(MSucc)) {
     // For more accurate line information if this is the only instruction
@@ -2055,7 +2076,7 @@ bool FastISel::handlePHINodesInSuccessorBlocks(const BasicBlock *LLVMBB) {
         FuncInfo.PHINodesToUpdate.resize(FuncInfo.OrigNumPHINodesToUpdate);
         return false;
       }
-      FuncInfo.PHINodesToUpdate.push_back(std::make_pair(MBBI++, Reg));
+      FuncInfo.PHINodesToUpdate.push_back(std::make_pair(&*MBBI++, Reg));
       DbgLoc = DebugLoc();
     }
   }

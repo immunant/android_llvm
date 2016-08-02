@@ -462,8 +462,8 @@ struct AttributeComparator {
       return R->isConvergent;
 
     // Try to order by readonly/readnone attribute.
-    CodeGenIntrinsic::ModRefKind LK = L->ModRef;
-    CodeGenIntrinsic::ModRefKind RK = R->ModRef;
+    CodeGenIntrinsic::ModRefBehavior LK = L->ModRef;
+    CodeGenIntrinsic::ModRefBehavior RK = R->ModRef;
     if (LK != RK) return (LK > RK);
 
     // Order by argument attributes.
@@ -548,10 +548,22 @@ EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS) {
             OS << "Attribute::NoCapture";
             addComma = true;
             break;
+          case CodeGenIntrinsic::Returned:
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::Returned";
+            addComma = true;
+            break;
           case CodeGenIntrinsic::ReadOnly:
             if (addComma)
               OS << ",";
             OS << "Attribute::ReadOnly";
+            addComma = true;
+            break;
+          case CodeGenIntrinsic::WriteOnly:
+            if (addComma)
+              OS << ",";
+            OS << "Attribute::WriteOnly";
             addComma = true;
             break;
           case CodeGenIntrinsic::ReadNone:
@@ -615,6 +627,17 @@ EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS) {
         if (addComma)
           OS << ",";
         OS << "Attribute::ReadOnly";
+        break;
+      case CodeGenIntrinsic::WriteArgMem:
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::WriteOnly,";
+        OS << "Attribute::ArgMemOnly";
+        break;
+      case CodeGenIntrinsic::WriteMem:
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::WriteOnly";
         break;
       case CodeGenIntrinsic::ReadWriteArgMem:
         if (addComma)

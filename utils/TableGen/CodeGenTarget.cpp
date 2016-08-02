@@ -39,7 +39,7 @@ MVT::SimpleValueType llvm::getValueType(Record *Rec) {
   return (MVT::SimpleValueType)Rec->getValueAsInt("Value");
 }
 
-std::string llvm::getName(MVT::SimpleValueType T) {
+StringRef llvm::getName(MVT::SimpleValueType T) {
   switch (T) {
   case MVT::Other:   return "UNKNOWN";
   case MVT::iPTR:    return "TLI.getPointerTy()";
@@ -48,7 +48,7 @@ std::string llvm::getName(MVT::SimpleValueType T) {
   }
 }
 
-std::string llvm::getEnumName(MVT::SimpleValueType T) {
+StringRef llvm::getEnumName(MVT::SimpleValueType T) {
   switch (T) {
   case MVT::Other:    return "MVT::Other";
   case MVT::i1:       return "MVT::i1";
@@ -352,9 +352,9 @@ void CodeGenTarget::reverseBitsForLittleEndianEncoding() {
     BitsInit *BI = R->getValueAsBitsInit("Inst");
 
     unsigned numBits = BI->getNumBits();
- 
+
     SmallVector<Init *, 16> NewBits(numBits);
- 
+
     for (unsigned bit = 0, end = numBits / 2; bit != end; ++bit) {
       unsigned bitSwapIdx = numBits - bit - 1;
       Init *OrigBit = BI->getBit(bit);
@@ -428,15 +428,15 @@ ComplexPattern::ComplexPattern(Record *R) {
 
 std::vector<CodeGenIntrinsic> llvm::LoadIntrinsics(const RecordKeeper &RC,
                                                    bool TargetOnly) {
-  std::vector<Record*> I = RC.getAllDerivedDefinitions("Intrinsic");
+  std::vector<Record*> Defs = RC.getAllDerivedDefinitions("Intrinsic");
 
   std::vector<CodeGenIntrinsic> Result;
-  Result.reserve(I.size());
+  Result.reserve(Defs.size());
 
-  for (unsigned i = 0, e = I.size(); i != e; ++i) {
-    bool isTarget = I[i]->getValueAsBit("isTarget");
+  for (unsigned I = 0, e = Defs.size(); I != e; ++I) {
+    bool isTarget = Defs[I]->getValueAsBit("isTarget");
     if (isTarget == TargetOnly)
-      Result.push_back(CodeGenIntrinsic(I[i]));
+      Result.push_back(CodeGenIntrinsic(Defs[I]));
   }
   std::sort(Result.begin(), Result.end(),
             [](const CodeGenIntrinsic& LHS, const CodeGenIntrinsic& RHS) {
@@ -573,12 +573,12 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
 
     if (Property->getName() == "IntrNoMem")
       ModRef = NoMem;
-    else if (Property->getName() == "IntrReadArgMem")
-      ModRef = ReadArgMem;
     else if (Property->getName() == "IntrReadMem")
-      ModRef = ReadMem;
-    else if (Property->getName() == "IntrReadWriteArgMem")
-      ModRef = ReadWriteArgMem;
+      ModRef = ModRefBehavior(ModRef & ~MR_Mod);
+    else if (Property->getName() == "IntrWriteMem")
+      ModRef = ModRefBehavior(ModRef & ~MR_Ref);
+    else if (Property->getName() == "IntrArgMemOnly")
+      ModRef = ModRefBehavior(ModRef & ~MR_Anywhere);
     else if (Property->getName() == "Commutative")
       isCommutative = true;
     else if (Property->getName() == "Throws")
@@ -592,9 +592,15 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
     else if (Property->isSubClassOf("NoCapture")) {
       unsigned ArgNo = Property->getValueAsInt("ArgNo");
       ArgumentAttributes.push_back(std::make_pair(ArgNo, NoCapture));
+    } else if (Property->isSubClassOf("Returned")) {
+      unsigned ArgNo = Property->getValueAsInt("ArgNo");
+      ArgumentAttributes.push_back(std::make_pair(ArgNo, Returned));
     } else if (Property->isSubClassOf("ReadOnly")) {
       unsigned ArgNo = Property->getValueAsInt("ArgNo");
       ArgumentAttributes.push_back(std::make_pair(ArgNo, ReadOnly));
+    } else if (Property->isSubClassOf("WriteOnly")) {
+      unsigned ArgNo = Property->getValueAsInt("ArgNo");
+      ArgumentAttributes.push_back(std::make_pair(ArgNo, WriteOnly));
     } else if (Property->isSubClassOf("ReadNone")) {
       unsigned ArgNo = Property->getValueAsInt("ArgNo");
       ArgumentAttributes.push_back(std::make_pair(ArgNo, ReadNone));

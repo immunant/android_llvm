@@ -14,6 +14,7 @@
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/InlineCost.h"
+#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/CallSite.h"
@@ -39,9 +40,9 @@ namespace {
 /// analyses to determine when to inline.
 class SimpleInliner : public Inliner {
   // This field is populated based on one of the following:
-  //  optimization or size optimization levels,
-  //  --inline-threshold flag,
-  //  user specified value.
+  //  * optimization or size-optimization levels,
+  //  * the --inline-threshold flag, or
+  //  * a user specified value.
   int DefaultThreshold;
 
 public:
@@ -50,7 +51,8 @@ public:
     initializeSimpleInlinerPass(*PassRegistry::getPassRegistry());
   }
 
-  SimpleInliner(int Threshold) : Inliner(ID), DefaultThreshold(Threshold) {
+  explicit SimpleInliner(int Threshold)
+      : Inliner(ID), DefaultThreshold(Threshold) {
     initializeSimpleInlinerPass(*PassRegistry::getPassRegistry());
   }
 
@@ -59,7 +61,7 @@ public:
   InlineCost getInlineCost(CallSite CS) override {
     Function *Callee = CS.getCalledFunction();
     TargetTransformInfo &TTI = TTIWP->getTTI(*Callee);
-    return llvm::getInlineCost(CS, DefaultThreshold, TTI, ACT);
+    return llvm::getInlineCost(CS, DefaultThreshold, TTI, ACT, PSI);
   }
 
   bool runOnSCC(CallGraphSCC &SCC) override;
@@ -76,6 +78,7 @@ INITIALIZE_PASS_BEGIN(SimpleInliner, "inline",
                 "Function Integration/Inlining", false, false)
 INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
 INITIALIZE_PASS_DEPENDENCY(CallGraphWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(ProfileSummaryInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_END(SimpleInliner, "inline",

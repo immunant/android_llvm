@@ -11,8 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
-    AMDGPUInst<outs, ins, asm, pattern>, PredicateControl {
+class InstSI <dag outs, dag ins, string asm = "",
+              list<dag> pattern = []> :
+  AMDGPUInst<outs, ins, asm, pattern>, PredicateControl {
 
   field bits<1> VM_CNT = 0;
   field bits<1> EXP_CNT = 0;
@@ -31,6 +32,7 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   field bits<1> VOP2 = 0;
   field bits<1> VOP3 = 0;
   field bits<1> VOPC = 0;
+  field bits<1> SDWA = 0;
   field bits<1> DPP = 0;
 
   field bits<1> MUBUF = 0;
@@ -45,6 +47,8 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   // This bit tells the assembler to use the 32-bit encoding in case it
   // is unable to infer the encoding from the operands.
   field bits<1> VOPAsmPrefer32Bit = 0;
+
+  field bits<1> Gather4 = 0;
 
   // These need to be kept in sync with the enum in SIInstrFlags.
   let TSFlags{0} = VM_CNT;
@@ -64,17 +68,19 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   let TSFlags{11} = VOP2;
   let TSFlags{12} = VOP3;
   let TSFlags{13} = VOPC;
-  let TSFlags{14} = DPP;
+  let TSFlags{14} = SDWA;
+  let TSFlags{15} = DPP;
 
-  let TSFlags{15} = MUBUF;
-  let TSFlags{16} = MTBUF;
-  let TSFlags{17} = SMRD;
-  let TSFlags{18} = DS;
-  let TSFlags{19} = MIMG;
-  let TSFlags{20} = FLAT;
-  let TSFlags{21} = WQM;
-  let TSFlags{22} = VGPRSpill;
-  let TSFlags{23} = VOPAsmPrefer32Bit;
+  let TSFlags{16} = MUBUF;
+  let TSFlags{17} = MTBUF;
+  let TSFlags{18} = SMRD;
+  let TSFlags{19} = DS;
+  let TSFlags{20} = MIMG;
+  let TSFlags{21} = FLAT;
+  let TSFlags{22} = WQM;
+  let TSFlags{23} = VGPRSpill;
+  let TSFlags{24} = VOPAsmPrefer32Bit;
+  let TSFlags{25} = Gather4;
 
   let SchedRW = [Write32Bit];
 
@@ -83,6 +89,12 @@ class InstSI <dag outs, dag ins, string asm, list<dag> pattern> :
   field bits<1> DisableDecoder = 0;
 
   let isAsmParserOnly = !if(!eq(DisableDecoder{0}, {0}), 0, 1);
+}
+
+class PseudoInstSI<dag outs, dag ins, list<dag> pattern = []>
+  : InstSI<outs, ins, "", pattern> {
+  let isPseudo = 1;
+  let isCodeGenOnly = 1;
 }
 
 class Enc32 {
@@ -131,8 +143,10 @@ class VOP2Common <dag outs, dag ins, string asm, list<dag> pattern> :
   let Size = 4;
 }
 
-class VOP3Common <dag outs, dag ins, string asm, list<dag> pattern, bit HasMods = 0, bit VOP3Only = 0> :
-    VOPAnyCommon <outs, ins, asm, pattern> {
+class VOP3Common <dag outs, dag ins, string asm = "",
+                  list<dag> pattern = [], bit HasMods = 0,
+                  bit VOP3Only = 0> :
+  VOPAnyCommon <outs, ins, asm, pattern> {
 
   // Using complex patterns gives VOP3 patterns a very high complexity rating,
   // but standalone patterns are almost always prefered, so we need to adjust the
@@ -145,8 +159,9 @@ class VOP3Common <dag outs, dag ins, string asm, list<dag> pattern, bit HasMods 
 
   let AsmMatchConverter =
     !if(!eq(VOP3Only,1),
-        "cvtVOP3_only",
-        !if(!eq(HasMods,1), "cvtVOP3_2_mod", "cvtVOP3_2_nomod"));
+        "cvtVOP3",
+        !if(!eq(HasMods,1), "cvtVOP3_2_mod", ""));
+
   let isCodeGenOnly = 0;
 
   int Size = 8;
@@ -369,15 +384,15 @@ class VOP2_MADKe <bits<6> op> : Enc64 {
 
   bits<8>  vdst;
   bits<9>  src0;
-  bits<8>  vsrc1;
-  bits<32> src2;
+  bits<8>  src1;
+  bits<32> imm;
 
   let Inst{8-0} = src0;
-  let Inst{16-9} = vsrc1;
+  let Inst{16-9} = src1;
   let Inst{24-17} = vdst;
   let Inst{30-25} = op;
   let Inst{31} = 0x0; // encoding
-  let Inst{63-32} = src2;
+  let Inst{63-32} = imm;
 }
 
 class VOP3a <bits<9> op> : Enc64 {
@@ -708,7 +723,6 @@ class FLAT <bits<7> op, dag outs, dag ins, string asm, list<dag> pattern> :
 
   let UseNamedOperandTable = 1;
   let hasSideEffects = 0;
-  let AsmMatchConverter = "cvtFlat";
   let SchedRW = [WriteVMEM];
 }
 

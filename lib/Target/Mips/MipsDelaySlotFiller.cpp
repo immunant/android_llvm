@@ -62,6 +62,28 @@ static cl::opt<bool> DisableBackwardSearch(
   cl::desc("Disallow MIPS delay filler to search backward."),
   cl::Hidden);
 
+enum CompactBranchPolicy {
+  CB_Never,   ///< The policy 'never' may in some circumstances or for some
+              ///< ISAs not be absolutely adhered to.
+  CB_Optimal, ///< Optimal is the default and will produce compact branches
+              ///< when delay slots cannot be filled.
+  CB_Always   ///< 'always' may in some circumstances may not be
+              ///< absolutely adhered to there may not be a corresponding
+              ///< compact form of a branch.
+};
+
+static cl::opt<CompactBranchPolicy> MipsCompactBranchPolicy(
+  "mips-compact-branches",cl::Optional,
+  cl::init(CB_Optimal),
+  cl::desc("MIPS Specific: Compact branch policy."),
+  cl::values(
+    clEnumValN(CB_Never, "never", "Do not use compact branches if possible."),
+    clEnumValN(CB_Optimal, "optimal", "Use compact branches where appropiate (default)."),
+    clEnumValN(CB_Always, "always", "Always use compact branches if possible."),
+    clEnumValEnd
+  )
+);
+
 namespace {
   typedef MachineBasicBlock::iterator Iter;
   typedef MachineBasicBlock::reverse_iterator ReverseIter;
@@ -189,6 +211,11 @@ namespace {
       return Changed;
     }
 
+    MachineFunctionProperties getRequiredProperties() const override {
+      return MachineFunctionProperties().set(
+          MachineFunctionProperties::Property::AllVRegsAllocated);
+    }
+
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<MachineBranchProbabilityInfo>();
       MachineFunctionPass::getAnalysisUsage(AU);
@@ -197,11 +224,8 @@ namespace {
   private:
     bool runOnMachineBasicBlock(MachineBasicBlock &MBB);
 
-    Iter replaceWithCompactBranch(MachineBasicBlock &MBB,
-                                  Iter Branch, DebugLoc DL);
-
-    Iter replaceWithCompactJump(MachineBasicBlock &MBB,
-                                Iter Jump, DebugLoc DL);
+    Iter replaceWithCompactBranch(MachineBasicBlock &MBB, Iter Branch,
+                                  const DebugLoc &DL);
 
     /// This function checks if it is valid to move Candidate to the delay slot
     /// and returns true if it isn't. It also updates memory and register
@@ -505,8 +529,8 @@ getUnderlyingObjects(const MachineInstr &MI,
 }
 
 // Replace Branch with the compact branch instruction.
-Iter Filler::replaceWithCompactBranch(MachineBasicBlock &MBB,
-                                      Iter Branch, DebugLoc DL) {
+Iter Filler::replaceWithCompactBranch(MachineBasicBlock &MBB, Iter Branch,
+                                      const DebugLoc &DL) {
   const MipsSubtarget &STI = MBB.getParent()->getSubtarget<MipsSubtarget>();
   const MipsInstrInfo *TII = STI.getInstrInfo();
 
@@ -515,24 +539,6 @@ Iter Filler::replaceWithCompactBranch(MachineBasicBlock &MBB,
 
   std::next(Branch)->eraseFromParent();
   return Branch;
-}
-
-// Replace Jumps with the compact jump instruction.
-Iter Filler::replaceWithCompactJump(MachineBasicBlock &MBB,
-                                    Iter Jump, DebugLoc DL) {
-  const MipsInstrInfo *TII =
-      MBB.getParent()->getSubtarget<MipsSubtarget>().getInstrInfo();
-
-  const MCInstrDesc &NewDesc = TII->get(Mips::JRC16_MM);
-  MachineInstrBuilder MIB = BuildMI(MBB, Jump, DL, NewDesc);
-
-  MIB.addReg(Jump->getOperand(0).getReg());
-
-  Iter tmpIter = Jump;
-  Jump = std::prev(Jump);
-  MBB.erase(tmpIter);
-
-  return Jump;
 }
 
 // For given opcode returns opcode of corresponding instruction with short
@@ -579,51 +585,45 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     if (!DisableDelaySlotFiller && (TM.getOptLevel() != CodeGenOpt::None)) {
       bool Filled = false;
 
-      if (searchBackward(MBB, I)) {
-        Filled = true;
-      } else if (I->isTerminator()) {
-        if (searchSuccBBs(MBB, I)) {
+      if (MipsCompactBranchPolicy.getValue() != CB_Always ||
+           !TII->getEquivalentCompactForm(I)) {
+        if (searchBackward(MBB, I)) {
+          Filled = true;
+        } else if (I->isTerminator()) {
+          if (searchSuccBBs(MBB, I)) {
+            Filled = true;
+          }
+        } else if (searchForward(MBB, I)) {
           Filled = true;
         }
-      } else if (searchForward(MBB, I)) {
-        Filled = true;
       }
 
       if (Filled) {
         // Get instruction with delay slot.
-        MachineBasicBlock::instr_iterator DSI(I);
+        MachineBasicBlock::instr_iterator DSI = I.getInstrIterator();
 
-        if (InMicroMipsMode && TII->GetInstSizeInBytes(&*std::next(DSI)) == 2 &&
+        if (InMicroMipsMode && TII->GetInstSizeInBytes(*std::next(DSI)) == 2 &&
             DSI->isCall()) {
           // If instruction in delay slot is 16b change opcode to
           // corresponding instruction with short delay slot.
           DSI->setDesc(TII->get(getEquivalentCallShort(DSI->getOpcode())));
         }
-
         continue;
       }
     }
 
-    // If instruction is BEQ or BNE with one ZERO register, then instead of
-    // adding NOP replace this instruction with the corresponding compact
-    // branch instruction, i.e. BEQZC or BNEZC.
-    if (InMicroMipsMode) {
-      if (TII->getEquivalentCompactForm(I)) {
-        I = replaceWithCompactBranch(MBB, I, I->getDebugLoc());
-        continue;
-      }
-
-      if (I->isIndirectBranch() || I->isReturn()) {
-        // For microMIPS the PseudoReturn and PseudoIndirectBranch are always
-        // expanded to JR_MM, so they can be replaced with JRC16_MM.
-        I = replaceWithCompactJump(MBB, I, I->getDebugLoc());
-        continue;
-      }
-    }
+    // For microMIPS if instruction is BEQ or BNE with one ZERO register, then
+    // instead of adding NOP replace this instruction with the corresponding
+    // compact branch instruction, i.e. BEQZC or BNEZC. Additionally
+    // PseudoReturn and PseudoIndirectBranch are expanded to JR_MM, so they can
+    // be replaced with JRC16_MM.
 
     // For MIPSR6 attempt to produce the corresponding compact (no delay slot)
-    // form of the branch. This should save putting in a NOP.
-    if ((STI.hasMips32r6()) && TII->getEquivalentCompactForm(I)) {
+    // form of the CTI. For indirect jumps this will not require inserting a
+    // NOP and for branches will hopefully avoid requiring a NOP.
+    if ((InMicroMipsMode ||
+         (STI.hasMips32r6() && MipsCompactBranchPolicy != CB_Never)) &&
+        TII->getEquivalentCompactForm(I)) {
       I = replaceWithCompactBranch(MBB, I, I->getDebugLoc());
       continue;
     }
@@ -692,7 +692,7 @@ bool Filler::searchRange(MachineBasicBlock &MBB, IterTy Begin, IterTy End,
     bool InMicroMipsMode = STI.inMicroMipsMode();
     const MipsInstrInfo *TII = STI.getInstrInfo();
     unsigned Opcode = (*Slot).getOpcode();
-    if (InMicroMipsMode && TII->GetInstSizeInBytes(&(*CurrI)) == 2 &&
+    if (InMicroMipsMode && TII->GetInstSizeInBytes(*CurrI) == 2 &&
         (Opcode == Mips::JR || Opcode == Mips::PseudoIndirectBranch ||
          Opcode == Mips::PseudoReturn))
       continue;

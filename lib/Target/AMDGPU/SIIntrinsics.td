@@ -13,8 +13,6 @@
 
 
 let TargetPrefix = "SI", isTarget = 1 in {
-
-  def int_SI_tid : Intrinsic <[llvm_i32_ty], [], [IntrNoMem]>;
   def int_SI_packf16 : Intrinsic <[llvm_i32_ty], [llvm_float_ty, llvm_float_ty], [IntrNoMem]>;
   def int_SI_export : Intrinsic <[], [llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_i32_ty, llvm_float_ty, llvm_float_ty, llvm_float_ty, llvm_float_ty], []>;
   def int_SI_load_const : Intrinsic <[llvm_float_ty], [llvm_anyint_ty, llvm_i32_ty], [IntrNoMem]>;
@@ -50,7 +48,7 @@ let TargetPrefix = "SI", isTarget = 1 in {
      llvm_i32_ty,     // glc(imm)
      llvm_i32_ty,     // slc(imm)
      llvm_i32_ty],    // tfe(imm)
-    [IntrReadArgMem]>;
+    [IntrReadMem, IntrArgMemOnly]>;
 
   def int_SI_sendmsg : Intrinsic <[], [llvm_i32_ty, llvm_i32_ty], []>;
 

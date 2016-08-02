@@ -20,7 +20,6 @@
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbolELF.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
@@ -64,6 +63,16 @@ void WebAssemblyTargetAsmStreamer::emitLocal(ArrayRef<MVT> Types) {
 }
 
 void WebAssemblyTargetAsmStreamer::emitEndFunc() { OS << "\t.endfunc\n"; }
+
+void WebAssemblyTargetAsmStreamer::emitIndirectFunctionType(
+    StringRef name, SmallVectorImpl<MVT> &SignatureVTs, size_t NumResults) {
+  OS << "\t.functype\t" << name;
+  if (NumResults == 0) OS << ", void";
+  for (auto Ty : SignatureVTs) {
+    OS << ", " << WebAssembly::TypeToString(Ty);
+  }
+  OS << "\n";
+}
 
 // FIXME: What follows is not the real binary encoding.
 

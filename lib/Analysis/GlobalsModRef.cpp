@@ -471,9 +471,10 @@ void GlobalsAAResult::AnalyzeCallGraph(CallGraph &CG, Module &M) {
     const std::vector<CallGraphNode *> &SCC = *I;
     assert(!SCC.empty() && "SCC with no functions?");
 
-    if (!SCC[0]->getFunction() || SCC[0]->getFunction()->mayBeOverridden()) {
-      // Calls externally or is weak - can't say anything useful. Remove any existing
-      // function records (may have been created when scanning globals).
+    if (!SCC[0]->getFunction() || !SCC[0]->getFunction()->isDefinitionExact()) {
+      // Calls externally or not exact - can't say anything useful. Remove any
+      // existing function records (may have been created when scanning
+      // globals).
       for (auto *Node : SCC)
         FunctionInfos.erase(Node->getFunction());
       continue;
@@ -497,7 +498,7 @@ void GlobalsAAResult::AnalyzeCallGraph(CallGraph &CG, Module &M) {
           // Can't do better than that!
         } else if (F->onlyReadsMemory()) {
           FI.addModRefInfo(MRI_Ref);
-          if (!F->isIntrinsic())
+          if (!F->isIntrinsic() && !F->onlyAccessesArgMemory())
             // This function might call back into the module and read a global -
             // consider every global as possibly being read by this function.
             FI.setMayReadAnyGlobal();
@@ -699,7 +700,7 @@ bool GlobalsAAResult::isNonEscapingGlobalNoAlias(const GlobalValue *GV,
       auto *InputGVar = dyn_cast<GlobalVariable>(InputGV);
       if (GVar && InputGVar &&
           !GVar->isDeclaration() && !InputGVar->isDeclaration() &&
-          !GVar->mayBeOverridden() && !InputGVar->mayBeOverridden()) {
+          !GVar->isInterposable() && !InputGVar->isInterposable()) {
         Type *GVType = GVar->getInitializer()->getType();
         Type *InputGVType = InputGVar->getInitializer()->getType();
         if (GVType->isSized() && InputGVType->isSized() &&

@@ -182,11 +182,8 @@ Value *GenericToNVVM::getOrInsertCVTA(Module *M, Function *F,
     // Insert the address space conversion.
     Type *ResultType =
         PointerType::get(Type::getInt8Ty(Context), llvm::ADDRESS_SPACE_GENERIC);
-    SmallVector<Type *, 2> ParamTypes;
-    ParamTypes.push_back(ResultType);
-    ParamTypes.push_back(DestTy);
     Function *CVTAFunction = Intrinsic::getDeclaration(
-        M, Intrinsic::nvvm_ptr_global_to_gen, ParamTypes);
+        M, Intrinsic::nvvm_ptr_global_to_gen, {ResultType, DestTy});
     CVTA = Builder.CreateCall(CVTAFunction, CVTA, "cvta");
     // Another bitcast from i8 * to <the element type of GVType> * is
     // required.
@@ -230,8 +227,7 @@ Value *GenericToNVVM::remapConstant(Module *M, Function *F, Constant *C,
     if (I != GVMap.end()) {
       NewValue = getOrInsertCVTA(M, F, I->second, Builder);
     }
-  } else if (isa<ConstantVector>(C) || isa<ConstantArray>(C) ||
-             isa<ConstantStruct>(C)) {
+  } else if (isa<ConstantAggregate>(C)) {
     // If any element in the constant vector or aggregate C is or uses a global
     // variable in GVMap, the constant C needs to be reconstructed, using a set
     // of instructions.

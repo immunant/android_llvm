@@ -115,6 +115,9 @@ bool AArch64StorePairSuppress::isNarrowFPStore(const MachineInstr &MI) {
 }
 
 bool AArch64StorePairSuppress::runOnMachineFunction(MachineFunction &MF) {
+  if (skipFunction(*MF.getFunction()))
+    return false;
+
   const TargetSubtargetInfo &ST = MF.getSubtarget();
   TII = static_cast<const AArch64InstrInfo *>(ST.getInstrInfo());
   TRI = ST.getRegisterInfo();
@@ -142,7 +145,7 @@ bool AArch64StorePairSuppress::runOnMachineFunction(MachineFunction &MF) {
         continue;
       unsigned BaseReg;
       int64_t Offset;
-      if (TII->getMemOpBaseRegImmOfs(&MI, BaseReg, Offset, TRI)) {
+      if (TII->getMemOpBaseRegImmOfs(MI, BaseReg, Offset, TRI)) {
         if (PrevBaseReg == BaseReg) {
           // If this block can take STPs, skip ahead to the next block.
           if (!SuppressSTP && shouldAddSTPToBlock(MI.getParent()))
@@ -150,7 +153,7 @@ bool AArch64StorePairSuppress::runOnMachineFunction(MachineFunction &MF) {
           // Otherwise, continue unpairing the stores in this block.
           DEBUG(dbgs() << "Unpairing store " << MI << "\n");
           SuppressSTP = true;
-          TII->suppressLdStPair(&MI);
+          TII->suppressLdStPair(MI);
         }
         PrevBaseReg = BaseReg;
       } else

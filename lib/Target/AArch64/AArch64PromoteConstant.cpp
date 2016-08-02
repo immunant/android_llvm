@@ -109,6 +109,8 @@ public:
   /// global variables with module scope.
   bool runOnModule(Module &M) override {
     DEBUG(dbgs() << getPassName() << '\n');
+    if (skipModule(M))
+      return false;
     bool Changed = false;
     PromotionCacheTy PromotionCache;
     for (auto &MF : M) {
@@ -183,9 +185,6 @@ private:
   /// InsPtsPerFunc).
   void insertDefinitions(Function &F, GlobalVariable &GV,
                          InsertionPoints &InsertPts);
-
-  /// Sort the updates in a deterministic way.
-  void sortUpdates(SmallVectorImpl<UpdateRecord> &Updates);
 
   /// Do the constant promotion indicated by the Updates records, keeping track
   /// of globals in PromotionCache.
@@ -510,23 +509,6 @@ void AArch64PromoteConstant::insertDefinitions(Function &F,
       ++NumPromotedUses;
     }
   }
-}
-
-void AArch64PromoteConstant::sortUpdates(
-    SmallVectorImpl<UpdateRecord> &Updates) {
-  // The order the constants were inserted is deterministic (unlike their
-  // address).
-  SmallDenseMap<const Constant *, unsigned, 128> InsertionOrder;
-  for (const auto &Record : Updates)
-    InsertionOrder.insert(std::make_pair(Record.C, InsertionOrder.size()));
-
-  // This is already sorted by Instruction ordering in the function and operand
-  // number, which is a good first step.  Now reorder by constant.
-  std::stable_sort(
-      Updates.begin(), Updates.end(),
-      [&InsertionOrder](const UpdateRecord &L, const UpdateRecord &R) {
-        return InsertionOrder.lookup(L.C) < InsertionOrder.lookup(R.C);
-      });
 }
 
 void AArch64PromoteConstant::promoteConstants(

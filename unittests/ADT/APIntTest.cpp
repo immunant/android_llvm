@@ -8,10 +8,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
 #include "gtest/gtest.h"
 #include <array>
-#include <ostream>
 
 using namespace llvm;
 
@@ -386,6 +386,34 @@ TEST(APIntTest, compareWithHalfInt64Max) {
   EXPECT_TRUE(!a.sle(edgeM1));
   EXPECT_TRUE( a.sgt(edgeM1));
   EXPECT_TRUE( a.sge(edgeM1));
+}
+
+TEST(APIntTest, compareLargeIntegers) {
+  // Make sure all the combinations of signed comparisons work with big ints.
+  auto One = APInt{128, static_cast<uint64_t>(1), true};
+  auto Two = APInt{128, static_cast<uint64_t>(2), true};
+  auto MinusOne = APInt{128, static_cast<uint64_t>(-1), true};
+  auto MinusTwo = APInt{128, static_cast<uint64_t>(-2), true};
+
+  EXPECT_TRUE(!One.slt(One));
+  EXPECT_TRUE(!Two.slt(One));
+  EXPECT_TRUE(MinusOne.slt(One));
+  EXPECT_TRUE(MinusTwo.slt(One));
+
+  EXPECT_TRUE(One.slt(Two));
+  EXPECT_TRUE(!Two.slt(Two));
+  EXPECT_TRUE(MinusOne.slt(Two));
+  EXPECT_TRUE(MinusTwo.slt(Two));
+
+  EXPECT_TRUE(!One.slt(MinusOne));
+  EXPECT_TRUE(!Two.slt(MinusOne));
+  EXPECT_TRUE(!MinusOne.slt(MinusOne));
+  EXPECT_TRUE(MinusTwo.slt(MinusOne));
+
+  EXPECT_TRUE(!One.slt(MinusTwo));
+  EXPECT_TRUE(!Two.slt(MinusTwo));
+  EXPECT_TRUE(!MinusOne.slt(MinusTwo));
+  EXPECT_TRUE(!MinusTwo.slt(MinusTwo));
 }
 
 
@@ -992,6 +1020,23 @@ TEST(APIntTest, IsSplat) {
   EXPECT_TRUE(E.isSplat(8));
   EXPECT_TRUE(E.isSplat(16));
   EXPECT_TRUE(E.isSplat(32));
+}
+
+TEST(APIntTest, isMask) {
+  EXPECT_FALSE(APIntOps::isMask(APInt(32, 0x01010101)));
+  EXPECT_FALSE(APIntOps::isMask(APInt(32, 0xf0000000)));
+  EXPECT_FALSE(APIntOps::isMask(APInt(32, 0xffff0000)));
+  EXPECT_FALSE(APIntOps::isMask(APInt(32, 0xff << 1)));
+
+  for (int N : { 1, 2, 3, 4, 7, 8, 16, 32, 64, 127, 128, 129, 256 }) {
+    EXPECT_FALSE(APIntOps::isMask(APInt(N, 0)));
+
+    APInt One(N, 1);
+    for (int I = 1; I <= N; ++I) {
+      APInt MaskVal = One.shl(I) - 1;
+      EXPECT_TRUE(APIntOps::isMask(MaskVal));
+    }
+  }
 }
 
 #if defined(__clang__)

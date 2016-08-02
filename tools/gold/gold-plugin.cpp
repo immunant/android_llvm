@@ -12,8 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Config/config.h" // plugin-api.h requires HAVE_STDINT_H
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -21,6 +19,7 @@
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/CodeGen/ParallelCG.h"
+#include "llvm/Config/config.h" // plugin-api.h requires HAVE_STDINT_H
 #include "llvm/IR/AutoUpgrade.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticInfo.h"
@@ -29,27 +28,30 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/LTO/LTO.h"
 #include "llvm/Linker/IRMover.h"
 #include "llvm/MC/SubtargetFeature.h"
-#include "llvm/Object/ModuleSummaryIndexObjectFile.h"
 #include "llvm/Object/IRObjectFile.h"
+#include "llvm/Object/ModuleSummaryIndexObjectFile.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/thread.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/FunctionImport.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/FunctionImportUtils.h"
 #include "llvm/Transforms/Utils/GlobalStatus.h"
-#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include <list>
 #include <plugin-api.h>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 // FIXME: remove this declaration when we stop maintaining Ubuntu Quantal and
@@ -73,7 +75,10 @@ static ld_plugin_message message = discard_message;
 namespace {
 struct claimed_file {
   void *handle;
+  void *leader_handle;
   std::vector<ld_plugin_symbol> syms;
+  off_t filesize;
+  std::string name;
 };
 
 /// RAII wrapper to manage opening and releasing of a ld_plugin_input_file.
@@ -104,7 +109,7 @@ struct ResolutionInfo {
   uint64_t CommonSize = 0;
   unsigned CommonAlign = 0;
   bool IsLinkonceOdr = true;
-  bool UnnamedAddr = true;
+  GlobalValue::UnnamedAddr UnnamedAddr = GlobalValue::UnnamedAddr::Global;
   GlobalValue::VisibilityTypes Visibility = GlobalValue::DefaultVisibility;
   bool CommonInternal = false;
   bool UseCommon = false;
@@ -113,9 +118,6 @@ struct ResolutionInfo {
 /// Class to own information used by a task or during its cleanup for a
 /// ThinLTO backend instantiation.
 class ThinLTOTaskInfo {
-  /// The input file holding the module bitcode read by the ThinLTO task.
-  PluginInputFile InputFile;
-
   /// The output stream the task will codegen into.
   std::unique_ptr<raw_fd_ostream> OS;
 
@@ -127,9 +129,9 @@ class ThinLTOTaskInfo {
   bool TempOutFile;
 
 public:
-  ThinLTOTaskInfo(PluginInputFile InputFile, std::unique_ptr<raw_fd_ostream> OS,
-                  std::string Filename, bool TempOutFile)
-      : InputFile(std::move(InputFile)), OS(std::move(OS)), Filename(Filename),
+  ThinLTOTaskInfo(std::unique_ptr<raw_fd_ostream> OS, std::string Filename,
+                  bool TempOutFile)
+      : OS(std::move(OS)), Filename(std::move(Filename)),
         TempOutFile(TempOutFile) {}
 
   /// Performs task related cleanup activities that must be done
@@ -143,9 +145,10 @@ static ld_plugin_get_symbols get_symbols = nullptr;
 static ld_plugin_add_input_file add_input_file = nullptr;
 static ld_plugin_set_extra_library_path set_extra_library_path = nullptr;
 static ld_plugin_get_view get_view = nullptr;
-static Reloc::Model RelocationModel = Reloc::Default;
+static Optional<Reloc::Model> RelocationModel;
 static std::string output_name = "";
 static std::list<claimed_file> Modules;
+static DenseMap<int, void *> FDToLeaderHandle;
 static StringMap<ResolutionInfo> ResInfo;
 static std::vector<std::string> Cleanup;
 static llvm::TargetOptions TargetOpts;
@@ -181,9 +184,22 @@ namespace options {
   static bool thinlto = false;
   // If false, all ThinLTO backend compilations through code gen are performed
   // using multiple threads in the gold-plugin, before handing control back to
-  // gold. If true, exit after creating the combined index, the assuming is
+  // gold. If true, write individual backend index files which reflect
+  // the import decisions, and exit afterwards. The assumption is
   // that the build system will launch the backend processes.
   static bool thinlto_index_only = false;
+  // If true, when generating individual index files for distributed backends,
+  // also generate a "${bitcodefile}.imports" file at the same location for each
+  // bitcode file, listing the files it imports from in plain text. This is to
+  // support distributed build file staging.
+  static bool thinlto_emit_imports_files = false;
+  // Option to control where files for a distributed backend (the individual
+  // index files and optional imports files) are created.
+  // If specified, expects a string of the form "oldprefix:newprefix", and
+  // instead of generating these files in the same directory path as the
+  // corresponding bitcode file, will use a path formed by replacing the
+  // bitcode file's path prefix matching oldprefix with newprefix.
+  static std::string thinlto_prefix_replace;
   // Additional options to pass into the code generator.
   // Note: This array will contain all plugin options which are not claimed
   // as plugin exclusive to pass to the code generator.
@@ -217,6 +233,12 @@ namespace options {
       thinlto = true;
     } else if (opt == "thinlto-index-only") {
       thinlto_index_only = true;
+    } else if (opt == "thinlto-emit-imports-files") {
+      thinlto_emit_imports_files = true;
+    } else if (opt.startswith("thinlto-prefix-replace=")) {
+      thinlto_prefix_replace = opt.substr(strlen("thinlto-prefix-replace="));
+      if (thinlto_prefix_replace.find(";") == std::string::npos)
+        message(LDPL_FATAL, "thinlto-prefix-replace expects 'old;new' format");
     } else if (opt.size() == 2 && opt[0] == 'O') {
       if (opt[1] < '0' || opt[1] > '3')
         message(LDPL_FATAL, "Optimization level must be between 0 and 3");
@@ -362,7 +384,7 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
     return LDPS_ERR;
   }
   if (!release_input_file) {
-    message(LDPL_ERROR, "relesase_input_file not passed to LLVMgold.");
+    message(LDPL_ERROR, "release_input_file not passed to LLVMgold.");
     return LDPS_ERR;
   }
 
@@ -484,11 +506,23 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
   claimed_file &cf = Modules.back();
 
   cf.handle = file->handle;
-
-  // If we are doing ThinLTO compilation, don't need to process the symbols.
-  // Later we simply build a combined index file after all files are claimed.
-  if (options::thinlto && options::thinlto_index_only)
-    return LDPS_OK;
+  // Keep track of the first handle for each file descriptor, since there are
+  // multiple in the case of an archive. This is used later in the case of
+  // ThinLTO parallel backends to ensure that each file is only opened and
+  // released once.
+  auto LeaderHandle =
+      FDToLeaderHandle.insert(std::make_pair(file->fd, file->handle)).first;
+  cf.leader_handle = LeaderHandle->second;
+  // Save the filesize since for parallel ThinLTO backends we can only
+  // invoke get_input_file once per archive (only for the leader handle).
+  cf.filesize = file->filesize;
+  // In the case of an archive library, all but the first member must have a
+  // non-zero offset, which we can append to the file name to obtain a
+  // unique name.
+  cf.name = file->name;
+  if (file->offset)
+    cf.name += ".llvm." + std::to_string(file->offset) + "." +
+               sys::path::filename(Obj->getModule().getSourceFileName()).str();
 
   for (auto &Sym : Obj->symbols()) {
     uint32_t Symflags = Sym.getFlags();
@@ -512,12 +546,12 @@ static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
 
     sym.visibility = LDPV_DEFAULT;
     if (GV) {
-      Res.UnnamedAddr &= GV->hasUnnamedAddr();
+      Res.UnnamedAddr =
+          GlobalValue::getMinUnnamedAddr(Res.UnnamedAddr, GV->getUnnamedAddr());
       Res.IsLinkonceOdr &= GV->hasLinkOnceLinkage();
       Res.Visibility = getMinVisibility(Res.Visibility, GV->getVisibility());
       switch (GV->getVisibility()) {
       case GlobalValue::DefaultVisibility:
-        sym.visibility = LDPV_DEFAULT;
         break;
       case GlobalValue::HiddenVisibility:
         sym.visibility = LDPV_HIDDEN;
@@ -625,13 +659,12 @@ static const void *getSymbolsAndView(claimed_file &F) {
 }
 
 static std::unique_ptr<ModuleSummaryIndex>
-getModuleSummaryIndexForFile(claimed_file &F, ld_plugin_input_file &Info) {
+getModuleSummaryIndexForFile(claimed_file &F) {
   const void *View = getSymbolsAndView(F);
   if (!View)
     return nullptr;
 
-  MemoryBufferRef BufferRef(StringRef((const char *)View, Info.filesize),
-                            Info.name);
+  MemoryBufferRef BufferRef(StringRef((const char *)View, F.filesize), F.name);
 
   // Don't bother trying to build an index if there is no summary information
   // in this bitcode file.
@@ -655,12 +688,10 @@ getModuleSummaryIndexForFile(claimed_file &F, ld_plugin_input_file &Info) {
 
 static std::unique_ptr<Module>
 getModuleForFile(LLVMContext &Context, claimed_file &F, const void *View,
-                 ld_plugin_input_file &Info, raw_fd_ostream *ApiFile,
-                 StringSet<> &Internalize, StringSet<> &Maybe,
-                 std::vector<GlobalValue *> &Keep,
+                 StringRef Name, raw_fd_ostream *ApiFile,
+                 StringSet<> &Internalize, std::vector<GlobalValue *> &Keep,
                  StringMap<unsigned> &Realign) {
-  MemoryBufferRef BufferRef(StringRef((const char *)View, Info.filesize),
-                            Info.name);
+  MemoryBufferRef BufferRef(StringRef((const char *)View, F.filesize), Name);
   ErrorOr<std::unique_ptr<object::IRObjectFile>> ObjOrErr =
       object::IRObjectFile::create(BufferRef, Context);
 
@@ -702,16 +733,6 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, const void *View,
 
     ResolutionInfo &Res = ResInfo[Sym.name];
     if (Resolution == LDPR_PREVAILING_DEF_IRONLY_EXP && !Res.IsLinkonceOdr)
-      Resolution = LDPR_PREVAILING_DEF;
-
-    // In ThinLTO mode change all prevailing resolutions to LDPR_PREVAILING_DEF.
-    // For ThinLTO the IR files are compiled through the backend independently,
-    // so we need to ensure that any prevailing linkonce copy will be emitted
-    // into the object file by making it weak. Additionally, we can skip the
-    // IRONLY handling for internalization, which isn't performed in ThinLTO
-    // mode currently anyway.
-    if (options::thinlto && (Resolution == LDPR_PREVAILING_DEF_IRONLY_EXP ||
-                             Resolution == LDPR_PREVAILING_DEF_IRONLY))
       Resolution = LDPR_PREVAILING_DEF;
 
     GV->setUnnamedAddr(Res.UnnamedAddr);
@@ -793,12 +814,9 @@ getModuleForFile(LLVMContext &Context, claimed_file &F, const void *View,
       break;
 
     case LDPR_PREVAILING_DEF_IRONLY_EXP: {
-      // We can only check for address uses after we merge the modules. The
-      // reason is that this GV might have a copy in another module
-      // and in that module the address might be significant, but that
-      // copy will be LDPR_PREEMPTED_IR.
-      Maybe.insert(GV->getName());
       Keep.push_back(GV);
+      if (canBeOmittedFromSymbolTable(GV))
+        Internalize.insert(GV->getName());
       break;
     }
     }
@@ -856,17 +874,32 @@ class CodeGen {
   /// a unique and identifiable save-temps output file for each ThinLTO backend.
   std::string SaveTempsFilename;
 
+  /// Map from a module name to the corresponding buffer holding a view of the
+  /// bitcode provided via the get_view gold callback.
+  StringMap<MemoryBufferRef> *ModuleMap;
+
+  // Functions to import into this module.
+  FunctionImporter::ImportMapTy *ImportList;
+
+  // Map of globals defined in this module to their summary.
+  std::map<GlobalValue::GUID, GlobalValueSummary *> *DefinedGlobals;
+
 public:
   /// Constructor used by full LTO.
   CodeGen(std::unique_ptr<llvm::Module> M)
-      : M(std::move(M)), OS(nullptr), TaskID(-1), CombinedIndex(nullptr) {
+      : M(std::move(M)), OS(nullptr), TaskID(-1), CombinedIndex(nullptr),
+        ModuleMap(nullptr) {
     initTargetMachine();
   }
   /// Constructor used by ThinLTO.
   CodeGen(std::unique_ptr<llvm::Module> M, raw_fd_ostream *OS, int TaskID,
-          const ModuleSummaryIndex *CombinedIndex, std::string Filename)
+          const ModuleSummaryIndex *CombinedIndex, std::string Filename,
+          StringMap<MemoryBufferRef> *ModuleMap,
+          FunctionImporter::ImportMapTy *ImportList,
+          std::map<GlobalValue::GUID, GlobalValueSummary *> *DefinedGlobals)
       : M(std::move(M)), OS(OS), TaskID(TaskID), CombinedIndex(CombinedIndex),
-        SaveTempsFilename(Filename) {
+        SaveTempsFilename(std::move(Filename)), ModuleMap(ModuleMap),
+        ImportList(ImportList), DefinedGlobals(DefinedGlobals) {
     assert(options::thinlto == !!CombinedIndex &&
            "Expected module summary index iff performing ThinLTO");
     initTargetMachine();
@@ -879,16 +912,25 @@ public:
   void runCodegenPasses();
 
 private:
+  const Target *TheTarget;
+  std::string TripleStr;
+  std::string FeaturesString;
+  TargetOptions Options;
+
   /// Create a target machine for the module. Must be unique for each
   /// module/task.
   void initTargetMachine();
+
+  std::unique_ptr<TargetMachine> createTargetMachine();
 
   /// Run all LTO passes on the module.
   void runLTOPasses();
 
   /// Sets up output files necessary to perform optional multi-threaded
   /// split code generation, and invokes the code generation implementation.
-  void runSplitCodeGen();
+  /// If BCFileName is not empty, saves bitcode for module partitions into
+  /// {BCFileName}0 .. {BCFileName}N.
+  void runSplitCodeGen(const SmallString<128> &BCFilename);
 };
 }
 
@@ -915,25 +957,56 @@ static CodeGenOpt::Level getCGOptLevel() {
 }
 
 void CodeGen::initTargetMachine() {
-  const std::string &TripleStr = M->getTargetTriple();
+  TripleStr = M->getTargetTriple();
   Triple TheTriple(TripleStr);
 
   std::string ErrMsg;
-  const Target *TheTarget = TargetRegistry::lookupTarget(TripleStr, ErrMsg);
+  TheTarget = TargetRegistry::lookupTarget(TripleStr, ErrMsg);
   if (!TheTarget)
     message(LDPL_FATAL, "Target not found: %s", ErrMsg.c_str());
 
   SubtargetFeatures Features = getFeatures(TheTriple);
-  TargetOptions Options = InitTargetOptionsFromCodeGenFlags();
+  FeaturesString = Features.getString();
+  Options = InitTargetOptionsFromCodeGenFlags();
+
+  // Disable the new X86 relax relocations since gold might not support them.
+  // FIXME: Check the gold version or add a new option to enable them.
+  Options.RelaxELFRelocations = false;
+
+  TM = createTargetMachine();
+}
+
+std::unique_ptr<TargetMachine> CodeGen::createTargetMachine() {
   CodeGenOpt::Level CGOptLevel = getCGOptLevel();
 
-  TM.reset(TheTarget->createTargetMachine(
-      TripleStr, options::mcpu, Features.getString(), Options, RelocationModel,
+  return std::unique_ptr<TargetMachine>(TheTarget->createTargetMachine(
+      TripleStr, options::mcpu, FeaturesString, Options, RelocationModel,
       CodeModel::Default, CGOptLevel));
 }
 
 void CodeGen::runLTOPasses() {
   M->setDataLayout(TM->createDataLayout());
+
+  if (CombinedIndex) {
+    // Apply summary-based LinkOnce/Weak resolution decisions.
+    thinLTOResolveWeakForLinkerModule(*M, *DefinedGlobals);
+
+    // Apply summary-based internalization decisions. Skip if there are no
+    // defined globals from the summary since not only is it unnecessary, but
+    // if this module did not have a summary section the internalizer will
+    // assert if it finds any definitions in this module that aren't in the
+    // DefinedGlobals set.
+    if (!DefinedGlobals->empty())
+      thinLTOInternalizeModule(*M, *DefinedGlobals);
+
+    // Create a loader that will parse the bitcode from the buffers
+    // in the ModuleMap.
+    ModuleLoader Loader(M->getContext(), *ModuleMap);
+
+    // Perform function importing.
+    FunctionImporter Importer(*CombinedIndex, Loader);
+    Importer.importFunctions(*M, *ImportList);
+  }
 
   legacy::PassManager passes;
   passes.add(createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
@@ -948,8 +1021,10 @@ void CodeGen::runLTOPasses() {
   PMB.LoopVectorize = true;
   PMB.SLPVectorize = true;
   PMB.OptLevel = options::OptLevel;
-  PMB.ModuleSummary = CombinedIndex;
-  PMB.populateLTOPassManager(passes);
+  if (options::thinlto)
+    PMB.populateThinLTOPassManager(passes);
+  else
+    PMB.populateLTOPassManager(passes);
   passes.run(*M);
 }
 
@@ -987,15 +1062,7 @@ void CodeGen::runCodegenPasses() {
   CodeGenPasses.run(*M);
 }
 
-void CodeGen::runSplitCodeGen() {
-  const std::string &TripleStr = M->getTargetTriple();
-  Triple TheTriple(TripleStr);
-
-  SubtargetFeatures Features = getFeatures(TheTriple);
-
-  TargetOptions Options = InitTargetOptionsFromCodeGenFlags();
-  CodeGenOpt::Level CGOptLevel = getCGOptLevel();
-
+void CodeGen::runSplitCodeGen(const SmallString<128> &BCFilename) {
   SmallString<128> Filename;
   // Note that openOutputFile will append a unique ID for each task
   if (!options::obj_path.empty())
@@ -1010,6 +1077,7 @@ void CodeGen::runSplitCodeGen() {
   unsigned int MaxThreads = options::Parallelism ? options::Parallelism : 1;
 
   std::vector<SmallString<128>> Filenames(MaxThreads);
+  std::vector<SmallString<128>> BCFilenames(MaxThreads);
   bool TempOutFile = Filename.empty();
   {
     // Open a file descriptor for each backend task. This is done in a block
@@ -1024,9 +1092,19 @@ void CodeGen::runSplitCodeGen() {
       OSPtrs[I] = &OSs.back();
     }
 
+    std::list<llvm::raw_fd_ostream> BCOSs;
+    std::vector<llvm::raw_pwrite_stream *> BCOSPtrs;
+    if (!BCFilename.empty() && MaxThreads > 1) {
+      for (unsigned I = 0; I != MaxThreads; ++I) {
+        int FD = openOutputFile(BCFilename, false, BCFilenames[I], I);
+        BCOSs.emplace_back(FD, true);
+        BCOSPtrs.push_back(&BCOSs.back());
+      }
+    }
+
     // Run backend tasks.
-    splitCodeGen(std::move(M), OSPtrs, options::mcpu, Features.getString(),
-                 Options, RelocationModel, CodeModel::Default, CGOptLevel);
+    splitCodeGen(std::move(M), OSPtrs, BCOSPtrs,
+                 [&]() { return createTargetMachine(); });
   }
 
   for (auto &Filename : Filenames)
@@ -1036,14 +1114,16 @@ void CodeGen::runSplitCodeGen() {
 void CodeGen::runAll() {
   runLTOPasses();
 
+  SmallString<128> OptFilename;
   if (options::TheOutputType == options::OT_SAVE_TEMPS) {
-    std::string OptFilename = output_name;
+    OptFilename = output_name;
     // If the CodeGen client provided a filename, use it. Always expect
     // a provided filename if we are in a task (i.e. ThinLTO backend).
     assert(!SaveTempsFilename.empty() || TaskID == -1);
     if (!SaveTempsFilename.empty())
       OptFilename = SaveTempsFilename;
-    saveBCFile(OptFilename + ".opt.bc", *M);
+    OptFilename += ".opt.bc";
+    saveBCFile(OptFilename, *M);
   }
 
   // If we are already in a thread (i.e. ThinLTO), just perform
@@ -1052,29 +1132,40 @@ void CodeGen::runAll() {
     runCodegenPasses();
   // Otherwise attempt split code gen.
   else
-    runSplitCodeGen();
+    runSplitCodeGen(OptFilename);
 }
 
 /// Links the module in \p View from file \p F into the combined module
-/// saved in the IRMover \p L. Returns true on error, false on success.
-static bool linkInModule(LLVMContext &Context, IRMover &L, claimed_file &F,
-                         const void *View, ld_plugin_input_file &File,
+/// saved in the IRMover \p L.
+static void linkInModule(LLVMContext &Context, IRMover &L, claimed_file &F,
+                         const void *View, StringRef Name,
                          raw_fd_ostream *ApiFile, StringSet<> &Internalize,
-                         StringSet<> &Maybe) {
+                         bool SetName = false) {
   std::vector<GlobalValue *> Keep;
   StringMap<unsigned> Realign;
-  std::unique_ptr<Module> M = getModuleForFile(
-      Context, F, View, File, ApiFile, Internalize, Maybe, Keep, Realign);
+  std::unique_ptr<Module> M = getModuleForFile(Context, F, View, Name, ApiFile,
+                                               Internalize, Keep, Realign);
   if (!M.get())
-    return false;
+    return;
   if (!options::triple.empty())
     M->setTargetTriple(options::triple.c_str());
   else if (M->getTargetTriple().empty()) {
     M->setTargetTriple(DefaultTriple);
   }
 
-  if (!L.move(std::move(M), Keep, [](GlobalValue &, IRMover::ValueAdder) {}))
-    return false;
+  // For ThinLTO we want to propagate the source file name to ensure
+  // we can create the correct global identifiers matching those in the
+  // original module.
+  if (SetName)
+    L.getModule().setSourceFileName(M->getSourceFileName());
+
+  if (Error E = L.move(std::move(M), Keep,
+                       [](GlobalValue &, IRMover::ValueAdder) {})) {
+    handleAllErrors(std::move(E), [&](const llvm::ErrorInfoBase &EIB) {
+      message(LDPL_FATAL, "Failed to link module %s: %s", Name.str().c_str(),
+              EIB.message().c_str());
+    });
+  }
 
   for (const auto &I : Realign) {
     GlobalValue *Dst = L.getModule().getNamedValue(I.first());
@@ -1082,37 +1173,45 @@ static bool linkInModule(LLVMContext &Context, IRMover &L, claimed_file &F,
       continue;
     cast<GlobalVariable>(Dst)->setAlignment(I.second);
   }
-
-  return true;
 }
 
 /// Perform the ThinLTO backend on a single module, invoking the LTO and codegen
 /// pipelines.
 static void thinLTOBackendTask(claimed_file &F, const void *View,
-                               ld_plugin_input_file &File,
-                               raw_fd_ostream *ApiFile,
+                               StringRef Name, raw_fd_ostream *ApiFile,
                                const ModuleSummaryIndex &CombinedIndex,
-                               raw_fd_ostream *OS, unsigned TaskID) {
+                               raw_fd_ostream *OS, unsigned TaskID,
+                               StringMap<MemoryBufferRef> &ModuleMap,
+                               FunctionImporter::ImportMapTy &ImportList,
+                               std::map<GlobalValue::GUID, GlobalValueSummary *> &DefinedGlobals) {
   // Need to use a separate context for each task
   LLVMContext Context;
+  Context.setDiscardValueNames(options::TheOutputType !=
+                               options::OT_SAVE_TEMPS);
+  Context.enableDebugTypeODRUniquing(); // Merge debug info types.
   Context.setDiagnosticHandler(diagnosticHandlerForContext, nullptr, true);
 
-  std::unique_ptr<llvm::Module> NewModule(new llvm::Module(File.name, Context));
+  std::unique_ptr<llvm::Module> NewModule(new llvm::Module(Name, Context));
   IRMover L(*NewModule.get());
 
   StringSet<> Dummy;
-  if (linkInModule(Context, L, F, View, File, ApiFile, Dummy, Dummy))
-    message(LDPL_FATAL, "Failed to rename module for ThinLTO");
+  linkInModule(Context, L, F, View, Name, ApiFile, Dummy, true);
   if (renameModuleForThinLTO(*NewModule, CombinedIndex))
     message(LDPL_FATAL, "Failed to rename module for ThinLTO");
 
-  CodeGen codeGen(std::move(NewModule), OS, TaskID, &CombinedIndex, File.name);
+  CodeGen codeGen(std::move(NewModule), OS, TaskID, &CombinedIndex, Name,
+                  &ModuleMap, &ImportList, &DefinedGlobals);
   codeGen.runAll();
 }
 
 /// Launch each module's backend pipeline in a separate task in a thread pool.
-static void thinLTOBackends(raw_fd_ostream *ApiFile,
-                            const ModuleSummaryIndex &CombinedIndex) {
+static void
+thinLTOBackends(raw_fd_ostream *ApiFile,
+                const ModuleSummaryIndex &CombinedIndex,
+                StringMap<MemoryBufferRef> &ModuleMap,
+                StringMap<FunctionImporter::ImportMapTy> &ImportLists,
+  StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
+      &ModuleToDefinedGVSummaries) {
   unsigned TaskCount = 0;
   std::vector<ThinLTOTaskInfo> Tasks;
   Tasks.reserve(Modules.size());
@@ -1127,7 +1226,6 @@ static void thinLTOBackends(raw_fd_ostream *ApiFile,
     for (claimed_file &F : Modules) {
       // Do all the gold callbacks in the main thread, since gold is not thread
       // safe by default.
-      PluginInputFile InputFile(F.handle);
       const void *View = getSymbolsAndView(F);
       if (!View)
         continue;
@@ -1139,7 +1237,7 @@ static void thinLTOBackends(raw_fd_ostream *ApiFile,
       else if (options::TheOutputType == options::OT_SAVE_TEMPS) {
         // Use the input file name so that we get a unique and identifiable
         // output file for each ThinLTO backend task.
-        Filename = InputFile.file().name;
+        Filename = F.name;
         Filename += ".thinlto.o";
       }
       bool TempOutFile = Filename.empty();
@@ -1154,20 +1252,210 @@ static void thinLTOBackends(raw_fd_ostream *ApiFile,
           llvm::make_unique<raw_fd_ostream>(FD, true);
 
       // Enqueue the task
-      ThinLTOThreadPool.async(thinLTOBackendTask, std::ref(F), View,
-                              std::ref(InputFile.file()), ApiFile,
-                              std::ref(CombinedIndex), OS.get(), TaskCount);
+      ThinLTOThreadPool.async(thinLTOBackendTask, std::ref(F), View, F.name,
+                              ApiFile, std::ref(CombinedIndex), OS.get(),
+                              TaskCount, std::ref(ModuleMap),
+                              std::ref(ImportLists[F.name]),
+                              std::ref(ModuleToDefinedGVSummaries[F.name]));
 
       // Record the information needed by the task or during its cleanup
       // to a ThinLTOTaskInfo instance. For information needed by the task
       // the unique_ptr ownership is transferred to the ThinLTOTaskInfo.
-      Tasks.emplace_back(std::move(InputFile), std::move(OS),
-                         NewFilename.c_str(), TempOutFile);
+      Tasks.emplace_back(std::move(OS), NewFilename.c_str(), TempOutFile);
     }
   }
 
   for (auto &Task : Tasks)
     Task.cleanup();
+}
+
+/// Parse the thinlto_prefix_replace option into the \p OldPrefix and
+/// \p NewPrefix strings, if it was specified.
+static void getThinLTOOldAndNewPrefix(std::string &OldPrefix,
+                                      std::string &NewPrefix) {
+  StringRef PrefixReplace = options::thinlto_prefix_replace;
+  assert(PrefixReplace.empty() || PrefixReplace.find(";") != StringRef::npos);
+  std::pair<StringRef, StringRef> Split = PrefixReplace.split(";");
+  OldPrefix = Split.first.str();
+  NewPrefix = Split.second.str();
+}
+
+/// Given the original \p Path to an output file, replace any path
+/// prefix matching \p OldPrefix with \p NewPrefix. Also, create the
+/// resulting directory if it does not yet exist.
+static std::string getThinLTOOutputFile(const std::string &Path,
+                                        const std::string &OldPrefix,
+                                        const std::string &NewPrefix) {
+  if (OldPrefix.empty() && NewPrefix.empty())
+    return Path;
+  SmallString<128> NewPath(Path);
+  llvm::sys::path::replace_path_prefix(NewPath, OldPrefix, NewPrefix);
+  StringRef ParentPath = llvm::sys::path::parent_path(NewPath.str());
+  if (!ParentPath.empty()) {
+    // Make sure the new directory exists, creating it if necessary.
+    if (std::error_code EC = llvm::sys::fs::create_directories(ParentPath))
+      llvm::errs() << "warning: could not create directory '" << ParentPath
+                   << "': " << EC.message() << '\n';
+  }
+  return NewPath.str();
+}
+
+/// Perform ThinLTO link, which creates the combined index file.
+/// Also, either launch backend threads or (under thinlto-index-only)
+/// emit individual index files for distributed backends and exit.
+static ld_plugin_status thinLTOLink(raw_fd_ostream *ApiFile) {
+  // Map from a module name to the corresponding buffer holding a view of the
+  // bitcode provided via the get_view gold callback.
+  StringMap<MemoryBufferRef> ModuleMap;
+  // Map to own RAII objects that manage the file opening and releasing
+  // interfaces with gold.
+  DenseMap<void *, std::unique_ptr<PluginInputFile>> HandleToInputFile;
+
+  // Keep track of symbols that must not be internalized because they
+  // are referenced outside of a single IR module.
+  DenseSet<GlobalValue::GUID> Preserve;
+
+  // Keep track of the prevailing copy for each GUID, for use in resolving
+  // weak linkages.
+  DenseMap<GlobalValue::GUID, const GlobalValueSummary *> PrevailingCopy;
+
+  ModuleSummaryIndex CombinedIndex;
+  uint64_t NextModuleId = 0;
+  for (claimed_file &F : Modules) {
+    if (!HandleToInputFile.count(F.leader_handle))
+      HandleToInputFile.insert(std::make_pair(
+          F.leader_handle, llvm::make_unique<PluginInputFile>(F.handle)));
+    // Pass this into getModuleSummaryIndexForFile
+    const void *View = getSymbolsAndView(F);
+    if (!View)
+      continue;
+
+    MemoryBufferRef ModuleBuffer(StringRef((const char *)View, F.filesize),
+                                 F.name);
+    assert(ModuleMap.find(ModuleBuffer.getBufferIdentifier()) ==
+               ModuleMap.end() &&
+           "Expect unique Buffer Identifier");
+    ModuleMap[ModuleBuffer.getBufferIdentifier()] = ModuleBuffer;
+
+    std::unique_ptr<ModuleSummaryIndex> Index = getModuleSummaryIndexForFile(F);
+
+    // Use gold's symbol resolution information to identify symbols referenced
+    // by more than a single IR module (i.e. referenced by multiple IR modules
+    // or by a non-IR module). Cross references introduced by importing are
+    // checked separately via the export lists. Also track the prevailing copy
+    // for later symbol resolution.
+    for (auto &Sym : F.syms) {
+      ld_plugin_symbol_resolution Resolution =
+          (ld_plugin_symbol_resolution)Sym.resolution;
+      GlobalValue::GUID SymGUID = GlobalValue::getGUID(Sym.name);
+      if (Resolution != LDPR_PREVAILING_DEF_IRONLY)
+        Preserve.insert(SymGUID);
+
+      if (Index && (Resolution == LDPR_PREVAILING_DEF ||
+                    Resolution == LDPR_PREVAILING_DEF_IRONLY ||
+                    Resolution == LDPR_PREVAILING_DEF_IRONLY_EXP))
+        PrevailingCopy[SymGUID] = Index->getGlobalValueSummary(SymGUID);
+    }
+
+    // Skip files without a module summary.
+    if (Index)
+      CombinedIndex.mergeFrom(std::move(Index), ++NextModuleId);
+  }
+
+  // Collect for each module the list of function it defines (GUID ->
+  // Summary).
+  StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
+      ModuleToDefinedGVSummaries(NextModuleId);
+  CombinedIndex.collectDefinedGVSummariesPerModule(ModuleToDefinedGVSummaries);
+
+  StringMap<FunctionImporter::ImportMapTy> ImportLists(NextModuleId);
+  StringMap<FunctionImporter::ExportSetTy> ExportLists(NextModuleId);
+  ComputeCrossModuleImport(CombinedIndex, ModuleToDefinedGVSummaries,
+                           ImportLists, ExportLists);
+
+  auto isPrevailing = [&](GlobalValue::GUID GUID, const GlobalValueSummary *S) {
+    const auto &Prevailing = PrevailingCopy.find(GUID);
+    assert(Prevailing != PrevailingCopy.end());
+    return Prevailing->second == S;
+  };
+
+  // Callback for internalization, to prevent internalization of symbols
+  // that were not candidates initially, and those that are being imported
+  // (which introduces new cross references).
+  auto isExported = [&](StringRef ModuleIdentifier, GlobalValue::GUID GUID) {
+    const auto &ExportList = ExportLists.find(ModuleIdentifier);
+    return (ExportList != ExportLists.end() &&
+            ExportList->second.count(GUID)) ||
+           Preserve.count(GUID);
+  };
+
+  thinLTOResolveWeakForLinkerInIndex(
+      CombinedIndex, isPrevailing,
+      [](StringRef ModuleIdentifier, GlobalValue::GUID GUID,
+         GlobalValue::LinkageTypes NewLinkage) {});
+
+  // Use global summary-based analysis to identify symbols that can be
+  // internalized (because they aren't exported or preserved as per callback).
+  // Changes are made in the index, consumed in the ThinLTO backends.
+  thinLTOInternalizeAndPromoteInIndex(CombinedIndex, isExported);
+
+  if (options::thinlto_emit_imports_files && !options::thinlto_index_only)
+    message(LDPL_WARNING,
+            "thinlto-emit-imports-files ignored unless thinlto-index-only");
+
+  if (options::thinlto_index_only) {
+    // If the thinlto-prefix-replace option was specified, parse it and
+    // extract the old and new prefixes.
+    std::string OldPrefix, NewPrefix;
+    getThinLTOOldAndNewPrefix(OldPrefix, NewPrefix);
+
+    // For each input bitcode file, generate an individual index that
+    // contains summaries only for its own global values, and for any that
+    // should be imported.
+    for (claimed_file &F : Modules) {
+      std::error_code EC;
+
+      std::string NewModulePath =
+          getThinLTOOutputFile(F.name, OldPrefix, NewPrefix);
+      raw_fd_ostream OS((Twine(NewModulePath) + ".thinlto.bc").str(), EC,
+                        sys::fs::OpenFlags::F_None);
+      if (EC)
+        message(LDPL_FATAL, "Unable to open %s.thinlto.bc for writing: %s",
+                NewModulePath.c_str(), EC.message().c_str());
+      // Build a map of module to the GUIDs and summary objects that should
+      // be written to its index.
+      std::map<std::string, GVSummaryMapTy> ModuleToSummariesForIndex;
+      gatherImportedSummariesForModule(F.name, ModuleToDefinedGVSummaries,
+                                       ImportLists, ModuleToSummariesForIndex);
+      WriteIndexToFile(CombinedIndex, OS, &ModuleToSummariesForIndex);
+
+      if (options::thinlto_emit_imports_files) {
+        if ((EC = EmitImportsFiles(F.name,
+                                   (Twine(NewModulePath) + ".imports").str(),
+                                   ImportLists)))
+          message(LDPL_FATAL, "Unable to open %s.imports",
+                  NewModulePath.c_str(), EC.message().c_str());
+      }
+    }
+
+    cleanup_hook();
+    exit(0);
+  }
+
+  // Create OS in nested scope so that it will be closed on destruction.
+  {
+    std::error_code EC;
+    raw_fd_ostream OS(output_name + ".thinlto.bc", EC,
+                      sys::fs::OpenFlags::F_None);
+    if (EC)
+      message(LDPL_FATAL, "Unable to open %s.thinlto.bc for writing: %s",
+              output_name.data(), EC.message().c_str());
+    WriteIndexToFile(CombinedIndex, OS);
+  }
+
+  thinLTOBackends(ApiFile, CombinedIndex, ModuleMap, ImportLists,
+                  ModuleToDefinedGVSummaries);
+  return LDPS_OK;
 }
 
 /// gold informs us that all symbols have been read. At this point, we use
@@ -1180,71 +1468,32 @@ static ld_plugin_status allSymbolsReadHook(raw_fd_ostream *ApiFile) {
   if (unsigned NumOpts = options::extra.size())
     cl::ParseCommandLineOptions(NumOpts, &options::extra[0]);
 
-  // If we are doing ThinLTO compilation, simply build the combined
-  // module index/summary and emit it. We don't need to parse the modules
-  // and link them in this case.
-  if (options::thinlto) {
-    ModuleSummaryIndex CombinedIndex;
-    uint64_t NextModuleId = 0;
-    for (claimed_file &F : Modules) {
-      PluginInputFile InputFile(F.handle);
-
-      std::unique_ptr<ModuleSummaryIndex> Index =
-          getModuleSummaryIndexForFile(F, InputFile.file());
-
-      // Skip files without a module summary.
-      if (Index)
-        CombinedIndex.mergeFrom(std::move(Index), ++NextModuleId);
-    }
-
-    std::error_code EC;
-    raw_fd_ostream OS(output_name + ".thinlto.bc", EC,
-                      sys::fs::OpenFlags::F_None);
-    if (EC)
-      message(LDPL_FATAL, "Unable to open %s.thinlto.bc for writing: %s",
-              output_name.data(), EC.message().c_str());
-    WriteIndexToFile(CombinedIndex, OS);
-    OS.close();
-
-    if (options::thinlto_index_only) {
-      cleanup_hook();
-      exit(0);
-    }
-
-    thinLTOBackends(ApiFile, CombinedIndex);
-    return LDPS_OK;
-  }
+  if (options::thinlto)
+    return thinLTOLink(ApiFile);
 
   LLVMContext Context;
+  Context.setDiscardValueNames(options::TheOutputType !=
+                               options::OT_SAVE_TEMPS);
+  Context.enableDebugTypeODRUniquing(); // Merge debug info types.
   Context.setDiagnosticHandler(diagnosticHandlerForContext, nullptr, true);
 
   std::unique_ptr<Module> Combined(new Module("ld-temp.o", Context));
   IRMover L(*Combined);
 
   StringSet<> Internalize;
-  StringSet<> Maybe;
   for (claimed_file &F : Modules) {
+    // RAII object to manage the file opening and releasing interfaces with
+    // gold.
     PluginInputFile InputFile(F.handle);
     const void *View = getSymbolsAndView(F);
     if (!View)
       continue;
-    if (linkInModule(Context, L, F, View, InputFile.file(), ApiFile,
-                     Internalize, Maybe))
-      message(LDPL_FATAL, "Failed to link module");
+    linkInModule(Context, L, F, View, F.name, ApiFile, Internalize);
   }
 
   for (const auto &Name : Internalize) {
     GlobalValue *GV = Combined->getNamedValue(Name.first());
     if (GV)
-      internalize(*GV);
-  }
-
-  for (const auto &Name : Maybe) {
-    GlobalValue *GV = Combined->getNamedValue(Name.first());
-    if (!GV)
-      continue;
-    GV->setLinkage(GlobalValue::LinkOnceODRLinkage);
-    if (canBeOmittedFromSymbolTable(GV))
       internalize(*GV);
   }
 
