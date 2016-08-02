@@ -1,8 +1,8 @@
 ; RUN: llvm-pdbdump -raw-headers -raw-tpi-records -raw-tpi-record-bytes -raw-module-syms \
 ; RUN:              -raw-sym-record-bytes -raw-publics -raw-module-files -raw-stream-name=/names \
 ; RUN:              -raw-stream-summary -raw-stream-blocks -raw-ipi-records -raw-ipi-record-bytes \
-; RUN:              %p/Inputs/empty.pdb \
-; RUN:              | FileCheck -check-prefix=EMPTY %s
+; RUN:              -raw-section-contribs -raw-section-map -raw-section-headers -raw-line-info \
+; RUN:              -raw-tpi-hash -raw-fpo %p/Inputs/empty.pdb | FileCheck -check-prefix=EMPTY %s
 ; RUN: llvm-pdbdump -raw-all %p/Inputs/empty.pdb | FileCheck -check-prefix=ALL %s
 ; RUN: llvm-pdbdump -raw-headers -raw-stream-name=/names -raw-modules -raw-module-files \
 ; RUN:              %p/Inputs/big-read.pdb | FileCheck -check-prefix=BIG %s
@@ -70,9 +70,9 @@
 ; EMPTY-NEXT:   Version: 1
 ; EMPTY-NEXT:   Name Count: 4
 ; EMPTY-NEXT:   Names [
-; EMPTY-NEXT:     d:\src\llvm\test\debuginfo\pdb\inputs\predefined c++ attributes (compiler internal)
-; EMPTY-NEXT:     d:\src\llvm\test\debuginfo\pdb\inputs\empty.cpp
-; EMPTY-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =
+; EMPTY-NEXT:     1: d:\src\llvm\test\debuginfo\pdb\inputs\predefined c++ attributes (compiler internal)
+; EMPTY-NEXT:     86: d:\src\llvm\test\debuginfo\pdb\inputs\empty.cpp
+; EMPTY-NEXT:     134: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =
 ; EMPTY-NEXT:   ]
 ; EMPTY-NEXT: }
 ; EMPTY-NEXT: Type Info Stream (TPI) {
@@ -141,82 +141,96 @@
 ; EMPTY-NEXT:         0040: 0500626F 746800F1                    |..both..|
 ; EMPTY-NEXT:       )
 ; EMPTY-NEXT:     }
+; EMPTY:          Hash {
+; EMPTY-NEXT:       Number of Hash Buckets: 262143
+; EMPTY-NEXT:       Hash Key Size: 4
+; EMPTY-NEXT:       Values: [205956, 163561, 59811, 208239, 16377, 247078, 194342, 254156, 194536, 167492, 185421, 119540, 261871, 198119, 48056, 251486, 134580, 148190, 113636, 53336, 55779, 220695, 198114, 148734, 81128, 60158, 217249, 174209, 159978, 249504, 141941, 238785, 6214, 94935, 151449, 135589, 73373, 96512, 254299, 17744, 239514, 173189, 130544, 204437, 238560, 144673, 115151, 197306, 256035, 101096, 231280, 52156, 48854, 170035, 177041, 102745, 16947, 183703, 98548, 35693, 171328, 203640, 139292, 49018, 43821, 202555, 165040, 215835, 142625, 52534, 44186, 103930, 110942, 17991, 213215]
+; EMPTY-NEXT:       Type Index Offsets: [{4096, 0}]
+; EMPTY-NEXT:       Hash Adjustments: []
+; EMPTY-NEXT:     }
 ; EMPTY:        Type Info Stream (IPI) {
 ; EMPTY-NEXT:     IPI Version: 20040203
 ; EMPTY-NEXT:     Record count: 15
 ; EMPTY-NEXT:     Records [
 ; EMPTY-NEXT:       {
-; EMPTY-NEXT:         UnknownLeaf (0x104B) {
+; EMPTY-NEXT:         UdtModSourceLine (0x104B) {
 ; EMPTY-NEXT:           TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:           UnknownType {
-; EMPTY-NEXT:             Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:             Length: 16
-; EMPTY-NEXT:           }
+; EMPTY-NEXT:           UDT: __vc_attributes::threadingAttribute (0x100B)
+; EMPTY-NEXT:           SourceFile: <unknown simple type> (0x1)
+; EMPTY-NEXT:           LineNumber: 481
+; EMPTY-NEXT:           Module: 1
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:         Bytes (
 ; EMPTY-NEXT:           0000: 0B100000 01000000 E1010000 0100F2F1  |................|
 ; EMPTY-NEXT:         )
 ; EMPTY-NEXT:       }
 ; EMPTY-NEXT:       {
-; EMPTY-NEXT:         UnknownLeaf (0x104C) {
+; EMPTY-NEXT:         UdtModSourceLine (0x104C) {
 ; EMPTY-NEXT:           TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:           UnknownType {
-; EMPTY-NEXT:             Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:             Length: 16
-; EMPTY-NEXT:           }
+; EMPTY-NEXT:           UDT: __vc_attributes::event_receiverAttribute (0x1017)
+; EMPTY-NEXT:           SourceFile: <unknown simple type> (0x1)
+; EMPTY-NEXT:           LineNumber: 194
+; EMPTY-NEXT:           Module: 1
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:         Bytes (
 ; EMPTY-NEXT:           0000: 17100000 01000000 C2000000 0100F2F1  |................|
 ; EMPTY-NEXT:         )
 ; EMPTY-NEXT:       }
 ; EMPTY-NEXT:       {
-; EMPTY-NEXT:         UnknownLeaf (0x104D) {
+; EMPTY-NEXT:         UdtModSourceLine (0x104D) {
 ; EMPTY-NEXT:           TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:           UnknownType {
-; EMPTY-NEXT:             Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:             Length: 16
-; EMPTY-NEXT:           }
+; EMPTY-NEXT:           UDT: __vc_attributes::aggregatableAttribute (0x1021)
+; EMPTY-NEXT:           SourceFile: <unknown simple type> (0x1)
+; EMPTY-NEXT:           LineNumber: 603
+; EMPTY-NEXT:           Module: 1
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:         Bytes (
 ; EMPTY-NEXT:           0000: 21100000 01000000 5B020000 0100F2F1  |!.......[.......|
 ; EMPTY-NEXT:         )
 ; EMPTY-NEXT:       }
 ; EMPTY-NEXT:       {
-; EMPTY-NEXT:         UnknownLeaf (0x104E) {
+; EMPTY-NEXT:         UdtModSourceLine (0x104E) {
 ; EMPTY-NEXT:           TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:           UnknownType {
-; EMPTY-NEXT:             Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:             Length: 16
-; EMPTY-NEXT:           }
+; EMPTY-NEXT:           UDT: __vc_attributes::event_sourceAttribute (0x102C)
+; EMPTY-NEXT:           SourceFile: <unknown simple type> (0x1)
+; EMPTY-NEXT:           LineNumber: 1200
+; EMPTY-NEXT:           Module: 1
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:         Bytes (
 ; EMPTY-NEXT:           0000: 2C100000 01000000 B0040000 0100F2F1  |,...............|
 ; EMPTY-NEXT:         )
 ; EMPTY-NEXT:       }
 ; EMPTY-NEXT:       {
-; EMPTY-NEXT:         UnknownLeaf (0x104F) {
+; EMPTY-NEXT:         UdtModSourceLine (0x104F) {
 ; EMPTY-NEXT:           TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:           UnknownType {
-; EMPTY-NEXT:             Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:             Length: 16
-; EMPTY-NEXT:           }
+; EMPTY-NEXT:           UDT: __vc_attributes::moduleAttribute (0x103A)
+; EMPTY-NEXT:           SourceFile: <unknown simple type> (0x1)
+; EMPTY-NEXT:           LineNumber: 540
+; EMPTY-NEXT:           Module: 1
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:         Bytes (
 ; EMPTY-NEXT:           0000: 3A100000 01000000 1C020000 0100F2F1  |:...............|
 ; EMPTY-NEXT:         )
 ; EMPTY-NEXT:       }
 ; EMPTY-NEXT:       {
-; EMPTY-NEXT:         UnknownLeaf (0x1050) {
+; EMPTY-NEXT:         UdtModSourceLine (0x1050) {
 ; EMPTY-NEXT:           TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:           UnknownType {
-; EMPTY-NEXT:             Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; EMPTY-NEXT:             Length: 16
-; EMPTY-NEXT:           }
+; EMPTY-NEXT:           UDT: __vc_attributes::helper_attributes::usageAttribute (0x1042)
+; EMPTY-NEXT:           SourceFile: <unknown simple type> (0x1)
+; EMPTY-NEXT:           LineNumber: 108
+; EMPTY-NEXT:           Module: 1
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:         Bytes (
 ; EMPTY-NEXT:           0000: 42100000 01000000 6C000000 0100F2F1  |B.......l.......|
 ; EMPTY-NEXT:         )
 ; EMPTY-NEXT:       }
+; EMPTY:          Hash {
+; EMPTY-NEXT:       Number of Hash Buckets: 262143
+; EMPTY-NEXT:       Hash Key Size: 4
+; EMPTY-NEXT:       Values: [7186, 7198, 7180, 7191, 7201, 7241, 7249, 80727, 154177, 75189, 253662, 193467, 222705, 186099, 257108]
+; EMPTY-NEXT:       Type Index Offsets: [{4096, 0}]
+; EMPTY-NEXT:       Hash Adjustments: []
+; EMPTY-NEXT:     }
 ; EMPTY:      DBI Stream {
 ; EMPTY-NEXT:   Dbi Version: 19990903
 ; EMPTY-NEXT:   Age: 1
@@ -330,6 +344,38 @@
 ; EMPTY-NEXT:           )
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:       ]
+; EMPTY-NEXT:       LineInfo [
+; EMPTY-NEXT:         Lines {
+; EMPTY-NEXT:           FileName: d:\src\llvm\test\debuginfo\pdb\inputs\empty.cpp
+; EMPTY-NEXT:           Line {
+; EMPTY-NEXT:             Offset: 0
+; EMPTY-NEXT:             LineNumberStart: 5
+; EMPTY-NEXT:             EndDelta: 0
+; EMPTY-NEXT:             IsStatement: Yes
+; EMPTY-NEXT:           }
+; EMPTY-NEXT:           Line {
+; EMPTY-NEXT:             Offset: 3
+; EMPTY-NEXT:             LineNumberStart: 6
+; EMPTY-NEXT:             EndDelta: 0
+; EMPTY-NEXT:             IsStatement: Yes
+; EMPTY-NEXT:           }
+; EMPTY-NEXT:           Line {
+; EMPTY-NEXT:             Offset: 8
+; EMPTY-NEXT:             LineNumberStart: 7
+; EMPTY-NEXT:             EndDelta: 0
+; EMPTY-NEXT:             IsStatement: Yes
+; EMPTY-NEXT:           }
+; EMPTY-NEXT:         }
+; EMPTY-NEXT:         FileChecksums {
+; EMPTY-NEXT:           Checksum {
+; EMPTY-NEXT:             FileName: d:\src\llvm\test\debuginfo\pdb\inputs\empty.cpp
+; EMPTY-NEXT:             Kind: MD5 (0x1)
+; EMPTY-NEXT:             Checksum (
+; EMPTY-NEXT:               0000: A0A5BD0D 3ECD93FC 29D19DE8 26FBF4BC  |....>...)...&...|
+; EMPTY-NEXT:             )
+; EMPTY-NEXT:           }
+; EMPTY-NEXT:         }
+; EMPTY-NEXT:       ]
 ; EMPTY-NEXT:     }
 ; EMPTY-NEXT:     {
 ; EMPTY-NEXT:       Name: * Linker *
@@ -417,7 +463,11 @@
 ; EMPTY-NEXT:             Reserved: 0
 ; EMPTY-NEXT:             Rva: 4096
 ; EMPTY-NEXT:             Length: 4122
-; EMPTY-NEXT:             Characteristics: 0x60000020
+; EMPTY-NEXT:             Characteristics [ (0x60000020)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_CODE (0x20)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Name: .text
 ; EMPTY-NEXT:           }
 ; EMPTY-NEXT:           Bytes (
@@ -428,7 +478,11 @@
 ; EMPTY-NEXT:         {
 ; EMPTY-NEXT:           COFF Group {
 ; EMPTY-NEXT:             Size: 4122
-; EMPTY-NEXT:             Characteristics: 0x60000020
+; EMPTY-NEXT:             Characteristics [ (0x60000020)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_CODE (0x20)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Offset: 0
 ; EMPTY-NEXT:             Segment: 1
 ; EMPTY-NEXT:             Name: .text$mn
@@ -445,7 +499,10 @@
 ; EMPTY-NEXT:             Reserved: 0
 ; EMPTY-NEXT:             Rva: 12288
 ; EMPTY-NEXT:             Length: 690
-; EMPTY-NEXT:             Characteristics: 0x40000040
+; EMPTY-NEXT:             Characteristics [ (0x40000040)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Name: .rdata
 ; EMPTY-NEXT:           }
 ; EMPTY-NEXT:           Bytes (
@@ -456,7 +513,10 @@
 ; EMPTY-NEXT:         {
 ; EMPTY-NEXT:           COFF Group {
 ; EMPTY-NEXT:             Size: 323
-; EMPTY-NEXT:             Characteristics: 0x40000040
+; EMPTY-NEXT:             Characteristics [ (0x40000040)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Offset: 0
 ; EMPTY-NEXT:             Segment: 2
 ; EMPTY-NEXT:             Name: .rdata
@@ -469,7 +529,10 @@
 ; EMPTY-NEXT:         {
 ; EMPTY-NEXT:           COFF Group {
 ; EMPTY-NEXT:             Size: 0
-; EMPTY-NEXT:             Characteristics: 0x40000040
+; EMPTY-NEXT:             Characteristics [ (0x40000040)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Offset: 323
 ; EMPTY-NEXT:             Segment: 2
 ; EMPTY-NEXT:             Name: .edata
@@ -482,7 +545,10 @@
 ; EMPTY-NEXT:         {
 ; EMPTY-NEXT:           COFF Group {
 ; EMPTY-NEXT:             Size: 366
-; EMPTY-NEXT:             Characteristics: 0x40000040
+; EMPTY-NEXT:             Characteristics [ (0x40000040)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Offset: 324
 ; EMPTY-NEXT:             Segment: 2
 ; EMPTY-NEXT:             Name: .rdata$debug
@@ -499,7 +565,11 @@
 ; EMPTY-NEXT:             Reserved: 0
 ; EMPTY-NEXT:             Rva: 16384
 ; EMPTY-NEXT:             Length: 4
-; EMPTY-NEXT:             Characteristics: 0xC0000040
+; EMPTY-NEXT:             Characteristics [ (0xC0000040)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_WRITE (0x80000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Name: .data
 ; EMPTY-NEXT:           }
 ; EMPTY-NEXT:           Bytes (
@@ -510,7 +580,11 @@
 ; EMPTY-NEXT:         {
 ; EMPTY-NEXT:           COFF Group {
 ; EMPTY-NEXT:             Size: 4
-; EMPTY-NEXT:             Characteristics: 0xC0000080
+; EMPTY-NEXT:             Characteristics [ (0xC0000080)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_UNINITIALIZED_DATA (0x80)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_WRITE (0x80000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Offset: 0
 ; EMPTY-NEXT:             Segment: 3
 ; EMPTY-NEXT:             Name: .bss
@@ -527,7 +601,11 @@
 ; EMPTY-NEXT:             Reserved: 0
 ; EMPTY-NEXT:             Rva: 20480
 ; EMPTY-NEXT:             Length: 8
-; EMPTY-NEXT:             Characteristics: 0x42000040
+; EMPTY-NEXT:             Characteristics [ (0x42000040)
+; EMPTY-NEXT:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_DISCARDABLE (0x2000000)
+; EMPTY-NEXT:               IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:             ]
 ; EMPTY-NEXT:             Name: .reloc
 ; EMPTY-NEXT:           }
 ; EMPTY-NEXT:           Bytes (
@@ -536,9 +614,188 @@
 ; EMPTY-NEXT:           )
 ; EMPTY-NEXT:         }
 ; EMPTY-NEXT:       ]
+; EMPTY-NEXT:       LineInfo [
+; EMPTY-NEXT:       ]
 ; EMPTY-NEXT:     }
 ; EMPTY-NEXT:   ]
 ; EMPTY-NEXT: }
+; EMPTY-NEXT: Section Contributions [
+; EMPTY-NEXT:   Contribution {
+; EMPTY-NEXT:     ISect: 1
+; EMPTY-NEXT:     Off: 0
+; EMPTY-NEXT:     Size: 10
+; EMPTY-NEXT:     Characteristics [ (0x60000020)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_CODE (0x20)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Module {
+; EMPTY-NEXT:       Index: 1
+; EMPTY-NEXT:       Name: * Linker *
+; EMPTY-NEXT:     }
+; EMPTY-NEXT:     Data CRC: 0
+; EMPTY-NEXT:     Reloc CRC: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Contribution {
+; EMPTY-NEXT:     ISect: 1
+; EMPTY-NEXT:     Off: 16
+; EMPTY-NEXT:     Size: 10
+; EMPTY-NEXT:     Characteristics [ (0x60500020)
+; EMPTY-NEXT:       IMAGE_SCN_ALIGN_16BYTES (0x500000)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_CODE (0x20)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Module {
+; EMPTY-NEXT:       Index: 0
+; EMPTY-NEXT:       Name: d:\src\llvm\test\DebugInfo\PDB\Inputs\empty.obj
+; EMPTY-NEXT:     }
+; EMPTY-NEXT:     Data CRC: 3617027124
+; EMPTY-NEXT:     Reloc CRC: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Contribution {
+; EMPTY-NEXT:     ISect: 2
+; EMPTY-NEXT:     Off: 0
+; EMPTY-NEXT:     Size: 56
+; EMPTY-NEXT:     Characteristics [ (0x40000040)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Module {
+; EMPTY-NEXT:       Index: 1
+; EMPTY-NEXT:       Name: * Linker *
+; EMPTY-NEXT:     }
+; EMPTY-NEXT:     Data CRC: 0
+; EMPTY-NEXT:     Reloc CRC: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Contribution {
+; EMPTY-NEXT:     ISect: 2
+; EMPTY-NEXT:     Off: 324
+; EMPTY-NEXT:     Size: 72
+; EMPTY-NEXT:     Characteristics [ (0x40300040)
+; EMPTY-NEXT:       IMAGE_SCN_ALIGN_4BYTES (0x300000)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Module {
+; EMPTY-NEXT:       Index: 1
+; EMPTY-NEXT:       Name: * Linker *
+; EMPTY-NEXT:     }
+; EMPTY-NEXT:     Data CRC: 0
+; EMPTY-NEXT:     Reloc CRC: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Contribution {
+; EMPTY-NEXT:     ISect: 2
+; EMPTY-NEXT:     Off: 396
+; EMPTY-NEXT:     Size: 20
+; EMPTY-NEXT:     Characteristics [ (0x40300040)
+; EMPTY-NEXT:       IMAGE_SCN_ALIGN_4BYTES (0x300000)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Module {
+; EMPTY-NEXT:       Index: 1
+; EMPTY-NEXT:       Name: * Linker *
+; EMPTY-NEXT:     }
+; EMPTY-NEXT:     Data CRC: 0
+; EMPTY-NEXT:     Reloc CRC: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Contribution {
+; EMPTY-NEXT:     ISect: 3
+; EMPTY-NEXT:     Off: 0
+; EMPTY-NEXT:     Size: 4
+; EMPTY-NEXT:     Characteristics [ (0xC0300080)
+; EMPTY-NEXT:       IMAGE_SCN_ALIGN_4BYTES (0x300000)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_UNINITIALIZED_DATA (0x80)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_WRITE (0x80000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Module {
+; EMPTY-NEXT:       Index: 0
+; EMPTY-NEXT:       Name: d:\src\llvm\test\DebugInfo\PDB\Inputs\empty.obj
+; EMPTY-NEXT:     }
+; EMPTY-NEXT:     Data CRC: 0
+; EMPTY-NEXT:     Reloc CRC: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT: ]
+; EMPTY-NEXT: Section Map [
+; EMPTY-NEXT:   Entry {
+; EMPTY-NEXT:     Flags [ (0x10D)
+; EMPTY-NEXT:       AddressIs32Bit (0x8)
+; EMPTY-NEXT:       Execute (0x4)
+; EMPTY-NEXT:       IsSelector (0x100)
+; EMPTY-NEXT:       Read (0x1)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Flags: 269
+; EMPTY-NEXT:     Ovl: 0
+; EMPTY-NEXT:     Group: 0
+; EMPTY-NEXT:     Frame: 1
+; EMPTY-NEXT:     SecName: 65535
+; EMPTY-NEXT:     ClassName: 65535
+; EMPTY-NEXT:     Offset: 0
+; EMPTY-NEXT:     SecByteLength: 4122
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Entry {
+; EMPTY-NEXT:     Flags [ (0x109)
+; EMPTY-NEXT:       AddressIs32Bit (0x8)
+; EMPTY-NEXT:       IsSelector (0x100)
+; EMPTY-NEXT:       Read (0x1)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Flags: 265
+; EMPTY-NEXT:     Ovl: 0
+; EMPTY-NEXT:     Group: 0
+; EMPTY-NEXT:     Frame: 2
+; EMPTY-NEXT:     SecName: 65535
+; EMPTY-NEXT:     ClassName: 65535
+; EMPTY-NEXT:     Offset: 0
+; EMPTY-NEXT:     SecByteLength: 690
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Entry {
+; EMPTY-NEXT:     Flags [ (0x10B)
+; EMPTY-NEXT:       AddressIs32Bit (0x8)
+; EMPTY-NEXT:       IsSelector (0x100)
+; EMPTY-NEXT:       Read (0x1)
+; EMPTY-NEXT:       Write (0x2)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Flags: 267
+; EMPTY-NEXT:     Ovl: 0
+; EMPTY-NEXT:     Group: 0
+; EMPTY-NEXT:     Frame: 3
+; EMPTY-NEXT:     SecName: 65535
+; EMPTY-NEXT:     ClassName: 65535
+; EMPTY-NEXT:     Offset: 0
+; EMPTY-NEXT:     SecByteLength: 4
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Entry {
+; EMPTY-NEXT:     Flags [ (0x109)
+; EMPTY-NEXT:       AddressIs32Bit (0x8)
+; EMPTY-NEXT:       IsSelector (0x100)
+; EMPTY-NEXT:       Read (0x1)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Flags: 265
+; EMPTY-NEXT:     Ovl: 0
+; EMPTY-NEXT:     Group: 0
+; EMPTY-NEXT:     Frame: 4
+; EMPTY-NEXT:     SecName: 65535
+; EMPTY-NEXT:     ClassName: 65535
+; EMPTY-NEXT:     Offset: 0
+; EMPTY-NEXT:     SecByteLength: 8
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   Entry {
+; EMPTY-NEXT:     Flags [ (0x208)
+; EMPTY-NEXT:       AddressIs32Bit (0x8)
+; EMPTY-NEXT:       IsAbsoluteAddress (0x200)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:     Flags: 520
+; EMPTY-NEXT:     Ovl: 0
+; EMPTY-NEXT:     Group: 0
+; EMPTY-NEXT:     Frame: 0
+; EMPTY-NEXT:     SecName: 65535
+; EMPTY-NEXT:     ClassName: 65535
+; EMPTY-NEXT:     Offset: 0
+; EMPTY-NEXT:     SecByteLength: 4294967295
+; EMPTY-NEXT:   }
+; EMPTY-NEXT: ]
 ; EMPTY:      Publics Stream {
 ; EMPTY-NEXT:   Stream number: 7
 ; EMPTY-NEXT:   SymHash: 556
@@ -595,6 +852,95 @@
 ; EMPTY-NEXT:     }
 ; EMPTY-NEXT:   ]
 ; EMPTY-NEXT: }
+; EMPTY-NEXT: Section Headers [
+; EMPTY-NEXT:   {
+; EMPTY-NEXT:     Name: .text
+; EMPTY-NEXT:     Virtual Size: 4122
+; EMPTY-NEXT:     Virtual Address: 4096
+; EMPTY-NEXT:     Size of Raw Data: 4608
+; EMPTY-NEXT:     File Pointer to Raw Data: 1024
+; EMPTY-NEXT:     File Pointer to Relocations: 0
+; EMPTY-NEXT:     File Pointer to Linenumbers: 0
+; EMPTY-NEXT:     Number of Relocations: 0
+; EMPTY-NEXT:     Number of Linenumbers: 0
+; EMPTY-NEXT:     Characteristics [ (0x60000020)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_CODE (0x20)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   {
+; EMPTY-NEXT:     Name: .rdata
+; EMPTY-NEXT:     Virtual Size: 690
+; EMPTY-NEXT:     Virtual Address: 12288
+; EMPTY-NEXT:     Size of Raw Data: 1024
+; EMPTY-NEXT:     File Pointer to Raw Data: 5632
+; EMPTY-NEXT:     File Pointer to Relocations: 0
+; EMPTY-NEXT:     File Pointer to Linenumbers: 0
+; EMPTY-NEXT:     Number of Relocations: 0
+; EMPTY-NEXT:     Number of Linenumbers: 0
+; EMPTY-NEXT:     Characteristics [ (0x40000040)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   {
+; EMPTY-NEXT:     Name: .data
+; EMPTY-NEXT:     Virtual Size: 4
+; EMPTY-NEXT:     Virtual Address: 16384
+; EMPTY-NEXT:     Size of Raw Data: 0
+; EMPTY-NEXT:     File Pointer to Raw Data: 0
+; EMPTY-NEXT:     File Pointer to Relocations: 0
+; EMPTY-NEXT:     File Pointer to Linenumbers: 0
+; EMPTY-NEXT:     Number of Relocations: 0
+; EMPTY-NEXT:     Number of Linenumbers: 0
+; EMPTY-NEXT:     Characteristics [ (0xC0000040)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_WRITE (0x80000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   {
+; EMPTY-NEXT:     Name: .reloc
+; EMPTY-NEXT:     Virtual Size: 8
+; EMPTY-NEXT:     Virtual Address: 20480
+; EMPTY-NEXT:     Size of Raw Data: 512
+; EMPTY-NEXT:     File Pointer to Raw Data: 6656
+; EMPTY-NEXT:     File Pointer to Relocations: 0
+; EMPTY-NEXT:     File Pointer to Linenumbers: 0
+; EMPTY-NEXT:     Number of Relocations: 0
+; EMPTY-NEXT:     Number of Linenumbers: 0
+; EMPTY-NEXT:     Characteristics [ (0x42000040)
+; EMPTY-NEXT:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_DISCARDABLE (0x2000000)
+; EMPTY-NEXT:       IMAGE_SCN_MEM_READ (0x40000000)
+; EMPTY-NEXT:     ]
+; EMPTY-NEXT:   }
+; EMPTY-NEXT: ]
+; EMPTY:      New FPO [
+; EMPTY-NEXT:   {
+; EMPTY-NEXT:     Offset: 4112
+; EMPTY-NEXT:     Size: 10
+; EMPTY-NEXT:     Number of locals: 0
+; EMPTY-NEXT:     Number of params: 0
+; EMPTY-NEXT:     Size of Prolog: 0
+; EMPTY-NEXT:     Number of Saved Registers: 0
+; EMPTY-NEXT:     Has SEH: No
+; EMPTY-NEXT:     Use BP: No
+; EMPTY-NEXT:     Frame Pointer: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT:   {
+; EMPTY-NEXT:     Offset: 0
+; EMPTY-NEXT:     Size: 134
+; EMPTY-NEXT:     Number of locals: 3
+; EMPTY-NEXT:     Number of params: 4
+; EMPTY-NEXT:     Size of Prolog: 0
+; EMPTY-NEXT:     Number of Saved Registers: 0
+; EMPTY-NEXT:     Has SEH: No
+; EMPTY-NEXT:     Use BP: No
+; EMPTY-NEXT:     Frame Pointer: 0
+; EMPTY-NEXT:   }
+; EMPTY-NEXT: ]
 
 ; ALL: FileHeaders {
 ; ALL:   BlockSize: 4096
@@ -657,66 +1003,66 @@
 ; ALL:   Record count: 15
 ; ALL:   Records [
 ; ALL:     {
-; ALL:       UnknownLeaf (0x104B) {
+; ALL:       UdtModSourceLine (0x104B) {
 ; ALL:         TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:         UnknownType {
-; ALL:           Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:           Length: 16
-; ALL:         }
+; ALL:         UDT: __vc_attributes::threadingAttribute (0x100B)
+; ALL:         SourceFile: <unknown simple type> (0x1)
+; ALL:         LineNumber: 481
+; ALL:         Module: 1
 ; ALL:       }
 ; ALL:     }
 ; ALL:     {
-; ALL:       UnknownLeaf (0x104C) {
+; ALL:       UdtModSourceLine (0x104C) {
 ; ALL:         TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:         UnknownType {
-; ALL:           Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:           Length: 16
-; ALL:         }
+; ALL:         UDT: __vc_attributes::event_receiverAttribute (0x1017)
+; ALL:         SourceFile: <unknown simple type> (0x1)
+; ALL:         LineNumber: 194
+; ALL:         Module: 1
 ; ALL:       }
 ; ALL:     }
 ; ALL:     {
-; ALL:       UnknownLeaf (0x104D) {
+; ALL:       UdtModSourceLine (0x104D) {
 ; ALL:         TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:         UnknownType {
-; ALL:           Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:           Length: 16
-; ALL:         }
+; ALL:         UDT: __vc_attributes::aggregatableAttribute (0x1021)
+; ALL:         SourceFile: <unknown simple type> (0x1)
+; ALL:         LineNumber: 603
+; ALL:         Module: 1
 ; ALL:       }
 ; ALL:     }
 ; ALL:     {
-; ALL:       UnknownLeaf (0x104E) {
+; ALL:       UdtModSourceLine (0x104E) {
 ; ALL:         TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:         UnknownType {
-; ALL:           Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:           Length: 16
-; ALL:         }
+; ALL:         UDT: __vc_attributes::event_sourceAttribute (0x102C)
+; ALL:         SourceFile: <unknown simple type> (0x1)
+; ALL:         LineNumber: 1200
+; ALL:         Module: 1
 ; ALL:       }
 ; ALL:     }
 ; ALL:     {
-; ALL:       UnknownLeaf (0x104F) {
+; ALL:       UdtModSourceLine (0x104F) {
 ; ALL:         TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:         UnknownType {
-; ALL:           Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:           Length: 16
-; ALL:         }
+; ALL:         UDT: __vc_attributes::moduleAttribute (0x103A)
+; ALL:         SourceFile: <unknown simple type> (0x1)
+; ALL:         LineNumber: 540
+; ALL:         Module: 1
 ; ALL:       }
 ; ALL:     }
 ; ALL:     {
-; ALL:       UnknownLeaf (0x1050) {
+; ALL:       UdtModSourceLine (0x1050) {
 ; ALL:         TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:         UnknownType {
-; ALL:           Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:           Length: 16
-; ALL:         }
+; ALL:         UDT: __vc_attributes::helper_attributes::usageAttribute (0x1042)
+; ALL:         SourceFile: <unknown simple type> (0x1)
+; ALL:         LineNumber: 108
+; ALL:         Module: 1
 ; ALL:       }
 ; ALL:     }
 ; ALL:     {
-; ALL:       UnknownLeaf (0x1051) {
+; ALL:       UdtModSourceLine (0x1051) {
 ; ALL:         TypeLeafKind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:         UnknownType {
-; ALL:           Kind: LF_UDT_MOD_SRC_LINE (0x1607)
-; ALL:           Length: 16
-; ALL:         }
+; ALL:         UDT: __vc_attributes::helper_attributes::v1_alttypeAttribute (0x104A)
+; ALL:         SourceFile: <unknown simple type> (0x1)
+; ALL:         LineNumber: 96
+; ALL:         Module: 1
 ; ALL:       }
 ; ALL:     }
 ; ALL:     {
@@ -876,7 +1222,7 @@
 ; ALL:     {
 ; ALL:       Name: * Linker *
 ; ALL:       Debug Stream Index: 14
-; ALL:       Object File Name: 
+; ALL:       Object File Name:
 ; ALL:       Num Files: 0
 ; ALL:       Source File Name Idx: 0
 ; ALL:       Pdb File Name Idx: 1
@@ -935,14 +1281,22 @@
 ; ALL:             Reserved: 0
 ; ALL:             Rva: 4096
 ; ALL:             Length: 4122
-; ALL:             Characteristics: 0x60000020
+; ALL:             Characteristics [ (0x60000020)
+; ALL:               IMAGE_SCN_CNT_CODE (0x20)
+; ALL:               IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:             ]
 ; ALL:             Name: .text
 ; ALL:           }
 ; ALL:         }
 ; ALL:         {
 ; ALL:           COFF Group {
 ; ALL:             Size: 4122
-; ALL:             Characteristics: 0x60000020
+; ALL:             Characteristics [ (0x60000020)
+; ALL:               IMAGE_SCN_CNT_CODE (0x20)
+; ALL:               IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:             ]
 ; ALL:             Offset: 0
 ; ALL:             Segment: 1
 ; ALL:             Name: .text$mn
@@ -955,14 +1309,20 @@
 ; ALL:             Reserved: 0
 ; ALL:             Rva: 12288
 ; ALL:             Length: 690
-; ALL:             Characteristics: 0x40000040
+; ALL:             Characteristics [ (0x40000040)
+; ALL:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:             ]
 ; ALL:             Name: .rdata
 ; ALL:           }
 ; ALL:         }
 ; ALL:         {
 ; ALL:           COFF Group {
 ; ALL:             Size: 323
-; ALL:             Characteristics: 0x40000040
+; ALL:             Characteristics [ (0x40000040)
+; ALL:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:             ]
 ; ALL:             Offset: 0
 ; ALL:             Segment: 2
 ; ALL:             Name: .rdata
@@ -971,7 +1331,10 @@
 ; ALL:         {
 ; ALL:           COFF Group {
 ; ALL:             Size: 0
-; ALL:             Characteristics: 0x40000040
+; ALL:             Characteristics [ (0x40000040)
+; ALL:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:             ]
 ; ALL:             Offset: 323
 ; ALL:             Segment: 2
 ; ALL:             Name: .edata
@@ -980,7 +1343,10 @@
 ; ALL:         {
 ; ALL:           COFF Group {
 ; ALL:             Size: 366
-; ALL:             Characteristics: 0x40000040
+; ALL:             Characteristics [ (0x40000040)
+; ALL:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:             ]
 ; ALL:             Offset: 324
 ; ALL:             Segment: 2
 ; ALL:             Name: .rdata$debug
@@ -993,14 +1359,22 @@
 ; ALL:             Reserved: 0
 ; ALL:             Rva: 16384
 ; ALL:             Length: 4
-; ALL:             Characteristics: 0xC0000040
+; ALL:             Characteristics [ (0xC0000040)
+; ALL:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:               IMAGE_SCN_MEM_WRITE (0x80000000)
+; ALL:             ]
 ; ALL:             Name: .data
 ; ALL:           }
 ; ALL:         }
 ; ALL:         {
 ; ALL:           COFF Group {
 ; ALL:             Size: 4
-; ALL:             Characteristics: 0xC0000080
+; ALL:             Characteristics [ (0xC0000080)
+; ALL:               IMAGE_SCN_CNT_UNINITIALIZED_DATA (0x80)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:               IMAGE_SCN_MEM_WRITE (0x80000000)
+; ALL:             ]
 ; ALL:             Offset: 0
 ; ALL:             Segment: 3
 ; ALL:             Name: .bss
@@ -1013,7 +1387,11 @@
 ; ALL:             Reserved: 0
 ; ALL:             Rva: 20480
 ; ALL:             Length: 8
-; ALL:             Characteristics: 0x42000040
+; ALL:             Characteristics [ (0x42000040)
+; ALL:               IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:               IMAGE_SCN_MEM_DISCARDABLE (0x2000000)
+; ALL:               IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:             ]
 ; ALL:             Name: .reloc
 ; ALL:           }
 ; ALL:         }
@@ -1021,6 +1399,157 @@
 ; ALL:     }
 ; ALL:   ]
 ; ALL: }
+; ALL: Section Contributions [
+; ALL:   Contribution {
+; ALL:     ISect: 1
+; ALL:     Off: 0
+; ALL:     Size: 10
+; ALL:     Characteristics [ (0x60000020)
+; ALL:       IMAGE_SCN_CNT_CODE (0x20)
+; ALL:       IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:     Module {
+; ALL:       Index: 1
+; ALL:       Name: * Linker *
+; ALL:     }
+; ALL:     Data CRC: 0
+; ALL:     Reloc CRC: 0
+; ALL:   }
+; ALL:   Contribution {
+; ALL:     ISect: 1
+; ALL:     Off: 16
+; ALL:     Size: 10
+; ALL:     Characteristics [ (0x60500020)
+; ALL:       IMAGE_SCN_ALIGN_16BYTES (0x500000)
+; ALL:       IMAGE_SCN_CNT_CODE (0x20)
+; ALL:       IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:     Module {
+; ALL:       Index: 0
+; ALL:       Name: d:\src\llvm\test\DebugInfo\PDB\Inputs\empty.obj
+; ALL:     }
+; ALL:     Data CRC: 3617027124
+; ALL:     Reloc CRC: 0
+; ALL:   }
+; ALL:   Contribution {
+; ALL:     ISect: 2
+; ALL:     Off: 0
+; ALL:     Size: 56
+; ALL:     Characteristics [ (0x40000040)
+; ALL:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:     Module {
+; ALL:       Index: 1
+; ALL:       Name: * Linker *
+; ALL:     }
+; ALL:     Data CRC: 0
+; ALL:     Reloc CRC: 0
+; ALL:   }
+; ALL:   Contribution {
+; ALL:     ISect: 2
+; ALL:     Off: 324
+; ALL:     Size: 72
+; ALL:     Characteristics [ (0x40300040)
+; ALL:       IMAGE_SCN_ALIGN_4BYTES (0x300000)
+; ALL:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:     Module {
+; ALL:       Index: 1
+; ALL:       Name: * Linker *
+; ALL:     }
+; ALL:     Data CRC: 0
+; ALL:     Reloc CRC: 0
+; ALL:   }
+; ALL:   Contribution {
+; ALL:     ISect: 2
+; ALL:     Off: 396
+; ALL:     Size: 20
+; ALL:     Characteristics [ (0x40300040)
+; ALL:       IMAGE_SCN_ALIGN_4BYTES (0x300000)
+; ALL:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:     Module {
+; ALL:       Index: 1
+; ALL:       Name: * Linker *
+; ALL:     }
+; ALL:     Data CRC: 0
+; ALL:     Reloc CRC: 0
+; ALL:   }
+; ALL:   Contribution {
+; ALL:     ISect: 3
+; ALL:     Off: 0
+; ALL:     Size: 4
+; ALL:     Characteristics [ (0xC0300080)
+; ALL:       IMAGE_SCN_ALIGN_4BYTES (0x300000)
+; ALL:       IMAGE_SCN_CNT_UNINITIALIZED_DATA (0x80)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:       IMAGE_SCN_MEM_WRITE (0x80000000)
+; ALL:     ]
+; ALL:     Module {
+; ALL:       Index: 0
+; ALL:       Name: d:\src\llvm\test\DebugInfo\PDB\Inputs\empty.obj
+; ALL:     }
+; ALL:     Data CRC: 0
+; ALL:     Reloc CRC: 0
+; ALL:   }
+; ALL: ]
+; ALL: Section Map [
+; ALL:   Entry {
+; ALL:     Flags: 269
+; ALL:     Ovl: 0
+; ALL:     Group: 0
+; ALL:     Frame: 1
+; ALL:     SecName: 65535
+; ALL:     ClassName: 65535
+; ALL:     Offset: 0
+; ALL:     SecByteLength: 4122
+; ALL:   }
+; ALL:   Entry {
+; ALL:     Flags: 265
+; ALL:     Ovl: 0
+; ALL:     Group: 0
+; ALL:     Frame: 2
+; ALL:     SecName: 65535
+; ALL:     ClassName: 65535
+; ALL:     Offset: 0
+; ALL:     SecByteLength: 690
+; ALL:   }
+; ALL:   Entry {
+; ALL:     Flags: 267
+; ALL:     Ovl: 0
+; ALL:     Group: 0
+; ALL:     Frame: 3
+; ALL:     SecName: 65535
+; ALL:     ClassName: 65535
+; ALL:     Offset: 0
+; ALL:     SecByteLength: 4
+; ALL:   }
+; ALL:   Entry {
+; ALL:     Flags: 265
+; ALL:     Ovl: 0
+; ALL:     Group: 0
+; ALL:     Frame: 4
+; ALL:     SecName: 65535
+; ALL:     ClassName: 65535
+; ALL:     Offset: 0
+; ALL:     SecByteLength: 8
+; ALL:   }
+; ALL:   Entry {
+; ALL:     Flags: 520
+; ALL:     Ovl: 0
+; ALL:     Group: 0
+; ALL:     Frame: 0
+; ALL:     SecName: 65535
+; ALL:     ClassName: 65535
+; ALL:     Offset: 0
+; ALL:     SecByteLength: 4294967295
+; ALL:   }
+; ALL: ]
 ; ALL: Publics Stream {
 ; ALL:   Stream number: 7
 ; ALL:   SymHash: 556
@@ -1063,6 +1592,71 @@
 ; ALL:     }
 ; ALL:   ]
 ; ALL: }
+; ALL: Section Headers [
+; ALL:   {
+; ALL:     Name: .text
+; ALL:     Virtual Size: 4122
+; ALL:     Virtual Address: 4096
+; ALL:     Size of Raw Data: 4608
+; ALL:     File Pointer to Raw Data: 1024
+; ALL:     File Pointer to Relocations: 0
+; ALL:     File Pointer to Linenumbers: 0
+; ALL:     Number of Relocations: 0
+; ALL:     Number of Linenumbers: 0
+; ALL:     Characteristics [ (0x60000020)
+; ALL:       IMAGE_SCN_CNT_CODE (0x20)
+; ALL:       IMAGE_SCN_MEM_EXECUTE (0x20000000)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:   }
+; ALL:   {
+; ALL:     Name: .rdata
+; ALL:     Virtual Size: 690
+; ALL:     Virtual Address: 12288
+; ALL:     Size of Raw Data: 1024
+; ALL:     File Pointer to Raw Data: 5632
+; ALL:     File Pointer to Relocations: 0
+; ALL:     File Pointer to Linenumbers: 0
+; ALL:     Number of Relocations: 0
+; ALL:     Number of Linenumbers: 0
+; ALL:     Characteristics [ (0x40000040)
+; ALL:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:   }
+; ALL:   {
+; ALL:     Name: .data
+; ALL:     Virtual Size: 4
+; ALL:     Virtual Address: 16384
+; ALL:     Size of Raw Data: 0
+; ALL:     File Pointer to Raw Data: 0
+; ALL:     File Pointer to Relocations: 0
+; ALL:     File Pointer to Linenumbers: 0
+; ALL:     Number of Relocations: 0
+; ALL:     Number of Linenumbers: 0
+; ALL:     Characteristics [ (0xC0000040)
+; ALL:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:       IMAGE_SCN_MEM_WRITE (0x80000000)
+; ALL:     ]
+; ALL:   }
+; ALL:   {
+; ALL:     Name: .reloc
+; ALL:     Virtual Size: 8
+; ALL:     Virtual Address: 20480
+; ALL:     Size of Raw Data: 512
+; ALL:     File Pointer to Raw Data: 6656
+; ALL:     File Pointer to Relocations: 0
+; ALL:     File Pointer to Linenumbers: 0
+; ALL:     Number of Relocations: 0
+; ALL:     Number of Linenumbers: 0
+; ALL:     Characteristics [ (0x42000040)
+; ALL:       IMAGE_SCN_CNT_INITIALIZED_DATA (0x40)
+; ALL:       IMAGE_SCN_MEM_DISCARDABLE (0x2000000)
+; ALL:       IMAGE_SCN_MEM_READ (0x40000000)
+; ALL:     ]
+; ALL:   }
+; ALL: ]
 
 ; BIG:      FileHeaders {
 ; BIG-NEXT:   BlockSize: 4096
@@ -1088,97 +1682,97 @@
 ; BIG-NEXT:   Version: 1
 ; BIG-NEXT:   Name Count: 92
 ; BIG-NEXT:   Names [
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\vcruntime_startup.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\misc\checkcfg.c
-; BIG-NEXT:     f:\dd\vctools\langapi\include\isa_availability.h
-; BIG-NEXT:     $T0 $ebp = $T2 $esp = $T1 .raSearchStart = $eip $T1 ^ = $ebp $T0 = $esp $T1 4 + =
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\startup\exe_common.inl
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 40 - ^ =  $23 $T0 44 - ^ =  $24 $T0 48 - ^ =
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 16 - ^ =  $24 $T0 20 - ^ =
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\wingdi.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\build\md\msvcrt_kernel32\predefined c++ types (compiler internal)
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 24 - ^ =
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\corecrt_memcpy_s.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\utility\ucrt_stubs.cpp
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\utility\dyn_tls_init.c
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\corecrt_wstdio.h
-; BIG-NEXT:     $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $23 $T0 4 - ^ =
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\default_precision.cpp
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\thread_locale.cpp
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\string.h
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\corecrt_wstring.h
-; BIG-NEXT:     $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $20 $T0 4 - ^ =  $23 $T0 8 - ^ =
-; BIG-NEXT:     d:\src\llvm\test\tools\llvm-symbolizer\pdb\inputs\test.cpp
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\corecrt_stdio_config.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\vcruntime_new.h
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\corecrt_startup.h
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\processthreadsapi.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\gs\gs_support.c
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\utility\utility_desktop.cpp
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\utility\ucrt_detection.c
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\new_mode.cpp
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\eh\i386\secchk.c
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\matherr.cpp
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\corecrt.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\env_mode.cpp
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\winbase.h
-; BIG-NEXT:     $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\eh\tncleanup.cpp
-; BIG-NEXT:     $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $20 $T0 4 - ^ =  $23 $T0 8 - ^ =  $24 $T0 12 - ^ =
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\internal_shared.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\eh\i386\sehprolg4.asm
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\winnt.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\misc\i386\cpu_disp.c
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\misc\guard_support.c
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\vcruntime_typeinfo.h
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\evntprov.h
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 24 - ^ =  $24 $T0 28 - ^ =
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\utility\utility.cpp
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\eh.h
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 808 - ^ =  $23 $T0 812 - ^ =
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\build\md\msvcrt_kernel32\predefined c++ attributes (compiler internal)
-; BIG-NEXT:     d:\src\llvm\test\tools\llvm-symbolizer\pdb\inputs\predefined c++ attributes (compiler internal)
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\argv_mode.cpp
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\commit_mode.cpp
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\startup\exe_main.cpp
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\stdio.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\vcruntime_exception.h
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\guiddef.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\utility\dyn_tls_dtor.c
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\i386\mmintrin.h
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 4 - ^ =
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 28 - ^ =  $23 $T0 32 - ^ =  $24 $T0 36 - ^ =
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\i386\xmmintrin.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\rtcapi.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\denormal_control.cpp
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\gs\gs_report.c
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\minwindef.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcruntime\inc\vadefs.h
-; BIG-NEXT:     _TP_CALLBACK_ENVIRON_V3
-; BIG-NEXT:     $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $23 $T0 4 - ^ =  $24 $T0 8 - ^ =
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\inc\vcstartup_internal.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\rtc\initsect.cpp
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\ctype.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\utility\matherr_detection.c
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\invalid_parameter_handler.cpp
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\basetsd.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\eh\i386\chandler4gs.c
-; BIG-NEXT:     f:\dd\vctools\langapi\include\ehdata.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\file_mode.cpp
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\math.h
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\winuser.h
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 48 - ^ =  $23 $T0 52 - ^ =
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 48 - ^ =  $23 $T0 52 - ^ =  $24 $T0 56 - ^ =
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\stdlib.h
-; BIG-NEXT:     f:\dd\vctools\crt\vcstartup\src\defaults\default_local_stdio_options.cpp
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\stralign.h
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\malloc.h
-; BIG-NEXT:     f:\dd\externalapis\windows\8.1\sdk\inc\winerror.h
-; BIG-NEXT:     $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $20 $T0 4 - ^ =
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 48 - ^ =
-; BIG-NEXT:     $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 16 - ^ =
-; BIG-NEXT:     f:\dd\externalapis\unifiedcrt\inc\corecrt_memory.h
+; BIG-NEXT:     2938: f:\dd\vctools\crt\vcruntime\inc\vcruntime_startup.h
+; BIG-NEXT:     2569: f:\dd\vctools\crt\vcstartup\src\misc\checkcfg.c
+; BIG-NEXT:     261: f:\dd\vctools\langapi\include\isa_availability.h
+; BIG-NEXT:     4526: $T0 $ebp = $T2 $esp = $T1 .raSearchStart = $eip $T1 ^ = $ebp $T0 = $esp $T1 4 + =
+; BIG-NEXT:     4129: f:\dd\vctools\crt\vcstartup\src\startup\exe_common.inl
+; BIG-NEXT:     4415: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 40 - ^ =  $23 $T0 44 - ^ =  $24 $T0 48 - ^ =
+; BIG-NEXT:     4921: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 16 - ^ =  $24 $T0 20 - ^ =
+; BIG-NEXT:     310: f:\dd\externalapis\windows\8.1\sdk\inc\wingdi.h
+; BIG-NEXT:     3880: f:\dd\vctools\crt\vcstartup\build\md\msvcrt_kernel32\predefined c++ types (compiler internal)
+; BIG-NEXT:     2401: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 24 - ^ =
+; BIG-NEXT:     635: f:\dd\externalapis\unifiedcrt\inc\corecrt_memcpy_s.h
+; BIG-NEXT:     5014: f:\dd\vctools\crt\vcstartup\src\utility\ucrt_stubs.cpp
+; BIG-NEXT:     157: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =
+; BIG-NEXT:     2766: f:\dd\vctools\crt\vcstartup\src\utility\dyn_tls_init.c
+; BIG-NEXT:     3196: f:\dd\externalapis\unifiedcrt\inc\corecrt_wstdio.h
+; BIG-NEXT:     4274: $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $23 $T0 4 - ^ =
+; BIG-NEXT:     5322: f:\dd\vctools\crt\vcstartup\src\defaults\default_precision.cpp
+; BIG-NEXT:     3768: f:\dd\vctools\crt\vcstartup\src\defaults\thread_locale.cpp
+; BIG-NEXT:     592: f:\dd\externalapis\unifiedcrt\inc\string.h
+; BIG-NEXT:     887: f:\dd\externalapis\unifiedcrt\inc\corecrt_wstring.h
+; BIG-NEXT:     1898: $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $20 $T0 4 - ^ =  $23 $T0 8 - ^ =
+; BIG-NEXT:     1: d:\src\llvm\test\tools\llvm-symbolizer\pdb\inputs\test.cpp
+; BIG-NEXT:     3362: f:\dd\externalapis\unifiedcrt\inc\corecrt_stdio_config.h
+; BIG-NEXT:     1692: f:\dd\vctools\crt\vcruntime\inc\vcruntime_new.h
+; BIG-NEXT:     4077: f:\dd\externalapis\unifiedcrt\inc\corecrt_startup.h
+; BIG-NEXT:     5108: f:\dd\externalapis\windows\8.1\sdk\inc\processthreadsapi.h
+; BIG-NEXT:     2353: f:\dd\vctools\crt\vcstartup\src\gs\gs_support.c
+; BIG-NEXT:     5167: f:\dd\vctools\crt\vcstartup\src\utility\utility_desktop.cpp
+; BIG-NEXT:     2881: f:\dd\vctools\crt\vcstartup\src\utility\ucrt_detection.c
+; BIG-NEXT:     3714: f:\dd\vctools\crt\vcstartup\src\defaults\new_mode.cpp
+; BIG-NEXT:     2206: f:\dd\vctools\crt\vcstartup\src\eh\i386\secchk.c
+; BIG-NEXT:     3661: f:\dd\vctools\crt\vcstartup\src\defaults\matherr.cpp
+; BIG-NEXT:     457: f:\dd\externalapis\unifiedcrt\inc\corecrt.h
+; BIG-NEXT:     3481: f:\dd\vctools\crt\vcstartup\src\defaults\env_mode.cpp
+; BIG-NEXT:     992: f:\dd\externalapis\windows\8.1\sdk\inc\winbase.h
+; BIG-NEXT:     1791: $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =
+; BIG-NEXT:     4028: f:\dd\vctools\crt\vcstartup\src\eh\tncleanup.cpp
+; BIG-NEXT:     1977: $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $20 $T0 4 - ^ =  $23 $T0 8 - ^ =  $24 $T0 12 - ^ =
+; BIG-NEXT:     688: f:\dd\vctools\crt\vcruntime\inc\internal_shared.h
+; BIG-NEXT:     2074: f:\dd\vctools\crt\vcstartup\src\eh\i386\sehprolg4.asm
+; BIG-NEXT:     214: f:\dd\externalapis\windows\8.1\sdk\inc\winnt.h
+; BIG-NEXT:     939: f:\dd\vctools\crt\vcstartup\src\misc\i386\cpu_disp.c
+; BIG-NEXT:     2617: f:\dd\vctools\crt\vcstartup\src\misc\guard_support.c
+; BIG-NEXT:     3827: f:\dd\vctools\crt\vcruntime\inc\vcruntime_typeinfo.h
+; BIG-NEXT:     407: f:\dd\externalapis\windows\8.1\sdk\inc\evntprov.h
+; BIG-NEXT:     2476: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 24 - ^ =  $24 $T0 28 - ^ =
+; BIG-NEXT:     4609: f:\dd\vctools\crt\vcstartup\src\utility\utility.cpp
+; BIG-NEXT:     4184: f:\dd\vctools\crt\vcruntime\inc\eh.h
+; BIG-NEXT:     5227: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 808 - ^ =  $23 $T0 812 - ^ =
+; BIG-NEXT:     1403: f:\dd\vctools\crt\vcstartup\build\md\msvcrt_kernel32\predefined c++ attributes (compiler internal)
+; BIG-NEXT:     60: d:\src\llvm\test\tools\llvm-symbolizer\pdb\inputs\predefined c++ attributes (compiler internal)
+; BIG-NEXT:     2990: f:\dd\vctools\crt\vcstartup\src\defaults\argv_mode.cpp
+; BIG-NEXT:     3045: f:\dd\vctools\crt\vcstartup\src\defaults\commit_mode.cpp
+; BIG-NEXT:     4221: f:\dd\vctools\crt\vcstartup\src\startup\exe_main.cpp
+; BIG-NEXT:     3320: f:\dd\externalapis\unifiedcrt\inc\stdio.h
+; BIG-NEXT:     3974: f:\dd\vctools\crt\vcruntime\inc\vcruntime_exception.h
+; BIG-NEXT:     1551: f:\dd\externalapis\windows\8.1\sdk\inc\guiddef.h
+; BIG-NEXT:     2711: f:\dd\vctools\crt\vcstartup\src\utility\dyn_tls_dtor.c
+; BIG-NEXT:     501: f:\dd\vctools\crt\vcruntime\inc\i386\mmintrin.h
+; BIG-NEXT:     4661: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 4 - ^ =
+; BIG-NEXT:     4735: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 28 - ^ =  $23 $T0 32 - ^ =  $24 $T0 36 - ^ =
+; BIG-NEXT:     358: f:\dd\vctools\crt\vcruntime\inc\i386\xmmintrin.h
+; BIG-NEXT:     1362: f:\dd\vctools\crt\vcruntime\inc\rtcapi.h
+; BIG-NEXT:     3419: f:\dd\vctools\crt\vcstartup\src\defaults\denormal_control.cpp
+; BIG-NEXT:     2255: f:\dd\vctools\crt\vcstartup\src\gs\gs_report.c
+; BIG-NEXT:     2302: f:\dd\externalapis\windows\8.1\sdk\inc\minwindef.h
+; BIG-NEXT:     3102: f:\dd\vctools\crt\vcruntime\inc\vadefs.h
+; BIG-NEXT:     2128: _TP_CALLBACK_ENVIRON_V3
+; BIG-NEXT:     4336: $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $23 $T0 4 - ^ =  $24 $T0 8 - ^ =
+; BIG-NEXT:     3143: f:\dd\vctools\crt\vcstartup\inc\vcstartup_internal.h
+; BIG-NEXT:     1643: f:\dd\vctools\crt\vcstartup\src\rtc\initsect.cpp
+; BIG-NEXT:     1041: f:\dd\externalapis\unifiedcrt\inc\ctype.h
+; BIG-NEXT:     2821: f:\dd\vctools\crt\vcstartup\src\utility\matherr_detection.c
+; BIG-NEXT:     3590: f:\dd\vctools\crt\vcstartup\src\defaults\invalid_parameter_handler.cpp
+; BIG-NEXT:     788: f:\dd\externalapis\windows\8.1\sdk\inc\basetsd.h
+; BIG-NEXT:     2152: f:\dd\vctools\crt\vcstartup\src\eh\i386\chandler4gs.c
+; BIG-NEXT:     5069: f:\dd\vctools\langapi\include\ehdata.h
+; BIG-NEXT:     3535: f:\dd\vctools\crt\vcstartup\src\defaults\file_mode.cpp
+; BIG-NEXT:     2670: f:\dd\externalapis\unifiedcrt\inc\math.h
+; BIG-NEXT:     1502: f:\dd\externalapis\windows\8.1\sdk\inc\winuser.h
+; BIG-NEXT:     1158: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 48 - ^ =  $23 $T0 52 - ^ =
+; BIG-NEXT:     1251: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 48 - ^ =  $23 $T0 52 - ^ =  $24 $T0 56 - ^ =
+; BIG-NEXT:     1600: f:\dd\externalapis\unifiedcrt\inc\stdlib.h
+; BIG-NEXT:     3247: f:\dd\vctools\crt\vcstartup\src\defaults\default_local_stdio_options.cpp
+; BIG-NEXT:     738: f:\dd\externalapis\windows\8.1\sdk\inc\stralign.h
+; BIG-NEXT:     549: f:\dd\externalapis\unifiedcrt\inc\malloc.h
+; BIG-NEXT:     837: f:\dd\externalapis\windows\8.1\sdk\inc\winerror.h
+; BIG-NEXT:     1836: $T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + =  $20 $T0 4 - ^ =
+; BIG-NEXT:     1083: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $20 $T0 48 - ^ =
+; BIG-NEXT:     4846: $T0 $ebp = $eip $T0 4 + ^ = $ebp $T0 ^ = $esp $T0 8 + =  $23 $T0 16 - ^ =
+; BIG-NEXT:     1740: f:\dd\externalapis\unifiedcrt\inc\corecrt_memory.h
 ; BIG-NEXT:   ]
 ; BIG-NEXT: }
 ; BIG-NEXT: DBI Stream {

@@ -63,6 +63,16 @@ R600TargetLowering::R600TargetLowering(TargetMachine &TM,
     setLoadExtAction(ISD::EXTLOAD, VT, MVT::i16, Custom);
   }
 
+  // Workaround for LegalizeDAG asserting on expansion of i1 vector loads.
+  setLoadExtAction(ISD::EXTLOAD, MVT::v2i32, MVT::v2i1, Expand);
+  setLoadExtAction(ISD::SEXTLOAD, MVT::v2i32, MVT::v2i1, Expand);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::v2i32, MVT::v2i1, Expand);
+
+  setLoadExtAction(ISD::EXTLOAD, MVT::v4i32, MVT::v4i1, Expand);
+  setLoadExtAction(ISD::SEXTLOAD, MVT::v4i32, MVT::v4i1, Expand);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::v4i32, MVT::v4i1, Expand);
+
+
   setOperationAction(ISD::STORE, MVT::i8, Custom);
   setOperationAction(ISD::STORE, MVT::i32, Custom);
   setOperationAction(ISD::STORE, MVT::v2i32, Custom);
@@ -70,6 +80,10 @@ R600TargetLowering::R600TargetLowering(TargetMachine &TM,
 
   setTruncStoreAction(MVT::i32, MVT::i8, Custom);
   setTruncStoreAction(MVT::i32, MVT::i16, Custom);
+
+  // Workaround for LegalizeDAG asserting on expansion of i1 vector stores.
+  setTruncStoreAction(MVT::v2i32, MVT::v2i1, Expand);
+  setTruncStoreAction(MVT::v4i32, MVT::v4i1, Expand);
 
   // Set condition code actions
   setCondCodeAction(ISD::SETO,   MVT::f32, Expand);
@@ -1063,7 +1077,7 @@ SDValue R600TargetLowering::LowerFPTOUINT(SDValue Op, SelectionDAG &DAG) const {
 }
 
 SDValue R600TargetLowering::LowerImplicitParameter(SelectionDAG &DAG, EVT VT,
-                                                   SDLoc DL,
+                                                   const SDLoc &DL,
                                                    unsigned DwordOffset) const {
   unsigned ByteOffset = DwordOffset * 4;
   PointerType * PtrType = PointerType::get(VT.getTypeForEVT(*DAG.getContext()),
@@ -1733,12 +1747,9 @@ SDValue R600TargetLowering::lowerFrameIndex(SDValue Op,
 /// every function is a kernel function, but in the future we should use
 /// separate calling conventions for kernel and non-kernel functions.
 SDValue R600TargetLowering::LowerFormalArguments(
-                                      SDValue Chain,
-                                      CallingConv::ID CallConv,
-                                      bool isVarArg,
-                                      const SmallVectorImpl<ISD::InputArg> &Ins,
-                                      SDLoc DL, SelectionDAG &DAG,
-                                      SmallVectorImpl<SDValue> &InVals) const {
+    SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
+    const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
+    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
                  *DAG.getContext());
@@ -1917,10 +1928,9 @@ static SDValue ReorganizeVector(SelectionDAG &DAG, SDValue VectorEntry,
                             NewBldVec);
 }
 
-
-SDValue R600TargetLowering::OptimizeSwizzle(SDValue BuildVector,
-                                            SDValue Swz[4], SelectionDAG &DAG,
-                                            SDLoc DL) const {
+SDValue R600TargetLowering::OptimizeSwizzle(SDValue BuildVector, SDValue Swz[4],
+                                            SelectionDAG &DAG,
+                                            const SDLoc &DL) const {
   assert(BuildVector.getOpcode() == ISD::BUILD_VECTOR);
   // Old -> New swizzle values
   DenseMap<unsigned, unsigned> SwizzleRemap;

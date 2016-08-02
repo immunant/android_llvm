@@ -31,8 +31,7 @@ public:
   MachOWriter(MachOYAML::Object &Obj) : Obj(Obj), is64Bit(true), fileStart(0) {
     is64Bit = Obj.Header.magic == MachO::MH_MAGIC_64 ||
               Obj.Header.magic == MachO::MH_CIGAM_64;
-    memset(reinterpret_cast<void *>(&Header64), 0,
-           sizeof(MachO::mach_header_64));
+    memset(reinterpret_cast<void *>(&Header), 0, sizeof(MachO::mach_header_64));
     assert((is64Bit || Obj.Header.reserved == 0xDEADBEEFu) &&
            "32-bit MachO has reserved in header");
     assert((!is64Bit || Obj.Header.reserved != 0xDEADBEEFu) &&
@@ -46,8 +45,15 @@ private:
   Error writeLoadCommands(raw_ostream &OS);
   Error writeSectionData(raw_ostream &OS);
   Error writeLinkEditData(raw_ostream &OS);
-  void writeBindOpcodes(raw_ostream &OS, uint64_t offset,
+  void writeBindOpcodes(raw_ostream &OS,
                         std::vector<MachOYAML::BindOpcode> &BindOpcodes);
+  // LinkEdit writers
+  Error writeRebaseOpcodes(raw_ostream &OS);
+  Error writeBasicBindOpcodes(raw_ostream &OS);
+  Error writeWeakBindOpcodes(raw_ostream &OS);
+  Error writeLazyBindOpcodes(raw_ostream &OS);
+  Error writeNameList(raw_ostream &OS);
+  Error writeStringTable(raw_ostream &OS);
   Error writeExportTrie(raw_ostream &OS);
 
   void dumpExportEntry(raw_ostream &OS, MachOYAML::ExportEntry &Entry);
@@ -57,10 +63,7 @@ private:
   bool is64Bit;
   uint64_t fileStart;
 
-  union {
-    MachO::mach_header_64 Header64;
-    MachO::mach_header Header;
-  };
+  MachO::mach_header_64 Header;
 };
 
 Error MachOWriter::writeMachO(raw_ostream &OS) {
@@ -82,12 +85,11 @@ Error MachOWriter::writeHeader(raw_ostream &OS) {
   Header.ncmds = Obj.Header.ncmds;
   Header.sizeofcmds = Obj.Header.sizeofcmds;
   Header.flags = Obj.Header.flags;
-  Header64.reserved = Obj.Header.reserved;
+  Header.reserved = Obj.Header.reserved;
 
-  if (is64Bit)
-    OS.write((const char *)&Header64, sizeof(MachO::mach_header_64));
-  else
-    OS.write((const char *)&Header, sizeof(MachO::mach_header));
+  auto header_size =
+      is64Bit ? sizeof(MachO::mach_header_64) : sizeof(MachO::mach_header);
+  OS.write((const char *)&Header, header_size);
 
   return Error::success();
 }
@@ -165,7 +167,7 @@ size_t writeLoadCommandData<MachO::dylinker_command>(MachOYAML::LoadCommand &LC,
 
 template <>
 size_t writeLoadCommandData<MachO::rpath_command>(MachOYAML::LoadCommand &LC,
-                                                     raw_ostream &OS) {
+                                                  raw_ostream &OS) {
   return writePayloadString(LC, OS);
 }
 
@@ -275,9 +277,7 @@ Error MachOWriter::writeSectionData(raw_ostream &OS) {
 }
 
 void MachOWriter::writeBindOpcodes(
-    raw_ostream &OS, uint64_t offset,
-    std::vector<MachOYAML::BindOpcode> &BindOpcodes) {
-  ZeroToOffset(OS, offset);
+    raw_ostream &OS, std::vector<MachOYAML::BindOpcode> &BindOpcodes) {
 
   for (auto Opcode : BindOpcodes) {
     uint8_t OpByte = Opcode.Opcode | Opcode.Imm;
@@ -295,23 +295,23 @@ void MachOWriter::writeBindOpcodes(
   }
 }
 
-void MachOWriter::dumpExportEntry(raw_ostream &OS, MachOYAML::ExportEntry &Entry) {
+void MachOWriter::dumpExportEntry(raw_ostream &OS,
+                                  MachOYAML::ExportEntry &Entry) {
   encodeSLEB128(Entry.TerminalSize, OS);
   if (Entry.TerminalSize > 0) {
     encodeSLEB128(Entry.Flags, OS);
-    if ( Entry.Flags & MachO::EXPORT_SYMBOL_FLAGS_REEXPORT ) {
+    if (Entry.Flags & MachO::EXPORT_SYMBOL_FLAGS_REEXPORT) {
       encodeSLEB128(Entry.Other, OS);
       OS << Entry.ImportName;
       OS.write('\0');
-    }
-    else {
+    } else {
       encodeSLEB128(Entry.Address, OS);
       if (Entry.Flags & MachO::EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER)
         encodeSLEB128(Entry.Other, OS);
     }
   }
   OS.write(static_cast<uint8_t>(Entry.Children.size()));
-  for (auto EE : Entry.Children){
+  for (auto EE : Entry.Children) {
     OS << EE.Name;
     OS.write('\0');
     encodeSLEB128(EE.NodeOffset, OS);
@@ -325,22 +325,65 @@ Error MachOWriter::writeExportTrie(raw_ostream &OS) {
   return Error::success();
 }
 
+template <typename NListType>
+void writeNListEntry(MachOYAML::NListEntry &NLE, raw_ostream &OS) {
+  NListType ListEntry;
+  ListEntry.n_strx = NLE.n_strx;
+  ListEntry.n_type = NLE.n_type;
+  ListEntry.n_sect = NLE.n_sect;
+  ListEntry.n_desc = NLE.n_desc;
+  ListEntry.n_value = NLE.n_value;
+  OS.write(reinterpret_cast<const char *>(&ListEntry), sizeof(NListType));
+}
+
 Error MachOWriter::writeLinkEditData(raw_ostream &OS) {
-  MachOYAML::LinkEditData &LinkEdit = Obj.LinkEdit;
+  typedef Error (MachOWriter::*writeHandler)(raw_ostream &);
+  typedef std::pair<uint64_t, writeHandler> writeOperation;
+  std::vector<writeOperation> WriteQueue;
+
   MachO::dyld_info_command *DyldInfoOnlyCmd = 0;
   MachO::symtab_command *SymtabCmd = 0;
   for (auto &LC : Obj.LoadCommands) {
     switch (LC.Data.load_command_data.cmd) {
     case MachO::LC_SYMTAB:
       SymtabCmd = &LC.Data.symtab_command_data;
+      WriteQueue.push_back(
+          std::make_pair(SymtabCmd->symoff, &MachOWriter::writeNameList));
+      WriteQueue.push_back(
+          std::make_pair(SymtabCmd->stroff, &MachOWriter::writeStringTable));
       break;
     case MachO::LC_DYLD_INFO_ONLY:
       DyldInfoOnlyCmd = &LC.Data.dyld_info_command_data;
+      WriteQueue.push_back(std::make_pair(DyldInfoOnlyCmd->rebase_off,
+                                          &MachOWriter::writeRebaseOpcodes));
+      WriteQueue.push_back(std::make_pair(DyldInfoOnlyCmd->bind_off,
+                                          &MachOWriter::writeBasicBindOpcodes));
+      WriteQueue.push_back(std::make_pair(DyldInfoOnlyCmd->weak_bind_off,
+                                          &MachOWriter::writeWeakBindOpcodes));
+      WriteQueue.push_back(std::make_pair(DyldInfoOnlyCmd->lazy_bind_off,
+                                          &MachOWriter::writeLazyBindOpcodes));
+      WriteQueue.push_back(std::make_pair(DyldInfoOnlyCmd->export_off,
+                                          &MachOWriter::writeExportTrie));
       break;
     }
   }
 
-  ZeroToOffset(OS, DyldInfoOnlyCmd->rebase_off);
+  std::sort(WriteQueue.begin(), WriteQueue.end(),
+            [](const writeOperation &a, const writeOperation &b) {
+              return a.first < b.first;
+            });
+
+  for (auto writeOp : WriteQueue) {
+    ZeroToOffset(OS, writeOp.first);
+    if (auto Err = (this->*writeOp.second)(OS))
+      return Err;
+  }
+
+  return Error::success();
+}
+
+Error MachOWriter::writeRebaseOpcodes(raw_ostream &OS) {
+  MachOYAML::LinkEditData &LinkEdit = Obj.LinkEdit;
 
   for (auto Opcode : LinkEdit.RebaseOpcodes) {
     uint8_t OpByte = Opcode.Opcode | Opcode.Imm;
@@ -349,20 +392,39 @@ Error MachOWriter::writeLinkEditData(raw_ostream &OS) {
       encodeULEB128(Data, OS);
     }
   }
+  return Error::success();
+}
 
-  writeBindOpcodes(OS, DyldInfoOnlyCmd->bind_off, LinkEdit.BindOpcodes);
-  writeBindOpcodes(OS, DyldInfoOnlyCmd->weak_bind_off,
-                   LinkEdit.WeakBindOpcodes);
-  writeBindOpcodes(OS, DyldInfoOnlyCmd->lazy_bind_off,
-                   LinkEdit.LazyBindOpcodes);
+Error MachOWriter::writeBasicBindOpcodes(raw_ostream &OS) {
+  writeBindOpcodes(OS, Obj.LinkEdit.BindOpcodes);
+  return Error::success();
+}
 
-  ZeroToOffset(OS, DyldInfoOnlyCmd->export_off);
-  if(auto Err = writeExportTrie(OS))
-    return Err;
+Error MachOWriter::writeWeakBindOpcodes(raw_ostream &OS) {
+  writeBindOpcodes(OS, Obj.LinkEdit.WeakBindOpcodes);
+  return Error::success();
+}
 
-  // Fill to the end of the string table
-  ZeroToOffset(OS, SymtabCmd->stroff + SymtabCmd->strsize);
+Error MachOWriter::writeLazyBindOpcodes(raw_ostream &OS) {
+  writeBindOpcodes(OS, Obj.LinkEdit.LazyBindOpcodes);
+  return Error::success();
+}
 
+Error MachOWriter::writeNameList(raw_ostream &OS) {
+  for (auto NLE : Obj.LinkEdit.NameList) {
+    if (is64Bit)
+      writeNListEntry<MachO::nlist_64>(NLE, OS);
+    else
+      writeNListEntry<MachO::nlist>(NLE, OS);
+  }
+  return Error::success();
+}
+
+Error MachOWriter::writeStringTable(raw_ostream &OS) {
+  for (auto Str : Obj.LinkEdit.StringTable) {
+    OS.write(Str.data(), Str.size());
+    OS.write('\0');
+  }
   return Error::success();
 }
 

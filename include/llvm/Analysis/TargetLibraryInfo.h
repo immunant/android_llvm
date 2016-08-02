@@ -315,8 +315,8 @@ public:
     return *this;
   }
 
-  TargetLibraryInfo run(Module &M);
-  TargetLibraryInfo run(Function &F);
+  TargetLibraryInfo run(Module &M, ModuleAnalysisManager &);
+  TargetLibraryInfo run(Function &F, FunctionAnalysisManager &);
 
 private:
   friend AnalysisInfoMixin<TargetLibraryAnalysis>;
@@ -326,7 +326,7 @@ private:
 
   StringMap<std::unique_ptr<TargetLibraryInfoImpl>> Impls;
 
-  TargetLibraryInfoImpl &lookupInfoImpl(Triple T);
+  TargetLibraryInfoImpl &lookupInfoImpl(const Triple &T);
 };
 
 class TargetLibraryInfoWrapperPass : public ImmutablePass {

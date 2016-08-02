@@ -126,7 +126,7 @@ exit:
 }
 
 ; CHECK-LABEL: PR12375
-; CHECK: -->  {(4 + %arg)<nsw>,+,4}<nuw><%bb1>{{ U: [^ ]+ S: [^ ]+}}{{ *}}Exits: (8 + %arg)<nsw>
+; CHECK: -->  {(4 + %arg)<nsw>,+,4}<nuw><%bb1>{{ U: [^ ]+ S: [^ ]+}}{{ *}}Exits: (4 + (4 * ((-1 + (-1 * %arg) + ((4 + %arg)<nsw> umax (8 + %arg)<nsw>)) /u 4)) + %arg)
 define i32 @PR12375(i32* readnone %arg) {
 bb:
   %tmp = getelementptr inbounds i32, i32* %arg, i64 2
@@ -163,7 +163,7 @@ bb5:                                              ; preds = %bb2
 declare void @f(i32)
 
 ; CHECK-LABEL: nswnowrap
-; CHECK: --> {(1 + %v)<nsw>,+,1}<nsw><%for.body>{{ U: [^ ]+ S: [^ ]+}}{{ *}}Exits: (2 + %v)
+; CHECK: --> {(1 + %v)<nsw>,+,1}<nsw><%for.body>{{ U: [^ ]+ S: [^ ]+}}{{ *}}Exits: (1 + ((1 + %v)<nsw> smax %v))
 define void @nswnowrap(i32 %v, i32* %buf) {
 entry:
   %add = add nsw i32 %v, 1
@@ -202,5 +202,61 @@ for.body:
   br i1 %cmp2, label %for.body, label %for.end
 
 for.end:
+  ret void
+}
+
+
+define void @bad_postinc_nsw_a(i32 %n) {
+; CHECK-LABEL: Classifying expressions for: @bad_postinc_nsw_a
+entry:
+  br label %loop
+
+loop:
+  %iv = phi i32 [ 0, %entry ], [ %iv.inc, %loop ]
+  %iv.inc = add nsw i32 %iv, 7
+; CHECK:    %iv.inc = add nsw i32 %iv, 7
+; CHECK-NEXT:  -->  {7,+,7}<nuw><%loop>
+  %becond = icmp ult i32 %iv, %n
+  br i1 %becond, label %loop, label %leave
+
+leave:
+  ret void
+}
+
+define void @bad_postinc_nsw_b(i32 %n) {
+; CHECK-LABEL: Classifying expressions for: @bad_postinc_nsw_b
+entry:
+  br label %loop
+
+loop:
+  %iv = phi i32 [ 0, %entry ], [ %iv.inc, %loop ]
+  %iv.inc = add nsw i32 %iv, 7
+  %iv.inc.and = and i32 %iv.inc, 0
+; CHECK:    %iv.inc = add nsw i32 %iv, 7
+; CHECK-NEXT:  -->  {7,+,7}<nuw><%loop>
+  %becond = icmp ult i32 %iv.inc.and, %n
+  br i1 %becond, label %loop, label %leave
+
+leave:
+  ret void
+}
+
+declare void @may_exit() nounwind
+
+define void @pr28012(i32 %n) {
+; CHECK-LABEL: Classifying expressions for: @pr28012
+entry:
+  br label %loop
+
+loop:
+  %iv = phi i32 [ 0, %entry ], [ %iv.inc, %loop ]
+  %iv.inc = add nsw i32 %iv, 7
+; CHECK:    %iv.inc = add nsw i32 %iv, 7
+; CHECK-NEXT:  -->  {7,+,7}<nuw><%loop>
+  %becond = icmp ult i32 %iv.inc, %n
+  call void @may_exit()
+  br i1 %becond, label %loop, label %leave
+
+leave:
   ret void
 }

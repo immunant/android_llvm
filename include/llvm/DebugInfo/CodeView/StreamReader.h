@@ -26,8 +26,9 @@ class StreamRef;
 
 class StreamReader {
 public:
-  StreamReader(const StreamInterface &S);
+  StreamReader(StreamRef Stream);
 
+  Error readLongestContiguousChunk(ArrayRef<uint8_t> &Buffer);
   Error readBytes(ArrayRef<uint8_t> &Buffer, uint32_t Size);
   Error readInteger(uint16_t &Dest);
   Error readInteger(uint32_t &Dest);
@@ -35,6 +36,14 @@ public:
   Error readFixedString(StringRef &Dest, uint32_t Length);
   Error readStreamRef(StreamRef &Ref);
   Error readStreamRef(StreamRef &Ref, uint32_t Length);
+
+  template <typename T> Error readEnum(T &Dest) {
+    typename std::underlying_type<T>::type N;
+    if (auto EC = readInteger(N))
+      return EC;
+    Dest = static_cast<T>(N);
+    return Error::success();
+  }
 
   template <typename T> Error readObject(const T *&Dest) {
     ArrayRef<uint8_t> Buffer;
@@ -45,11 +54,28 @@ public:
   }
 
   template <typename T>
-  Error readArray(VarStreamArray<T> &Array, uint32_t Size) {
+  Error readArray(ArrayRef<T> &Array, uint32_t NumElements) {
+    ArrayRef<uint8_t> Bytes;
+    if (NumElements == 0) {
+      Array = ArrayRef<T>();
+      return Error::success();
+    }
+
+    if (NumElements > UINT32_MAX/sizeof(T))
+      return make_error<CodeViewError>(cv_error_code::insufficient_buffer);
+
+    if (auto EC = readBytes(Bytes, NumElements * sizeof(T)))
+      return EC;
+    Array = ArrayRef<T>(reinterpret_cast<const T *>(Bytes.data()), NumElements);
+    return Error::success();
+  }
+
+  template <typename T, typename U>
+  Error readArray(VarStreamArray<T, U> &Array, uint32_t Size) {
     StreamRef S;
     if (auto EC = readStreamRef(S, Size))
       return EC;
-    Array = VarStreamArray<T>(S);
+    Array = VarStreamArray<T, U>(S, Array.getExtractor());
     return Error::success();
   }
 
@@ -64,7 +90,7 @@ public:
       return make_error<CodeViewError>(cv_error_code::corrupt_record);
     if (Offset + Length > Stream.getLength())
       return make_error<CodeViewError>(cv_error_code::insufficient_buffer);
-    StreamRef View(Stream, Offset, Length);
+    StreamRef View = Stream.slice(Offset, Length);
     Array = FixedStreamArray<T>(View);
     Offset += Length;
     return Error::success();
@@ -76,7 +102,7 @@ public:
   uint32_t bytesRemaining() const { return getLength() - getOffset(); }
 
 private:
-  const StreamInterface &Stream;
+  StreamRef Stream;
   uint32_t Offset;
 };
 } // namespace codeview

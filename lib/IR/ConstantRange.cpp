@@ -60,60 +60,60 @@ ConstantRange ConstantRange::makeAllowedICmpRegion(CmpInst::Predicate Pred,
   switch (Pred) {
   default:
     llvm_unreachable("Invalid ICmp predicate to makeAllowedICmpRegion()");
-    case CmpInst::ICMP_EQ:
-      return CR;
-    case CmpInst::ICMP_NE:
-      if (CR.isSingleElement())
-        return ConstantRange(CR.getUpper(), CR.getLower());
+  case CmpInst::ICMP_EQ:
+    return CR;
+  case CmpInst::ICMP_NE:
+    if (CR.isSingleElement())
+      return ConstantRange(CR.getUpper(), CR.getLower());
+    return ConstantRange(W);
+  case CmpInst::ICMP_ULT: {
+    APInt UMax(CR.getUnsignedMax());
+    if (UMax.isMinValue())
+      return ConstantRange(W, /* empty */ false);
+    return ConstantRange(APInt::getMinValue(W), UMax);
+  }
+  case CmpInst::ICMP_SLT: {
+    APInt SMax(CR.getSignedMax());
+    if (SMax.isMinSignedValue())
+      return ConstantRange(W, /* empty */ false);
+    return ConstantRange(APInt::getSignedMinValue(W), SMax);
+  }
+  case CmpInst::ICMP_ULE: {
+    APInt UMax(CR.getUnsignedMax());
+    if (UMax.isMaxValue())
       return ConstantRange(W);
-    case CmpInst::ICMP_ULT: {
-      APInt UMax(CR.getUnsignedMax());
-      if (UMax.isMinValue())
-        return ConstantRange(W, /* empty */ false);
-      return ConstantRange(APInt::getMinValue(W), UMax);
-    }
-    case CmpInst::ICMP_SLT: {
-      APInt SMax(CR.getSignedMax());
-      if (SMax.isMinSignedValue())
-        return ConstantRange(W, /* empty */ false);
-      return ConstantRange(APInt::getSignedMinValue(W), SMax);
-    }
-    case CmpInst::ICMP_ULE: {
-      APInt UMax(CR.getUnsignedMax());
-      if (UMax.isMaxValue())
-        return ConstantRange(W);
-      return ConstantRange(APInt::getMinValue(W), UMax + 1);
-    }
-    case CmpInst::ICMP_SLE: {
-      APInt SMax(CR.getSignedMax());
-      if (SMax.isMaxSignedValue())
-        return ConstantRange(W);
-      return ConstantRange(APInt::getSignedMinValue(W), SMax + 1);
-    }
-    case CmpInst::ICMP_UGT: {
-      APInt UMin(CR.getUnsignedMin());
-      if (UMin.isMaxValue())
-        return ConstantRange(W, /* empty */ false);
-      return ConstantRange(UMin + 1, APInt::getNullValue(W));
-    }
-    case CmpInst::ICMP_SGT: {
-      APInt SMin(CR.getSignedMin());
-      if (SMin.isMaxSignedValue())
-        return ConstantRange(W, /* empty */ false);
-      return ConstantRange(SMin + 1, APInt::getSignedMinValue(W));
-    }
-    case CmpInst::ICMP_UGE: {
-      APInt UMin(CR.getUnsignedMin());
-      if (UMin.isMinValue())
-        return ConstantRange(W);
-      return ConstantRange(UMin, APInt::getNullValue(W));
-    }
-    case CmpInst::ICMP_SGE: {
-      APInt SMin(CR.getSignedMin());
-      if (SMin.isMinSignedValue())
-        return ConstantRange(W);
-      return ConstantRange(SMin, APInt::getSignedMinValue(W));
-    }
+    return ConstantRange(APInt::getMinValue(W), UMax + 1);
+  }
+  case CmpInst::ICMP_SLE: {
+    APInt SMax(CR.getSignedMax());
+    if (SMax.isMaxSignedValue())
+      return ConstantRange(W);
+    return ConstantRange(APInt::getSignedMinValue(W), SMax + 1);
+  }
+  case CmpInst::ICMP_UGT: {
+    APInt UMin(CR.getUnsignedMin());
+    if (UMin.isMaxValue())
+      return ConstantRange(W, /* empty */ false);
+    return ConstantRange(UMin + 1, APInt::getNullValue(W));
+  }
+  case CmpInst::ICMP_SGT: {
+    APInt SMin(CR.getSignedMin());
+    if (SMin.isMaxSignedValue())
+      return ConstantRange(W, /* empty */ false);
+    return ConstantRange(SMin + 1, APInt::getSignedMinValue(W));
+  }
+  case CmpInst::ICMP_UGE: {
+    APInt UMin(CR.getUnsignedMin());
+    if (UMin.isMinValue())
+      return ConstantRange(W);
+    return ConstantRange(UMin, APInt::getNullValue(W));
+  }
+  case CmpInst::ICMP_SGE: {
+    APInt SMin(CR.getSignedMin());
+    if (SMin.isMinSignedValue())
+      return ConstantRange(W);
+    return ConstantRange(SMin, APInt::getSignedMinValue(W));
+  }
   }
 }
 
@@ -590,7 +590,7 @@ ConstantRange ConstantRange::truncate(uint32_t DstTySize) const {
   // We use the non-wrapped set code to analyze the [Lower, MaxValue) part, and
   // then we do the union with [MaxValue, Upper)
   if (isWrappedSet()) {
-    // if Upper is greater than Max Value, it covers the whole truncated range.
+    // If Upper is greater than Max Value, it covers the whole truncated range.
     if (Upper.uge(MaxValue))
       return ConstantRange(DstTySize, /*isFullSet=*/true);
 
@@ -614,7 +614,7 @@ ConstantRange ConstantRange::truncate(uint32_t DstTySize) const {
     return ConstantRange(LowerDiv.trunc(DstTySize),
                          UpperDiv.trunc(DstTySize)).unionWith(Union);
 
-  // The truncated value wrapps around. Check if we can do better than fullset.
+  // The truncated value wraps around. Check if we can do better than fullset.
   APInt UpperModulo = UpperDiv - MaxBitValue;
   if (UpperModulo.ult(LowerDiv))
     return ConstantRange(LowerDiv.trunc(DstTySize),
