@@ -293,9 +293,6 @@ protected:
   /// NaCl TRAP instruction is generated instead of the regular TRAP.
   bool UseNaClTrap = false;
 
-  /// Force long to be a 64-bit type (RenderScript-specific)
-  bool UseLong64;
-
   /// Generate calls via indirect call instructions.
   bool GenLongCalls = false;
 

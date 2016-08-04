@@ -244,11 +244,6 @@ def FeatureAClass : SubtargetFeature<"aclass", "ARMProcClass", "AClass",
 def FeatureNaClTrap : SubtargetFeature<"nacl-trap", "UseNaClTrap", "true",
                                        "NaCl trap">;
 
-// RenderScript-specific support for 64-bit long types on all targets
-def FeatureLong64 : SubtargetFeature<"long64", "UseLong64",
-                                     "true",
-                                     "long type is forced to be 64-bit">;
-
 def FeatureStrictAlign : SubtargetFeature<"strict-align",
                                           "StrictAlign", "true",
                                           "Disallow all unaligned memory "
