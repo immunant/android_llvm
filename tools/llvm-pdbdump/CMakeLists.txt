@@ -14,9 +14,12 @@ add_llvm_tool(llvm-pdbdump
   ExternalSymbolDumper.cpp
   FunctionDumper.cpp
   LinePrinter.cpp
+  LLVMOutputStyle.cpp
+  PdbYaml.cpp
   TypeDumper.cpp
   TypedefDumper.cpp
   VariableDumper.cpp
+  YAMLOutputStyle.cpp
   )
 
 if(LLVM_USE_SANITIZE_COVERAGE)

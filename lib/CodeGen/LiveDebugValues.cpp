@@ -247,6 +247,7 @@ LiveDebugValues::LiveDebugValues() : MachineFunctionPass(ID) {
 /// Tell the pass manager which passes we depend on and what information we
 /// preserve.
 void LiveDebugValues::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.setPreservesCFG();
   MachineFunctionPass::getAnalysisUsage(AU);
 }
 
@@ -486,8 +487,7 @@ bool LiveDebugValues::ExtendRanges(MachineFunction &MF) {
         if (OLChanged) {
           OLChanged = false;
           for (auto s : MBB->successors())
-            if (!OnPending.count(s)) {
-              OnPending.insert(s);
+            if (OnPending.insert(s).second) {
               Pending.push(BBToOrder[s]);
             }
         }

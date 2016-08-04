@@ -20,17 +20,21 @@ namespace llvm {
 namespace codeview {
 
 /// VarStreamArrayExtractor is intended to be specialized to provide customized
-/// extraction logic.  It should return the total number of bytes of the next
-/// record (so that the array knows how much data to skip to get to the next
-/// record, and it should initialize the second parameter with the desired
-/// value type.
+/// extraction logic.  On input it receives a StreamRef pointing to the
+/// beginning of the next record, but where the length of the record is not yet
+/// known.  Upon completion, it should return an appropriate Error instance if
+/// a record could not be extracted, or if one could be extracted it should
+/// return success and set Len to the number of bytes this record occupied in
+/// the underlying stream, and it should fill out the fields of the value type
+/// Item appropriately to represent the current record.
+///
+/// You can specialize this template for your own custom value types to avoid
+/// having to specify a second template argument to VarStreamArray (documented
+/// below).
 template <typename T> struct VarStreamArrayExtractor {
   // Method intentionally deleted.  You must provide an explicit specialization
-  // with the following method implemented.  On output return `Len` should
-  // contain the number of bytes to consume from the stream, and `Item` should
-  // be initialized with the proper value.
-  Error operator()(const StreamInterface &Stream, uint32_t &Len,
-                   T &Item) const = delete;
+  // with the following method implemented.
+  Error operator()(StreamRef Stream, uint32_t &Len, T &Item) const = delete;
 };
 
 /// VarStreamArray represents an array of variable length records backed by a
@@ -41,7 +45,31 @@ template <typename T> struct VarStreamArrayExtractor {
 /// example, could mean allocating huge amounts of memory just to allow
 /// re-ordering of stream data to be contiguous before iterating over it.  By
 /// abstracting this out, we need not duplicate this memory, and we can
-/// iterate over arrays in arbitrarily formatted streams.
+/// iterate over arrays in arbitrarily formatted streams.  Elements are parsed
+/// lazily on iteration, so there is no upfront cost associated with building
+/// a VarStreamArray, no matter how large it may be.
+///
+/// You create a VarStreamArray by specifying a ValueType and an Extractor type.
+/// If you do not specify an Extractor type, it expects you to specialize
+/// VarStreamArrayExtractor<T> for your ValueType.
+///
+/// By default an Extractor is default constructed in the class, but in some
+/// cases you might find it useful for an Extractor to maintain state across
+/// extractions.  In this case you can provide your own Extractor through a
+/// secondary constructor.  The following examples show various ways of
+/// creating a VarStreamArray.
+///
+///       // Will use VarStreamArrayExtractor<MyType> as the extractor.
+///       VarStreamArray<MyType> MyTypeArray;
+///
+///       // Will use a default-constructed MyExtractor as the extractor.
+///       VarStreamArray<MyType, MyExtractor> MyTypeArray2;
+///
+///       // Will use the specific instance of MyExtractor provided.
+///       // MyExtractor need not be default-constructible in this case.
+///       MyExtractor E(SomeContext);
+///       VarStreamArray<MyType, MyExtractor> MyTypeArray3(E);
+///
 template <typename ValueType, typename Extractor> class VarStreamArrayIterator;
 
 template <typename ValueType,
@@ -53,17 +81,27 @@ public:
   typedef VarStreamArrayIterator<ValueType, Extractor> Iterator;
 
   VarStreamArray() {}
+  explicit VarStreamArray(const Extractor &E) : E(E) {}
 
-  VarStreamArray(StreamRef Stream) : Stream(Stream) {}
+  explicit VarStreamArray(StreamRef Stream) : Stream(Stream) {}
+  VarStreamArray(StreamRef Stream, const Extractor &E) : Stream(Stream), E(E) {}
+
+  VarStreamArray(const VarStreamArray<ValueType, Extractor> &Other)
+      : Stream(Other.Stream), E(Other.E) {}
 
   Iterator begin(bool *HadError = nullptr) const {
-    return Iterator(*this, HadError);
+    return Iterator(*this, E, HadError);
   }
 
-  Iterator end() const { return Iterator(); }
+  Iterator end() const { return Iterator(E); }
+
+  const Extractor &getExtractor() const { return E; }
+
+  StreamRef getUnderlyingStream() const { return Stream; }
 
 private:
   StreamRef Stream;
+  Extractor E;
 };
 
 template <typename ValueType, typename Extractor> class VarStreamArrayIterator {
@@ -71,19 +109,17 @@ template <typename ValueType, typename Extractor> class VarStreamArrayIterator {
   typedef VarStreamArray<ValueType, Extractor> ArrayType;
 
 public:
-  VarStreamArrayIterator(const ArrayType &Array, bool *HadError = nullptr)
-      : Array(&Array), IterRef(Array.Stream), HasError(false),
-        HadError(HadError) {
+  VarStreamArrayIterator(const ArrayType &Array, const Extractor &E,
+                         bool *HadError = nullptr)
+      : IterRef(Array.Stream), Array(&Array), HadError(HadError), Extract(E) {
     auto EC = Extract(IterRef, ThisLen, ThisValue);
     if (EC) {
       consumeError(std::move(EC));
-      this->Array = nullptr;
-      HasError = true;
-      if (HadError)
-        *HadError = true;
+      markError();
     }
   }
-  VarStreamArrayIterator() : Array(nullptr), IterRef(), HasError(false) {}
+  VarStreamArrayIterator() {}
+  explicit VarStreamArrayIterator(const Extractor &E) : Extract(E) {}
   ~VarStreamArrayIterator() {}
 
   bool operator==(const IterType &R) const {
@@ -109,23 +145,23 @@ public:
   }
 
   IterType &operator++() {
-    if (!Array || IterRef.getLength() == 0 || ThisLen == 0 || HasError)
-      return *this;
+    // We are done with the current record, discard it so that we are
+    // positioned at the next record.
     IterRef = IterRef.drop_front(ThisLen);
-    if (IterRef.getLength() == 0)
-      ThisLen = 0;
-    else {
+    if (IterRef.getLength() == 0) {
+      // There is nothing after the current record, we must make this an end
+      // iterator.
+      moveToEnd();
+    } else {
+      // There is some data after the current record.
       auto EC = Extract(IterRef, ThisLen, ThisValue);
       if (EC) {
         consumeError(std::move(EC));
-        HasError = true;
-        if (HadError)
-          *HadError = true;
+        markError();
+      } else if (ThisLen == 0) {
+        // An empty record? Make this an end iterator.
+        moveToEnd();
       }
-    }
-    if (ThisLen == 0 || HasError) {
-      Array = nullptr;
-      ThisLen = 0;
     }
     return *this;
   }
@@ -137,12 +173,23 @@ public:
   }
 
 private:
-  const ArrayType *Array;
-  uint32_t ThisLen;
+  void moveToEnd() {
+    Array = nullptr;
+    ThisLen = 0;
+  }
+  void markError() {
+    moveToEnd();
+    HasError = true;
+    if (HadError != nullptr)
+      *HadError = true;
+  }
+
   ValueType ThisValue;
   StreamRef IterRef;
-  bool HasError;
-  bool *HadError;
+  const ArrayType *Array{nullptr};
+  uint32_t ThisLen{0};
+  bool HasError{false};
+  bool *HadError{nullptr};
   Extractor Extract;
 };
 
@@ -176,8 +223,10 @@ public:
     return FixedStreamArrayIterator<T>(*this, 0);
   }
   FixedStreamArrayIterator<T> end() const {
-    return FixedStreamArrayIterator<T>(*this);
+    return FixedStreamArrayIterator<T>(*this, size());
   }
+
+  StreamRef getUnderlyingStream() const { return Stream; }
 
 private:
   StreamRef Stream;
@@ -185,8 +234,6 @@ private:
 
 template <typename T> class FixedStreamArrayIterator {
 public:
-  FixedStreamArrayIterator(const FixedStreamArray<T> &Array)
-      : Array(Array), Index(uint32_t(-1)) {}
   FixedStreamArrayIterator(const FixedStreamArray<T> &Array, uint32_t Index)
       : Array(Array), Index(Index) {}
 
@@ -202,10 +249,8 @@ public:
   const T &operator*() const { return Array[Index]; }
 
   FixedStreamArrayIterator<T> &operator++() {
-    if (Index == uint32_t(-1))
-      return *this;
-    if (++Index >= Array.size())
-      Index = uint32_t(-1);
+    assert(Index < Array.size());
+    ++Index;
     return *this;
   }
 

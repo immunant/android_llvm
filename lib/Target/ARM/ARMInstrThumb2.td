@@ -1924,7 +1924,7 @@ def t2MOVi16 : T2I<(outs rGPR:$Rd), (ins imm0_65535_expr:$imm), IIC_iMOVi,
 }
 
 def : InstAlias<"mov${p} $Rd, $imm",
-                (t2MOVi16 rGPR:$Rd, imm256_65535_expr:$imm, pred:$p)>,
+                (t2MOVi16 rGPR:$Rd, imm256_65535_expr:$imm, pred:$p), 0>,
                 Requires<[IsThumb, HasV8MBaseline]>;
 
 def t2MOVi16_ga_pcrel : PseudoInst<(outs rGPR:$Rd),
@@ -1998,7 +1998,7 @@ def t2UXTB   : T2I_ext_rrot<0b101, "uxtb",
 def t2UXTH   : T2I_ext_rrot<0b001, "uxth",
                                UnOpFrag<(and node:$Src, 0x0000FFFF)>>;
 def t2UXTB16 : T2I_ext_rrot_uxtb16<0b011, "uxtb16",
-                               UnOpFrag<(and node:$Src, 0x00FF00FF)>>;
+                                   UnOpFrag<(and node:$Src, 0x00FF00FF)>>;
 
 // FIXME: This pattern incorrectly assumes the shl operator is a rotate.
 //        The transformation should probably be done as a combiner action
@@ -2593,8 +2593,9 @@ def t2UMLAL : T2MlaLong<0b110, 0b0000,
 
 def t2UMAAL : T2MulLong<0b110, 0b0110,
                   (outs rGPR:$RdLo, rGPR:$RdHi),
-                  (ins rGPR:$Rn, rGPR:$Rm), IIC_iMAC64,
+                  (ins rGPR:$Rn, rGPR:$Rm, rGPR:$RLo, rGPR:$RHi), IIC_iMAC64,
                   "umaal", "\t$RdLo, $RdHi, $Rn, $Rm", []>,
+          RegConstraint<"$RLo = $RdLo, $RHi = $RdHi">,
           Requires<[IsThumb2, HasDSP]>;
 } // hasSideEffects
 
@@ -3720,14 +3721,20 @@ def t2HINT : T2I<(outs), (ins imm0_239:$imm), NoItinerary, "hint", ".w\t$imm",
   let Inst{7-0} = imm;
 }
 
-def : t2InstAlias<"hint$p $imm", (t2HINT imm0_239:$imm, pred:$p)>;
-def : t2InstAlias<"nop$p.w", (t2HINT 0, pred:$p)>;
-def : t2InstAlias<"yield$p.w", (t2HINT 1, pred:$p)>;
-def : t2InstAlias<"wfe$p.w", (t2HINT 2, pred:$p)>;
-def : t2InstAlias<"wfi$p.w", (t2HINT 3, pred:$p)>;
-def : t2InstAlias<"sev$p.w", (t2HINT 4, pred:$p)>;
-def : t2InstAlias<"sevl$p.w", (t2HINT 5, pred:$p)> {
+def : t2InstAlias<"hint$p $imm", (t2HINT imm0_239:$imm, pred:$p), 0>;
+def : t2InstAlias<"nop$p.w", (t2HINT 0, pred:$p), 1>;
+def : t2InstAlias<"yield$p.w", (t2HINT 1, pred:$p), 1>;
+def : t2InstAlias<"wfe$p.w", (t2HINT 2, pred:$p), 1>;
+def : t2InstAlias<"wfi$p.w", (t2HINT 3, pred:$p), 1>;
+def : t2InstAlias<"sev$p.w", (t2HINT 4, pred:$p), 1>;
+def : t2InstAlias<"sevl$p.w", (t2HINT 5, pred:$p), 1> {
   let Predicates = [IsThumb2, HasV8];
+}
+def : t2InstAlias<"esb$p.w", (t2HINT 16, pred:$p), 1> {
+  let Predicates = [IsThumb2, HasRAS];
+}
+def : t2InstAlias<"esb$p", (t2HINT 16, pred:$p), 0> {
+  let Predicates = [IsThumb2, HasRAS];
 }
 
 def t2DBG : T2I<(outs), (ins imm0_15:$opt), NoItinerary, "dbg", "\t$opt",
@@ -3853,7 +3860,7 @@ def : t2InstAlias<"hvc\t$imm16", (t2HVC imm0_65535:$imm16)>;
 // ERET - Return from exception in Hypervisor mode.
 // B9.3.3, B9.3.20: ERET is an alias for "SUBS PC, LR, #0" in an implementation that
 // includes virtualization extensions.
-def t2ERET : InstAlias<"eret${p}", (t2SUBS_PC_LR 0, pred:$p)>,
+def t2ERET : InstAlias<"eret${p}", (t2SUBS_PC_LR 0, pred:$p), 1>,
              Requires<[IsThumb2, HasVirtualization]>;
 
 //===----------------------------------------------------------------------===//
@@ -3888,14 +3895,13 @@ def : T2Pat<(ARMWrapper tglobaltlsaddr:$dst),
       Requires<[IsThumb2, UseMovt]>;
 
 // ConstantPool, GlobalAddress, and JumpTable
-def : T2Pat<(ARMWrapper  tconstpool  :$dst), (t2LEApcrel tconstpool  :$dst)>;
-def : T2Pat<(ARMWrapper texternalsym :$dst), (t2MOVi32imm texternalsym : $dst)>,
-          Requires<[IsThumb, HasV8MBaseline, UseMovt]>;
-def : T2Pat<(ARMWrapper  tglobaladdr :$dst), (t2MOVi32imm tglobaladdr :$dst)>,
-           Requires<[IsThumb, HasV8MBaseline, UseMovt]>;
+def : T2Pat<(ARMWrapper tconstpool :$dst), (t2LEApcrel tconstpool :$dst)>;
+def : T2Pat<(ARMWrapper texternalsym :$dst), (t2MOVi32imm texternalsym :$dst)>,
+    Requires<[IsThumb, HasV8MBaseline, UseMovt]>;
+def : T2Pat<(ARMWrapper tglobaladdr :$dst), (t2MOVi32imm tglobaladdr :$dst)>,
+    Requires<[IsThumb, HasV8MBaseline, UseMovt]>;
 
-def : T2Pat<(ARMWrapperJT tjumptable:$dst),
-            (t2LEApcrelJT tjumptable:$dst)>;
+def : T2Pat<(ARMWrapperJT tjumptable:$dst), (t2LEApcrelJT tjumptable:$dst)>;
 
 // Pseudo instruction that combines ldr from constpool and add pc. This should
 // be expanded into two instructions late to allow if-conversion and
@@ -4078,6 +4084,7 @@ def t2MRS_M : T2I<(outs rGPR:$Rd), (ins msr_mask:$SYSm), NoItinerary,
 // same and the assembly parser has no way to distinguish between them. The mask
 // operand contains the special register (R Bit) in bit 4 and bits 3-0 contains
 // the mask with the fields to be accessed in the special register.
+let Defs = [CPSR] in
 def t2MSR_AR : T2I<(outs), (ins msr_mask:$mask, rGPR:$Rn),
                    NoItinerary, "msr", "\t$mask, $Rn", []>,
                Requires<[IsThumb2,IsNotMClass]> {
@@ -4113,6 +4120,7 @@ def t2MSRbanked : T2I<(outs), (ins banked_reg:$banked, rGPR:$Rn),
 // M class MSR.
 //
 // Move from ARM core register to Special Register
+let Defs = [CPSR] in
 def t2MSR_M : T2I<(outs), (ins msr_mask:$SYSm, rGPR:$Rn),
                   NoItinerary, "msr", "\t$SYSm, $Rn", []>,
               Requires<[IsThumb,IsMClass]> {
@@ -4527,9 +4535,9 @@ def : t2InstAlias<"tst${p} $Rn, $Rm",
                   (t2TSTrr GPRnopc:$Rn, rGPR:$Rm, pred:$p)>;
 
 // Memory barriers
-def : InstAlias<"dmb${p}", (t2DMB 0xf, pred:$p)>, Requires<[HasDB]>;
-def : InstAlias<"dsb${p}", (t2DSB 0xf, pred:$p)>, Requires<[HasDB]>;
-def : InstAlias<"isb${p}", (t2ISB 0xf, pred:$p)>, Requires<[HasDB]>;
+def : InstAlias<"dmb${p}", (t2DMB 0xf, pred:$p), 0>, Requires<[HasDB]>;
+def : InstAlias<"dsb${p}", (t2DSB 0xf, pred:$p), 0>, Requires<[HasDB]>;
+def : InstAlias<"isb${p}", (t2ISB 0xf, pred:$p), 0>, Requires<[HasDB]>;
 
 // Alias for LDR, LDRB, LDRH, LDRSB, and LDRSH without the ".w" optional
 // width specifier.
@@ -4577,10 +4585,10 @@ def : t2InstAlias<"mvn${s}${p} $Rd, $ShiftedRm",
 // PKHBT/PKHTB with default shift amount. PKHTB is equivalent to PKHBT with the
 // input operands swapped when the shift amount is zero (i.e., unspecified).
 def : InstAlias<"pkhbt${p} $Rd, $Rn, $Rm",
-                (t2PKHBT rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p)>,
+                (t2PKHBT rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p), 0>,
             Requires<[HasT2ExtractPack, IsThumb2]>;
 def : InstAlias<"pkhtb${p} $Rd, $Rn, $Rm",
-                (t2PKHBT rGPR:$Rd, rGPR:$Rm, rGPR:$Rn, 0, pred:$p)>,
+                (t2PKHBT rGPR:$Rd, rGPR:$Rm, rGPR:$Rn, 0, pred:$p), 0>,
             Requires<[HasT2ExtractPack, IsThumb2]>;
 
 // PUSH/POP aliases for STM/LDM
@@ -4659,16 +4667,16 @@ def : t2InstAlias<"strh${p} $Rt, $addr",
 
 // Extend instruction optional rotate operand.
 def : InstAlias<"sxtab${p} $Rd, $Rn, $Rm",
-              (t2SXTAB rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p)>,
+              (t2SXTAB rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 def : InstAlias<"sxtah${p} $Rd, $Rn, $Rm",
-              (t2SXTAH rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p)>,
+              (t2SXTAH rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 def : InstAlias<"sxtab16${p} $Rd, $Rn, $Rm",
-              (t2SXTAB16 rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p)>,
+              (t2SXTAB16 rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 def : InstAlias<"sxtb16${p} $Rd, $Rm",
-              (t2SXTB16 rGPR:$Rd, rGPR:$Rm, 0, pred:$p)>,
+              (t2SXTB16 rGPR:$Rd, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 
 def : t2InstAlias<"sxtb${p} $Rd, $Rm",
@@ -4681,16 +4689,16 @@ def : t2InstAlias<"sxth${p}.w $Rd, $Rm",
                 (t2SXTH rGPR:$Rd, rGPR:$Rm, 0, pred:$p)>;
 
 def : InstAlias<"uxtab${p} $Rd, $Rn, $Rm",
-              (t2UXTAB rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p)>,
+              (t2UXTAB rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 def : InstAlias<"uxtah${p} $Rd, $Rn, $Rm",
-              (t2UXTAH rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p)>,
+              (t2UXTAH rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 def : InstAlias<"uxtab16${p} $Rd, $Rn, $Rm",
-              (t2UXTAB16 rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p)>,
+              (t2UXTAB16 rGPR:$Rd, rGPR:$Rn, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 def : InstAlias<"uxtb16${p} $Rd, $Rm",
-              (t2UXTB16 rGPR:$Rd, rGPR:$Rm, 0, pred:$p)>,
+              (t2UXTB16 rGPR:$Rd, rGPR:$Rm, 0, pred:$p), 0>,
               Requires<[HasT2ExtractPack, IsThumb2]>;
 
 def : t2InstAlias<"uxtb${p} $Rd, $Rm",
@@ -4706,7 +4714,7 @@ def : t2InstAlias<"uxth${p}.w $Rd, $Rm",
 def : t2InstAlias<"uxtb${p} $Rd, $Rm$rot",
                   (t2UXTB rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p)>;
 def : InstAlias<"uxtb16${p} $Rd, $Rm$rot",
-                (t2UXTB16 rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p)>,
+                (t2UXTB16 rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p), 0>,
                 Requires<[HasT2ExtractPack, IsThumb2]>;
 def : t2InstAlias<"uxth${p} $Rd, $Rm$rot",
                   (t2UXTH rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p)>;
@@ -4714,7 +4722,7 @@ def : t2InstAlias<"uxth${p} $Rd, $Rm$rot",
 def : t2InstAlias<"sxtb${p} $Rd, $Rm$rot",
                   (t2SXTB rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p)>;
 def : InstAlias<"sxtb16${p} $Rd, $Rm$rot",
-                (t2SXTB16 rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p)>,
+                (t2SXTB16 rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p), 0>,
                 Requires<[HasT2ExtractPack, IsThumb2]>;
 def : t2InstAlias<"sxth${p} $Rd, $Rm$rot",
                   (t2SXTH rGPR:$Rd, rGPR:$Rm, rot_imm:$rot, pred:$p)>;
@@ -4812,5 +4820,5 @@ def t2LDRConstPool
 def : t2InstAlias<"pld${p} $addr",
                   (t2PLDpci t2ldr_pcrel_imm12:$addr, pred:$p)>;
 def : InstAlias<"pli${p} $addr",
-                 (t2PLIpci  t2ldr_pcrel_imm12:$addr, pred:$p)>,
+                 (t2PLIpci  t2ldr_pcrel_imm12:$addr, pred:$p), 0>,
       Requires<[IsThumb2,HasV7]>;

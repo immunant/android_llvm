@@ -725,7 +725,7 @@ public:
     }
 
     // Split the Denominator when it is a product.
-    if (const SCEVMulExpr *T = dyn_cast<const SCEVMulExpr>(Denominator)) {
+    if (const SCEVMulExpr *T = dyn_cast<SCEVMulExpr>(Denominator)) {
       const SCEV *Q, *R;
       *Quotient = Numerator;
       for (const SCEV *Op : T->operands()) {
@@ -4880,22 +4880,23 @@ bool ScalarEvolution::isAddRecNeverPoison(const Instruction *I, const Loop *L) {
     return false;
 
   SmallPtrSet<const Instruction *, 16> Pushed;
-  SmallVector<const Instruction *, 8> Stack;
+  SmallVector<const Instruction *, 8> PoisonStack;
 
+  // We start by assuming \c I, the post-inc add recurrence, is poison.  Only
+  // things that are known to be fully poison under that assumption go on the
+  // PoisonStack.
   Pushed.insert(I);
-  for (auto *U : I->users())
-    if (Pushed.insert(cast<Instruction>(U)).second)
-      Stack.push_back(cast<Instruction>(U));
+  PoisonStack.push_back(I);
 
   bool LatchControlDependentOnPoison = false;
-  while (!Stack.empty()) {
-    const Instruction *I = Stack.pop_back_val();
+  while (!PoisonStack.empty() && !LatchControlDependentOnPoison) {
+    const Instruction *Poison = PoisonStack.pop_back_val();
 
-    for (auto *U : I->users()) {
-      if (propagatesFullPoison(cast<Instruction>(U))) {
-        if (Pushed.insert(cast<Instruction>(U)).second)
-          Stack.push_back(cast<Instruction>(U));
-      } else if (auto *BI = dyn_cast<BranchInst>(U)) {
+    for (auto *PoisonUser : Poison->users()) {
+      if (propagatesFullPoison(cast<Instruction>(PoisonUser))) {
+        if (Pushed.insert(cast<Instruction>(PoisonUser)).second)
+          PoisonStack.push_back(cast<Instruction>(PoisonUser));
+      } else if (auto *BI = dyn_cast<BranchInst>(PoisonUser)) {
         assert(BI->isConditional() && "Only possibility!");
         if (BI->getParent() == LatchBB) {
           LatchControlDependentOnPoison = true;
@@ -4905,27 +4906,25 @@ bool ScalarEvolution::isAddRecNeverPoison(const Instruction *I, const Loop *L) {
     }
   }
 
-  if (!LatchControlDependentOnPoison)
-    return false;
+  return LatchControlDependentOnPoison && loopHasNoAbnormalExits(L);
+}
 
-  // Now check if loop is no-throw, and cache the information.  In the future,
-  // we can consider commoning this logic with LICMSafetyInfo into a separate
-  // analysis pass.
+bool ScalarEvolution::loopHasNoAbnormalExits(const Loop *L) {
+  auto Itr = LoopHasNoAbnormalExits.find(L);
+  if (Itr == LoopHasNoAbnormalExits.end()) {
+    auto NoAbnormalExitInBB = [&](BasicBlock *BB) {
+      return all_of(*BB, [](Instruction &I) {
+        return isGuaranteedToTransferExecutionToSuccessor(&I);
+      });
+    };
 
-  auto Itr = LoopMayThrow.find(L);
-  if (Itr == LoopMayThrow.end()) {
-    bool MayThrow = false;
-    for (auto *BB : L->getBlocks()) {
-      MayThrow = any_of(*BB, [](Instruction &I) { return I.mayThrow(); });
-      if (MayThrow)
-        break;
-    }
-    auto InsertPair = LoopMayThrow.insert({L, MayThrow});
+    auto InsertPair = LoopHasNoAbnormalExits.insert(
+        {L, all_of(L->getBlocks(), NoAbnormalExitInBB)});
     assert(InsertPair.second && "We just checked!");
     Itr = InsertPair.first;
   }
 
-  return !Itr->second;
+  return Itr->second;
 }
 
 const SCEV *ScalarEvolution::createSCEV(Value *V) {
@@ -5489,7 +5488,7 @@ void ScalarEvolution::forgetLoop(const Loop *L) {
   for (Loop::iterator I = L->begin(), E = L->end(); I != E; ++I)
     forgetLoop(*I);
 
-  LoopMayThrow.erase(L);
+  LoopHasNoAbnormalExits.erase(L);
 }
 
 void ScalarEvolution::forgetValue(Value *V) {
@@ -6964,7 +6963,7 @@ static const SCEV *SolveLinEquationWithOverflow(const APInt &A, const APInt &B,
 /// {L,+,M,+,N}.  This returns either the two roots (which might be the same) or
 /// two SCEVCouldNotCompute objects.
 ///
-static std::pair<const SCEV *,const SCEV *>
+static Optional<std::pair<const SCEVConstant *,const SCEVConstant *>>
 SolveQuadraticEquation(const SCEVAddRecExpr *AddRec, ScalarEvolution &SE) {
   assert(AddRec->getNumOperands() == 3 && "This is not a quadratic chrec!");
   const SCEVConstant *LC = dyn_cast<SCEVConstant>(AddRec->getOperand(0));
@@ -6972,10 +6971,8 @@ SolveQuadraticEquation(const SCEVAddRecExpr *AddRec, ScalarEvolution &SE) {
   const SCEVConstant *NC = dyn_cast<SCEVConstant>(AddRec->getOperand(2));
 
   // We currently can only solve this if the coefficients are constants.
-  if (!LC || !MC || !NC) {
-    const SCEV *CNC = SE.getCouldNotCompute();
-    return {CNC, CNC};
-  }
+  if (!LC || !MC || !NC)
+    return None;
 
   uint32_t BitWidth = LC->getAPInt().getBitWidth();
   const APInt &L = LC->getAPInt();
@@ -7002,8 +6999,7 @@ SolveQuadraticEquation(const SCEVAddRecExpr *AddRec, ScalarEvolution &SE) {
 
     if (SqrtTerm.isNegative()) {
       // The loop is provably infinite.
-      const SCEV *CNC = SE.getCouldNotCompute();
-      return {CNC, CNC};
+      return None;
     }
 
     // Compute sqrt(B^2-4ac). This is guaranteed to be the nearest
@@ -7014,10 +7010,8 @@ SolveQuadraticEquation(const SCEVAddRecExpr *AddRec, ScalarEvolution &SE) {
     // The divisions must be performed as signed divisions.
     APInt NegB(-B);
     APInt TwoA(A << 1);
-    if (TwoA.isMinValue()) {
-      const SCEV *CNC = SE.getCouldNotCompute();
-      return {CNC, CNC};
-    }
+    if (TwoA.isMinValue())
+      return None;
 
     LLVMContext &Context = SE.getContext();
 
@@ -7026,7 +7020,8 @@ SolveQuadraticEquation(const SCEVAddRecExpr *AddRec, ScalarEvolution &SE) {
     ConstantInt *Solution2 =
       ConstantInt::get(Context, (NegB - SqrtVal).sdiv(TwoA));
 
-    return {SE.getConstant(Solution1), SE.getConstant(Solution2)};
+    return std::make_pair(cast<SCEVConstant>(SE.getConstant(Solution1)),
+                          cast<SCEVConstant>(SE.getConstant(Solution2)));
   } // end APIntOps namespace
 }
 
@@ -7060,18 +7055,14 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
   // If this is a quadratic (3-term) AddRec {L,+,M,+,N}, find the roots of
   // the quadratic equation to solve it.
   if (AddRec->isQuadratic() && AddRec->getType()->isIntegerTy()) {
-    std::pair<const SCEV *,const SCEV *> Roots =
-      SolveQuadraticEquation(AddRec, *this);
-    const SCEVConstant *R1 = dyn_cast<SCEVConstant>(Roots.first);
-    const SCEVConstant *R2 = dyn_cast<SCEVConstant>(Roots.second);
-    if (R1 && R2) {
+    if (auto Roots = SolveQuadraticEquation(AddRec, *this)) {
+      const SCEVConstant *R1 = Roots->first;
+      const SCEVConstant *R2 = Roots->second;
       // Pick the smallest positive root value.
-      if (ConstantInt *CB =
-          dyn_cast<ConstantInt>(ConstantExpr::getICmp(CmpInst::ICMP_ULT,
-                                                      R1->getValue(),
-                                                      R2->getValue()))) {
+      if (ConstantInt *CB = dyn_cast<ConstantInt>(ConstantExpr::getICmp(
+              CmpInst::ICMP_ULT, R1->getValue(), R2->getValue()))) {
         if (!CB->getZExtValue())
-          std::swap(R1, R2);   // R1 is the minimum root now.
+          std::swap(R1, R2); // R1 is the minimum root now.
 
         // We can only use this value if the chrec ends up with an exact zero
         // value at this index.  When solving for "X*X != 5", for example, we
@@ -7199,7 +7190,8 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
   // compute the backedge count.  In this case, the step may not divide the
   // distance, but we don't care because if the condition is "missed" the loop
   // will have undefined behavior due to wrapping.
-  if (ControlsExit && AddRec->hasNoSelfWrap()) {
+  if (ControlsExit && AddRec->hasNoSelfWrap() &&
+      loopHasNoAbnormalExits(AddRec->getLoop())) {
     const SCEV *Exact =
         getUDivExpr(Distance, CountDown ? getNegativeSCEV(Step) : Step);
     return ExitLimit(Exact, Exact, P);
@@ -8676,19 +8668,8 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
                                       : ICmpInst::ICMP_ULT;
   const SCEV *Start = IV->getStart();
   const SCEV *End = RHS;
-  if (!isLoopEntryGuardedByCond(L, Cond, getMinusSCEV(Start, Stride), RHS)) {
-    const SCEV *Diff = getMinusSCEV(RHS, Start);
-    // If we have NoWrap set, then we can assume that the increment won't
-    // overflow, in which case if RHS - Start is a constant, we don't need to
-    // do a max operation since we can just figure it out statically
-    if (NoWrap && isa<SCEVConstant>(Diff)) {
-      APInt D = dyn_cast<const SCEVConstant>(Diff)->getAPInt();
-      if (D.isNegative())
-        End = Start;
-    } else
-      End = IsSigned ? getSMaxExpr(RHS, Start)
-                     : getUMaxExpr(RHS, Start);
-  }
+  if (!isLoopEntryGuardedByCond(L, Cond, getMinusSCEV(Start, Stride), RHS))
+    End = IsSigned ? getSMaxExpr(RHS, Start) : getUMaxExpr(RHS, Start);
 
   const SCEV *BECount = computeBECount(getMinusSCEV(End, Start), Stride, false);
 
@@ -8763,19 +8744,8 @@ ScalarEvolution::howManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
 
   const SCEV *Start = IV->getStart();
   const SCEV *End = RHS;
-  if (!isLoopEntryGuardedByCond(L, Cond, getAddExpr(Start, Stride), RHS)) {
-    const SCEV *Diff = getMinusSCEV(RHS, Start);
-    // If we have NoWrap set, then we can assume that the increment won't
-    // overflow, in which case if RHS - Start is a constant, we don't need to
-    // do a max operation since we can just figure it out statically
-    if (NoWrap && isa<SCEVConstant>(Diff)) {
-      APInt D = dyn_cast<const SCEVConstant>(Diff)->getAPInt();
-      if (!D.isNegative())
-        End = Start;
-    } else
-      End = IsSigned ? getSMinExpr(RHS, Start)
-                     : getUMinExpr(RHS, Start);
-  }
+  if (!isLoopEntryGuardedByCond(L, Cond, getAddExpr(Start, Stride), RHS))
+    End = IsSigned ? getSMinExpr(RHS, Start) : getUMinExpr(RHS, Start);
 
   const SCEV *BECount = computeBECount(getMinusSCEV(Start, End), Stride, false);
 
@@ -8810,7 +8780,7 @@ ScalarEvolution::howManyGreaterThans(const SCEV *LHS, const SCEV *RHS,
   return ExitLimit(BECount, MaxBECount, P);
 }
 
-const SCEV *SCEVAddRecExpr::getNumIterationsInRange(ConstantRange Range,
+const SCEV *SCEVAddRecExpr::getNumIterationsInRange(const ConstantRange &Range,
                                                     ScalarEvolution &SE) const {
   if (Range.isFullSet())  // Infinite loop.
     return SE.getCouldNotCompute();
@@ -8884,22 +8854,21 @@ const SCEV *SCEVAddRecExpr::getNumIterationsInRange(ConstantRange Range,
                                              FlagAnyWrap);
 
     // Next, solve the constructed addrec
-    auto Roots = SolveQuadraticEquation(cast<SCEVAddRecExpr>(NewAddRec), SE);
-    const SCEVConstant *R1 = dyn_cast<SCEVConstant>(Roots.first);
-    const SCEVConstant *R2 = dyn_cast<SCEVConstant>(Roots.second);
-    if (R1) {
+    if (auto Roots =
+            SolveQuadraticEquation(cast<SCEVAddRecExpr>(NewAddRec), SE)) {
+      const SCEVConstant *R1 = Roots->first;
+      const SCEVConstant *R2 = Roots->second;
       // Pick the smallest positive root value.
       if (ConstantInt *CB = dyn_cast<ConstantInt>(ConstantExpr::getICmp(
               ICmpInst::ICMP_ULT, R1->getValue(), R2->getValue()))) {
         if (!CB->getZExtValue())
-          std::swap(R1, R2);   // R1 is the minimum root now.
+          std::swap(R1, R2); // R1 is the minimum root now.
 
         // Make sure the root is not off by one.  The returned iteration should
         // not be in the range, but the previous one should be.  When solving
         // for "X*X < 5", for example, we should not return a root of 2.
-        ConstantInt *R1Val = EvaluateConstantChrecAtConstant(this,
-                                                             R1->getValue(),
-                                                             SE);
+        ConstantInt *R1Val =
+            EvaluateConstantChrecAtConstant(this, R1->getValue(), SE);
         if (Range.contains(R1Val->getValue())) {
           // The next iteration must be out of the range...
           ConstantInt *NextVal =
@@ -8908,7 +8877,7 @@ const SCEV *SCEVAddRecExpr::getNumIterationsInRange(ConstantRange Range,
           R1Val = EvaluateConstantChrecAtConstant(this, NextVal, SE);
           if (!Range.contains(R1Val->getValue()))
             return SE.getConstant(NextVal);
-          return SE.getCouldNotCompute();  // Something strange happened
+          return SE.getCouldNotCompute(); // Something strange happened
         }
 
         // If R1 was not in the range, then it is a good return value.  Make
@@ -8918,7 +8887,7 @@ const SCEV *SCEVAddRecExpr::getNumIterationsInRange(ConstantRange Range,
         R1Val = EvaluateConstantChrecAtConstant(this, NextVal, SE);
         if (Range.contains(R1Val->getValue()))
           return R1;
-        return SE.getCouldNotCompute();  // Something strange happened
+        return SE.getCouldNotCompute(); // Something strange happened
       }
     }
   }
@@ -10143,7 +10112,7 @@ public:
   const SCEV *visitUnknown(const SCEVUnknown *Expr) {
     auto ExprPreds = P.getPredicatesForExpr(Expr);
     for (auto *Pred : ExprPreds)
-      if (const auto *IPred = dyn_cast<const SCEVEqualPredicate>(Pred))
+      if (const auto *IPred = dyn_cast<SCEVEqualPredicate>(Pred))
         if (IPred->getLHS() == Expr)
           return IPred->getRHS();
 
@@ -10152,7 +10121,7 @@ public:
 
   const SCEV *visitZeroExtendExpr(const SCEVZeroExtendExpr *Expr) {
     const SCEV *Operand = visit(Expr->getOperand());
-    const SCEVAddRecExpr *AR = dyn_cast<const SCEVAddRecExpr>(Operand);
+    const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(Operand);
     if (AR && AR->getLoop() == L && AR->isAffine()) {
       // This couldn't be folded because the operand didn't have the nuw
       // flag. Add the nusw flag as an assumption that we could make.
@@ -10168,7 +10137,7 @@ public:
 
   const SCEV *visitSignExtendExpr(const SCEVSignExtendExpr *Expr) {
     const SCEV *Operand = visit(Expr->getOperand());
-    const SCEVAddRecExpr *AR = dyn_cast<const SCEVAddRecExpr>(Operand);
+    const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(Operand);
     if (AR && AR->getLoop() == L && AR->isAffine()) {
       // This couldn't be folded because the operand didn't have the nsw
       // flag. Add the nssw flag as an assumption that we could make.
@@ -10234,7 +10203,7 @@ SCEVEqualPredicate::SCEVEqualPredicate(const FoldingSetNodeIDRef ID,
     : SCEVPredicate(ID, P_Equal), LHS(LHS), RHS(RHS) {}
 
 bool SCEVEqualPredicate::implies(const SCEVPredicate *N) const {
-  const auto *Op = dyn_cast<const SCEVEqualPredicate>(N);
+  const auto *Op = dyn_cast<SCEVEqualPredicate>(N);
 
   if (!Op)
     return false;
@@ -10321,7 +10290,7 @@ SCEVUnionPredicate::getPredicatesForExpr(const SCEV *Expr) {
 }
 
 bool SCEVUnionPredicate::implies(const SCEVPredicate *N) const {
-  if (const auto *Set = dyn_cast<const SCEVUnionPredicate>(N))
+  if (const auto *Set = dyn_cast<SCEVUnionPredicate>(N))
     return all_of(Set->Preds,
                   [this](const SCEVPredicate *I) { return this->implies(I); });
 
@@ -10342,7 +10311,7 @@ void SCEVUnionPredicate::print(raw_ostream &OS, unsigned Depth) const {
 }
 
 void SCEVUnionPredicate::add(const SCEVPredicate *N) {
-  if (const auto *Set = dyn_cast<const SCEVUnionPredicate>(N)) {
+  if (const auto *Set = dyn_cast<SCEVUnionPredicate>(N)) {
     for (auto Pred : Set->Preds)
       add(Pred);
     return;

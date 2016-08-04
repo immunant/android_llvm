@@ -83,6 +83,7 @@ enum ArchExtKind : unsigned {
   AEK_VIRT = 0x200,
   AEK_DSP = 0x400,
   AEK_FP16 = 0x800,
+  AEK_RAS = 0x1000,
   // Unsupported extensions.
   AEK_OS = 0x8000000,
   AEK_IWMMXT = 0x10000000,
@@ -153,7 +154,8 @@ enum ArchExtKind : unsigned {
   AEK_FP = 0x8,
   AEK_SIMD = 0x10,
   AEK_FP16 = 0x20,
-  AEK_PROFILE = 0x40
+  AEK_PROFILE = 0x40,
+  AEK_RAS = 0x80
 };
 
 StringRef getCanonicalArchName(StringRef Arch);
