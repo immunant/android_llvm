@@ -13,6 +13,7 @@ aarch64_codegen_TBLGEN_TABLES := \
   AArch64GenFastISel.inc \
   AArch64GenDisassemblerTables.inc \
   AArch64GenMCPseudoLowering.inc \
+  AArch64GenSystemOperands.inc \
 
 aarch64_codegen_SRC_FILES := $(sort $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)))
 
