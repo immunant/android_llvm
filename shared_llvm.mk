@@ -95,7 +95,7 @@ LOCAL_WHOLE_STATIC_LIBRARIES := \
   $(llvm_host_static_libraries) \
   $(llvm_post_static_libraries)
 
-LOCAL_LDLIBS_windows := -limagehlp -lpsapi -lole32
+LOCAL_LDLIBS_windows := -limagehlp -lpsapi -lole32 -lversion
 LOCAL_LDLIBS_darwin := -ldl -lpthread
 LOCAL_LDLIBS_linux := -ldl -lpthread
 
