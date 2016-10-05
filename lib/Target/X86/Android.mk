@@ -19,6 +19,9 @@ x86_codegen_SRC_FILES := $(sort $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)))
 include $(CLEAR_VARS)
 include $(CLEAR_TBLGEN_VARS)
 
+# b/31559947, b/31938382 clang-tidy segmentation fault.
+LOCAL_TIDY_CHECKS := -clang-analyzer-*,-readability-*,-google-readability-*
+
 TBLGEN_TABLES := $(x86_codegen_TBLGEN_TABLES)
 
 LOCAL_SRC_FILES := $(x86_codegen_SRC_FILES)
@@ -38,6 +41,9 @@ include $(BUILD_HOST_STATIC_LIBRARY)
 ifneq (true,$(DISABLE_LLVM_DEVICE_BUILDS))
 include $(CLEAR_VARS)
 include $(CLEAR_TBLGEN_VARS)
+
+# b/31559947, b/31938382 clang-tidy segmentation fault.
+LOCAL_TIDY_CHECKS := -clang-analyzer-*,-readability-*,-google-readability-*
 
 TBLGEN_TABLES := $(x86_codegen_TBLGEN_TABLES)
 
