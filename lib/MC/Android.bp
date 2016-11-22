@@ -1,0 +1,10 @@
+cc_library_static {
+    name: "libLLVMMC",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+    ],
+    srcs: ["*.cpp"],
+}
+
+subdirs = ["*"]

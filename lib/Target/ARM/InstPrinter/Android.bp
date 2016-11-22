@@ -1,0 +1,9 @@
+cc_library_static {
+    name: "libLLVMARMAsmPrinter",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+        "llvm-arm-defaults",
+    ],
+    srcs: ["*.cpp"],
+}

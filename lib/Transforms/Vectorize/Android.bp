@@ -1,0 +1,8 @@
+cc_library_static {
+    name: "libLLVMVectorize",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+    ],
+    srcs: ["*.cpp"],
+}

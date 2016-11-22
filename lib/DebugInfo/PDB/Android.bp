@@ -1,0 +1,11 @@
+cc_library_static {
+    name: "libLLVMDebugInfoPDB",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+    ],
+    srcs: [
+        "*.cpp",
+        "Raw/*.cpp",
+    ],
+}

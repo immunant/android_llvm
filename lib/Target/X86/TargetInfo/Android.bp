@@ -1,0 +1,9 @@
+cc_library_static {
+    name: "libLLVMX86Info",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+        "llvm-x86-defaults",
+    ],
+    srcs: ["*.cpp"],
+}

@@ -1,0 +1,249 @@
+llvm_defaults {
+    name: "llvm-defaults",
+
+    host_supported: true,
+    clang: true,
+
+    cflags: [
+        "-D_GNU_SOURCE",
+        "-D__STDC_LIMIT_MACROS",
+        "-D__STDC_CONSTANT_MACROS",
+        "-D__STDC_FORMAT_MACROS",
+        "-fomit-frame-pointer",
+        "-Wall",
+        "-W",
+        "-Wno-sign-compare",
+        "-Wno-unused-parameter",
+        "-Wno-maybe-uninitialized",
+        "-Wno-missing-field-initializers",
+        "-Wwrite-strings",
+        "-Werror",
+        "-Dsprintf=sprintf",
+    ],
+
+    cppflags: [
+        "-Wno-sign-promo",
+        "-std=c++11",
+    ],
+
+    include_dirs: ["external/llvm/include"],
+
+    target: {
+        android: {
+            cflags: [
+                "-finline-functions",
+            ],
+            cppflags: [
+                "-Woverloaded-virtual",
+            ],
+            include_dirs: ["external/llvm/device/include"],
+        },
+        host: {
+            include_dirs: ["external/llvm/host/include"],
+            cppflags: [
+                "-fno-rtti",
+                "-fno-exceptions",
+            ],
+        },
+        windows: {
+            enabled: true,
+            // Disable certain warnings for use with mingw.
+            // We also must undefine WIN32_LEAN_AND_MEAN, since it is being passed globally
+            // on the command line, and LLVM defines this internally itself.
+            cflags: [
+                "-Wno-array-bounds",
+                "-Wno-comment",
+                "-UWIN32_LEAN_AND_MEAN",
+            ],
+
+            host_ldlibs: ["-luuid"],
+        },
+        linux: {
+            cppflags: ["-Woverloaded-virtual"],
+
+            // Add on ncurses to have support for terminfo
+            host_ldlibs: [
+                "-lncurses",
+                "-lgcc_s",
+            ],
+        },
+        darwin: {
+            cppflags: [
+                "-Wno-deprecated-declarations",
+                "-Woverloaded-virtual",
+            ],
+
+            // Add on ncurses to have support for terminfo
+            host_ldlibs: ["-lncurses"],
+        },
+    },
+}
+
+cc_defaults {
+    name: "llvm-generated-headers",
+    generated_headers: [
+        "llvm-gen-attributes",
+        "llvm-gen-intrinsics",
+    ],
+}
+
+llvm_tblgen {
+    name: "llvm-gen-attributes",
+    in: "include/llvm/IR/Attributes.td",
+    outs: ["llvm/IR/Attributes.inc"],
+}
+
+llvm_tblgen {
+    name: "llvm-gen-intrinsics",
+    in: "include/llvm/IR/Intrinsics.td",
+    outs: ["llvm/IR/Intrinsics.gen"],
+}
+
+// LLVM shared library build
+
+llvm_arm_static_libraries = [
+    "libLLVMARMCodeGen",
+    "libLLVMARMAsmParser",
+    "libLLVMARMAsmPrinter",
+    "libLLVMARMInfo",
+    "libLLVMARMDesc",
+    "libLLVMARMDisassembler",
+]
+
+llvm_x86_static_libraries = [
+    "libLLVMX86CodeGen",
+    "libLLVMX86Info",
+    "libLLVMX86Desc",
+    "libLLVMX86AsmParser",
+    "libLLVMX86AsmPrinter",
+    "libLLVMX86Utils",
+    "libLLVMX86Disassembler",
+]
+
+llvm_mips_static_libraries = [
+    "libLLVMMipsCodeGen",
+    "libLLVMMipsInfo",
+    "libLLVMMipsDesc",
+    "libLLVMMipsAsmParser",
+    "libLLVMMipsAsmPrinter",
+    "libLLVMMipsDisassembler",
+]
+
+llvm_aarch64_static_libraries = [
+    "libLLVMAArch64CodeGen",
+    "libLLVMAArch64Info",
+    "libLLVMAArch64Desc",
+    "libLLVMAArch64AsmParser",
+    "libLLVMAArch64AsmPrinter",
+    "libLLVMAArch64Utils",
+    "libLLVMAArch64Disassembler",
+]
+
+llvm_cc_shared_library {
+    host_supported: true,
+    name: "libLLVM",
+    defaults: ["llvm-defaults"],
+
+    whole_static_libs: [
+        // pre static libraries
+        "libLLVMLinker",
+        "libLLVMipo",
+        "libLLVMDebugInfoDWARF",
+        "libLLVMDebugInfoPDB",
+        "libLLVMSymbolize",
+        "libLLVMIRReader",
+        "libLLVMBitWriter",
+        "libLLVMBitReader",
+
+        // post static libraries
+        "libLLVMLTO",
+        "libLLVMAsmPrinter",
+        "libLLVMSelectionDAG",
+        "libLLVMCodeGen",
+        "libLLVMDebugInfoCodeView",
+        "libLLVMObject",
+        "libLLVMScalarOpts",
+        "libLLVMInstCombine",
+        "libLLVMInstrumentation",
+        "libLLVMTransformObjCARC",
+        "libLLVMTransformUtils",
+        "libLLVMAnalysis",
+        "libLLVMTarget",
+        "libLLVMGlobalISel",
+        "libLLVMMCDisassembler",
+        "libLLVMMC",
+        "libLLVMMCParser",
+        "libLLVMCore",
+        "libLLVMAsmParser",
+        "libLLVMOption",
+        "libLLVMSupport",
+        "libLLVMVectorize",
+        "libLLVMProfileData",
+        "libLLVMProfileDataCoverage",
+        "libLLVMLibDriver",
+    ],
+
+    target: {
+        host: {
+            // Host build pulls in all ARM, Mips, X86 components.
+           whole_static_libs: [
+                "libLLVMExecutionEngine",
+                "libLLVMRuntimeDyld",
+                "libLLVMMCJIT",
+                "libLLVMOrcJIT",
+            ] + llvm_arm_static_libraries +
+                llvm_aarch64_static_libraries +
+                llvm_mips_static_libraries +
+                llvm_x86_static_libraries,
+        },
+        windows: {
+            host_ldlibs: [
+                "-limagehlp",
+                "-lpsapi",
+                "-lole32",
+                "-lversion",
+            ],
+        },
+        darwin: {
+            host_ldlibs: [
+                "-ldl",
+                "-lpthread",
+            ],
+        },
+        linux: {
+            host_ldlibs: [
+                "-ldl",
+                "-lpthread",
+            ],
+        },
+        android_arm: {
+            whole_static_libs: llvm_arm_static_libraries,
+        },
+        android_x86: {
+            whole_static_libs: llvm_x86_static_libraries +
+                llvm_arm_static_libraries +
+                llvm_aarch64_static_libraries,
+        },
+        android_x86_64: {
+            whole_static_libs: llvm_x86_static_libraries +
+                llvm_arm_static_libraries +
+                llvm_aarch64_static_libraries,
+        },
+        android_mips: {
+            whole_static_libs: llvm_mips_static_libraries,
+        },
+        android_mips64: {
+            whole_static_libs: llvm_mips_static_libraries,
+        },
+        android_arm64: {
+            whole_static_libs: llvm_aarch64_static_libraries +
+                llvm_arm_static_libraries,
+        },
+    },
+}
+
+subdirs = [
+    "soong",
+    "lib/*",
+    "utils/*",
+]

@@ -1,0 +1,9 @@
+cc_library_static {
+    name: "libLLVMAArch64Desc",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+        "llvm-aarch64-defaults",
+    ],
+    srcs: ["*.cpp"],
+}
