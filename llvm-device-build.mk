@@ -37,20 +37,6 @@ LOCAL_CFLAGS :=	\
 	-UNDEBUG
 endif
 
-ifneq ($(REQUIRES_EH),1)
-LOCAL_CFLAGS +=	-fno-exceptions
-else
-# No action. The device target should not have exception enabled since bionic
-# doesn't support it
-REQUIRES_EH := 0
-endif
-
-ifneq ($(REQUIRES_RTTI),1)
-LOCAL_CPPFLAGS +=	-fno-rtti
-else
-REQUIRES_RTTI := 0
-endif
-
 LOCAL_CPPFLAGS :=	\
 	$(LOCAL_CPPFLAGS)	\
 	-Woverloaded-virtual	\
