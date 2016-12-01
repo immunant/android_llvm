@@ -15,93 +15,8 @@ endif
 
 include $(CLEAR_VARS)
 
-# LLVM Libraries
-subdirs := \
-  lib/Analysis \
-  lib/AsmParser \
-  lib/Bitcode/Reader \
-  lib/Bitcode/Writer \
-  lib/ExecutionEngine \
-  lib/ExecutionEngine/RuntimeDyld \
-  lib/ExecutionEngine/MCJIT \
-  lib/ExecutionEngine/Orc \
-  lib/ExecutionEngine/Interpreter \
-  lib/Fuzzer \
-  lib/CodeGen \
-  lib/CodeGen/AsmPrinter \
-  lib/CodeGen/GlobalISel \
-  lib/CodeGen/MIRParser \
-  lib/CodeGen/SelectionDAG \
-  lib/DebugInfo/CodeView \
-  lib/DebugInfo/DWARF \
-  lib/DebugInfo/PDB \
-  lib/DebugInfo/Symbolize \
-  lib/IR \
-  lib/IRReader \
-  lib/LibDriver \
-  lib/Linker \
-  lib/LTO \
-  lib/MC \
-  lib/MC/MCDisassembler \
-  lib/MC/MCParser \
-  lib/Object \
-  lib/ObjectYAML \
-  lib/Option \
-  lib/Passes \
-  lib/ProfileData \
-  lib/ProfileData/Coverage \
-  lib/Support \
-  lib/TableGen \
-  lib/Target \
-  lib/Transforms/Hello \
-  lib/Transforms/IPO \
-  lib/Transforms/InstCombine \
-  lib/Transforms/Instrumentation \
-  lib/Transforms/ObjCARC \
-  lib/Transforms/Scalar \
-  lib/Transforms/Utils \
-  lib/Transforms/Vectorize \
-
-# ARM Code Generation Libraries
-subdirs += \
-  lib/Target/ARM \
-  lib/Target/ARM/AsmParser \
-  lib/Target/ARM/InstPrinter \
-  lib/Target/ARM/Disassembler \
-  lib/Target/ARM/MCTargetDesc \
-  lib/Target/ARM/TargetInfo
-
-# AArch64 Code Generation Libraries
-subdirs += \
-  lib/Target/AArch64  \
-  lib/Target/AArch64/AsmParser \
-  lib/Target/AArch64/InstPrinter \
-  lib/Target/AArch64/Disassembler \
-  lib/Target/AArch64/MCTargetDesc \
-  lib/Target/AArch64/TargetInfo \
-  lib/Target/AArch64/Utils
-
-# MIPS Code Generation Libraries
-subdirs += \
-  lib/Target/Mips \
-  lib/Target/Mips/AsmParser \
-  lib/Target/Mips/InstPrinter \
-  lib/Target/Mips/Disassembler \
-  lib/Target/Mips/MCTargetDesc \
-  lib/Target/Mips/TargetInfo
-
-# X86 Code Generation Libraries
-subdirs += \
-  lib/Target/X86 \
-  lib/Target/X86/AsmParser \
-  lib/Target/X86/InstPrinter \
-  lib/Target/X86/Disassembler \
-  lib/Target/X86/MCTargetDesc \
-  lib/Target/X86/TargetInfo \
-  lib/Target/X86/Utils
-
 # LLVM Command Line Tools
-subdirs += \
+subdirs := \
   tools/bugpoint \
   tools/bugpoint-passes \
   tools/dsymutil \
@@ -147,10 +62,8 @@ subdirs += \
   utils/count \
   utils/FileCheck \
   utils/not \
-  utils/TableGen \
   utils/yaml-bench \
 
 include $(LOCAL_PATH)/llvm.mk
-include $(LOCAL_PATH)/shared_llvm.mk
 
 include $(addprefix $(LOCAL_PATH)/,$(addsuffix /Android.mk, $(subdirs)))

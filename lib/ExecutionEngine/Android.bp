@@ -1,0 +1,10 @@
+cc_library_static {
+    name: "libLLVMExecutionEngine",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+    ],
+    srcs: ["*.cpp"],
+}
+
+subdirs = ["*"]

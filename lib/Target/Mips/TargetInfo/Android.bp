@@ -1,0 +1,9 @@
+cc_library_static {
+    name: "libLLVMMipsInfo",
+    defaults: [
+        "llvm-defaults",
+        "llvm-generated-headers",
+        "llvm-mips-defaults",
+    ],
+    srcs: ["*.cpp"],
+}
