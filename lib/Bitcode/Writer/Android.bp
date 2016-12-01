@@ -1,7 +1,7 @@
 cc_library_static {
     name: "libLLVMBitWriter",
     defaults: [
-        "llvm-defaults",
+        "llvm-lib-defaults",
         "llvm-generated-headers",
     ],
     srcs: ["*.cpp"],

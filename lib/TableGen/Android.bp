@@ -1,6 +1,6 @@
 cc_library_static {
     name: "libLLVMTableGen",
-    defaults: ["llvm-defaults"],
+    defaults: ["llvm-lib-defaults"],
     srcs: ["*.cpp"],
     target: {
         // llvm-defaults turns off host builds by default, turn it back on for
