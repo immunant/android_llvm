@@ -1,7 +1,7 @@
 cc_library_static {
     name: "libLLVMLibDriver",
     defaults: [
-        "llvm-defaults",
+        "llvm-lib-defaults",
         "llvm-generated-headers",
     ],
     generated_headers: ["llvm-gen-libdriver"],

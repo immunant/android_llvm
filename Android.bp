@@ -46,7 +46,6 @@ llvm_defaults {
             ],
         },
         windows: {
-            enabled: true,
             // Disable certain warnings for use with mingw.
             // We also must undefine WIN32_LEAN_AND_MEAN, since it is being passed globally
             // on the command line, and LLVM defines this internally itself.
@@ -63,6 +62,7 @@ llvm_defaults {
 
             // Add on ncurses to have support for terminfo
             host_ldlibs: [
+                "-ldl",
                 "-lncurses",
                 "-lgcc_s",
             ],
@@ -74,7 +74,10 @@ llvm_defaults {
             ],
 
             // Add on ncurses to have support for terminfo
-            host_ldlibs: ["-lncurses"],
+            host_ldlibs: [
+                "-ldl",
+                "-lncurses",
+            ],
         },
     },
 }
@@ -197,6 +200,7 @@ llvm_cc_shared_library {
                 llvm_x86_static_libraries,
         },
         windows: {
+            enabled: true,
             host_ldlibs: [
                 "-limagehlp",
                 "-lpsapi",
@@ -244,6 +248,7 @@ llvm_cc_shared_library {
 
 subdirs = [
     "soong",
-    "lib/*",
+    "lib",
+    "tools/*",
     "utils/*",
 ]

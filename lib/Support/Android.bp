@@ -1,6 +1,6 @@
 cc_library_static {
     name: "libLLVMSupport",
-    defaults: ["llvm-defaults"],
+    defaults: ["llvm-lib-defaults"],
     target: {
         // llvm-defaults turns off host builds by default, turn it back on for
         // modules that are used to build llvm-tblgen

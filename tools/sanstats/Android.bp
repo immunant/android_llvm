@@ -1,0 +1,21 @@
+//===---------------------------------------------------------------===
+// sanstats command line tool
+//===---------------------------------------------------------------===
+
+cc_binary_host {
+    name: "sanstats",
+    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    srcs: ["sanstats.cpp"],
+    static_libs: [
+        "libLLVMSymbolize",
+        "libLLVMDebugInfoDWARF",
+        "libLLVMDebugInfoPDB",
+        "libLLVMDebugInfoCodeView",
+        "libLLVMObject",
+        "libLLVMBitReader",
+        "libLLVMCore",
+        "libLLVMMCParser",
+        "libLLVMMC",
+        "libLLVMSupport",
+    ],
+}
