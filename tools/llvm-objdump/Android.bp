@@ -53,5 +53,8 @@ cc_binary_host {
     ],
 
     // b/31938382, clang-tidy segmentation fault on MachODump.cpp.
-    tidy_checks: ["-readability-*,-google-readability-*"],
+    tidy_checks: [
+        "-readability-*",
+        "-google-readability-*",
+    ],
 }
