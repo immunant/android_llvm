@@ -99,7 +99,7 @@ func llvmLibrary(ctx android.LoadHookContext) {
 
 func init() {
 	android.RegisterModuleType("llvm_defaults", llvmDefaultsFactory)
-	android.RegisterModuleType("llvm_cc_shared_library", llvmSharedLibraryFactory)
+	android.RegisterModuleType("llvm_cc_library_shared", llvmSharedLibraryFactory)
 }
 
 func llvmDefaultsFactory() (blueprint.Module, []interface{}) {

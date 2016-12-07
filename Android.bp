@@ -142,7 +142,7 @@ llvm_aarch64_static_libraries = [
     "libLLVMAArch64Disassembler",
 ]
 
-llvm_cc_shared_library {
+llvm_cc_library_shared {
     host_supported: true,
     name: "libLLVM",
     defaults: ["llvm-defaults"],
