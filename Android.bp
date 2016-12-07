@@ -186,6 +186,8 @@ llvm_cc_library_shared {
         "libLLVMLibDriver",
     ],
 
+    export_include_dirs: ["include"],
+
     target: {
         host: {
             // Host build pulls in all ARM, Mips, X86 components.
@@ -198,6 +200,7 @@ llvm_cc_library_shared {
                 llvm_aarch64_static_libraries +
                 llvm_mips_static_libraries +
                 llvm_x86_static_libraries,
+            export_include_dirs: ["host/include"],
         },
         windows: {
             enabled: true,
@@ -219,6 +222,9 @@ llvm_cc_library_shared {
                 "-ldl",
                 "-lpthread",
             ],
+        },
+        android: {
+            export_include_dirs: ["device/include"],
         },
         android_arm: {
             whole_static_libs: llvm_arm_static_libraries,
