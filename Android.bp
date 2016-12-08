@@ -102,6 +102,12 @@ llvm_tblgen {
     outs: ["llvm/IR/Intrinsics.gen"],
 }
 
+force_build_llvm_components_defaults {
+    name: "force_build_llvm_components",
+    // Host build disabled by soong/llvm.go unless FORCE_BUILD_LLVM_COMPONENTS
+    // environment variable is set
+}
+
 // LLVM shared library build
 
 llvm_arm_static_libraries = [
@@ -142,10 +148,13 @@ llvm_aarch64_static_libraries = [
     "libLLVMAArch64Disassembler",
 ]
 
-llvm_cc_library_shared {
+cc_library_shared {
     host_supported: true,
     name: "libLLVM",
-    defaults: ["llvm-defaults"],
+    defaults: [
+        "llvm-defaults",
+        "force_build_llvm_components",
+    ],
 
     whole_static_libs: [
         // pre static libraries

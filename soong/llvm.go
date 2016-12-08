@@ -82,7 +82,7 @@ func llvmDefaults(ctx android.LoadHookContext) {
 	ctx.AppendProperties(p)
 }
 
-func llvmLibrary(ctx android.LoadHookContext) {
+func forceBuildLlvmComponents(ctx android.LoadHookContext) {
 	if !ctx.AConfig().IsEnvTrue("FORCE_BUILD_LLVM_COMPONENTS") {
 		type props struct {
 			Target struct {
@@ -99,7 +99,7 @@ func llvmLibrary(ctx android.LoadHookContext) {
 
 func init() {
 	android.RegisterModuleType("llvm_defaults", llvmDefaultsFactory)
-	android.RegisterModuleType("llvm_cc_library_shared", llvmSharedLibraryFactory)
+	android.RegisterModuleType("force_build_llvm_components_defaults", forceBuildLlvmComponentsDefaultsFactory)
 }
 
 func llvmDefaultsFactory() (blueprint.Module, []interface{}) {
@@ -109,8 +109,8 @@ func llvmDefaultsFactory() (blueprint.Module, []interface{}) {
 	return module, props
 }
 
-func llvmSharedLibraryFactory() (blueprint.Module, []interface{}) {
-	module, _ := cc.NewLibrary(android.HostAndDeviceSupported, true, false)
-	android.AddLoadHook(module, llvmLibrary)
-	return module.Init()
+func forceBuildLlvmComponentsDefaultsFactory() (blueprint.Module, []interface{}) {
+	module, props := cc.DefaultsFactory()
+	android.AddLoadHook(module, forceBuildLlvmComponents)
+	return module, props
 }
