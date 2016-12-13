@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "sancov",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["sancov.cc"],
     static_libs: [
         "libLLVMIRReader",

@@ -2,7 +2,6 @@ cc_library_static {
     name: "libLLVMMipsCodeGen",
     defaults: [
         "llvm-lib-defaults",
-        "llvm-generated-headers",
         "llvm-mips-defaults",
     ],
     srcs: ["*.cpp"],

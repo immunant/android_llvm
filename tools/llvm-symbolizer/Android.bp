@@ -1,6 +1,6 @@
 cc_binary {
     name: "llvm-symbolizer",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs:  ["llvm-symbolizer.cpp"],
     target: {
         host: {

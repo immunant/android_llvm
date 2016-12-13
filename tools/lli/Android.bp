@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "lli",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: [
         "lli.cpp",
         "OrcLazyJIT.cpp",

@@ -2,7 +2,6 @@ cc_library_static {
     name: "libLLVMOrcJIT",
     defaults: [
         "llvm-lib-defaults",
-        "llvm-generated-headers",
     ],
     srcs: ["*.cpp"],
 }

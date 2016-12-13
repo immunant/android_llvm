@@ -45,7 +45,7 @@ llvm_llc_aarch64_STATIC_LIBRARIES = [
 
 cc_binary_host {
     name: "llc",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llc.cpp"],
     static_libs: [
         "libLLVMGlobalISel",

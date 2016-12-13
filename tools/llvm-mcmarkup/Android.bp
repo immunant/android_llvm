@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "llvm-mcmarkup",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llvm-mcmarkup.cpp"],
     static_libs: [
         "libLLVMCore",

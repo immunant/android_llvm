@@ -4,7 +4,7 @@
 
 cc_binary {
     name: "llvm-link",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llvm-link.cpp"],
     static_libs: [
         "libLLVMLinker",

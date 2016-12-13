@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "llvm-bcanalyzer",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llvm-bcanalyzer.cpp"],
     static_libs: [
         "libLLVMBitReader",

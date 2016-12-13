@@ -2,7 +2,6 @@ cc_library_static {
     name: "libLLVMMCDisassembler",
     defaults: [
         "llvm-lib-defaults",
-        "llvm-generated-headers",
     ],
     srcs: ["*.cpp"],
 }

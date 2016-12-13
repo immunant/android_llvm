@@ -1,6 +1,6 @@
 cc_binary_host {
     name: "llvm-pdbdump",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["*.cpp"],
     static_libs: [
         "libLLVMDebugInfoPDB",

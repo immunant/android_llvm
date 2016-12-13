@@ -5,7 +5,7 @@
 
 cc_binary_host {
     name: "bugpoint",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["*.cpp"],
     static_libs: [
         "libLLVMBitWriter",

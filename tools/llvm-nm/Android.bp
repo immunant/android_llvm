@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "llvm-nm",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llvm-nm.cpp"],
     static_libs: [
         "libLLVMARMCodeGen",
