@@ -2,7 +2,6 @@ cc_library_static {
     name: "libLLVMLTO",
     defaults: [
         "llvm-lib-defaults",
-        "llvm-generated-headers",
     ],
     srcs: ["*.cpp"],
 }

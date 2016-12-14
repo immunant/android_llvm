@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "llvm-c-test",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: [
         "*.c",
         "*.cpp",

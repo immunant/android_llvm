@@ -2,7 +2,6 @@ cc_library_static {
     name: "libLLVMCore",
     defaults: [
         "llvm-lib-defaults",
-        "llvm-generated-headers",
     ],
     generated_headers: ["llvm-gen-core"],
     srcs: ["*.cpp"],

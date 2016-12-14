@@ -1,6 +1,6 @@
 cc_binary_host {
     name: "llvm-cxxdump",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: [
         "Error.cpp",
         "llvm-cxxdump.cpp",

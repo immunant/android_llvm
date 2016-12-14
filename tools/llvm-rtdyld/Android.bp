@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "llvm-rtdyld",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llvm-rtdyld.cpp"],
     static_libs: [
         "libLLVMARMCodeGen",

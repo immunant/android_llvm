@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "lli-child-target",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["ChildTarget.cpp"],
     static_libs: [
         "libLLVMOrcJIT",

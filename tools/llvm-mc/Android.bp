@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "llvm-mc",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: [
         "llvm-mc.cpp",
         "Disassembler.cpp",

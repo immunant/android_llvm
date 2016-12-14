@@ -1,6 +1,6 @@
 cc_binary_host {
     name: "llvm-as",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llvm-as.cpp"],
     static_libs: [
         "libLLVMAsmParser",

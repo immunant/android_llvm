@@ -19,7 +19,7 @@
 
 cc_library_host_shared {
     name: "LLVMgold",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["gold-plugin.cpp"],
     shared_libs: ["libLLVM"],
     include_dirs: ["toolchain/binutils/binutils-2.25/include"],

@@ -19,7 +19,7 @@
 
 cc_library_host_shared {
     name: "libLTO",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: [
         "lto.cpp",
         "LTODisassembler.cpp",

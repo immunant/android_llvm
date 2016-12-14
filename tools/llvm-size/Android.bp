@@ -4,7 +4,7 @@
 
 cc_binary_host {
     name: "llvm-size",
-    defaults: ["llvm-defaults", "llvm-generated-headers"],
+    defaults: ["llvm-defaults"],
     srcs: ["llvm-size.cpp"],
     static_libs: [
         "libLLVMObject",

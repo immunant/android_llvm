@@ -1,6 +1,6 @@
 cc_binary_host {
     name: "llvm-tblgen",
-    defaults: ["llvm-defaults"],
+    defaults: ["llvm-defaults-no-generated-headers"],
     srcs: ["*.cpp"],
 
     static_libs: [
