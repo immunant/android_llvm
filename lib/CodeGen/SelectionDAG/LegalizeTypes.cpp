@@ -794,8 +794,7 @@ void DAGTypeLegalizer::SetScalarizedVector(SDValue Op, SDValue Result) {
   // Note that in some cases vector operation operands may be greater than
   // the vector element type. For example BUILD_VECTOR of type <1 x i1> with
   // a constant i8 operand.
-  assert(Result.getValueType().getSizeInBits() >=
-         Op.getValueType().getVectorElementType().getSizeInBits() &&
+  assert(Result.getValueSizeInBits() >= Op.getScalarValueSizeInBits() &&
          "Invalid type for scalarized vector");
   AnalyzeNewValue(Result);
 
@@ -905,7 +904,7 @@ void DAGTypeLegalizer::SetWidenedVector(SDValue Op, SDValue Result) {
 
 /// Convert to an integer of the same size.
 SDValue DAGTypeLegalizer::BitConvertToInteger(SDValue Op) {
-  unsigned BitWidth = Op.getValueType().getSizeInBits();
+  unsigned BitWidth = Op.getValueSizeInBits();
   return DAG.getNode(ISD::BITCAST, SDLoc(Op),
                      EVT::getIntegerVT(*DAG.getContext(), BitWidth), Op);
 }
@@ -913,7 +912,7 @@ SDValue DAGTypeLegalizer::BitConvertToInteger(SDValue Op) {
 /// Convert to a vector of integers of the same size.
 SDValue DAGTypeLegalizer::BitConvertVectorToIntegerVector(SDValue Op) {
   assert(Op.getValueType().isVector() && "Only applies to vectors!");
-  unsigned EltWidth = Op.getValueType().getVectorElementType().getSizeInBits();
+  unsigned EltWidth = Op.getScalarValueSizeInBits();
   EVT EltNVT = EVT::getIntegerVT(*DAG.getContext(), EltWidth);
   unsigned NumElts = Op.getValueType().getVectorNumElements();
   return DAG.getNode(ISD::BITCAST, SDLoc(Op),
@@ -927,11 +926,10 @@ SDValue DAGTypeLegalizer::CreateStackStoreLoad(SDValue Op,
   // the source and destination types.
   SDValue StackPtr = DAG.CreateStackTemporary(Op.getValueType(), DestVT);
   // Emit a store to the stack slot.
-  SDValue Store = DAG.getStore(DAG.getEntryNode(), dl, Op, StackPtr,
-                               MachinePointerInfo(), false, false, 0);
+  SDValue Store =
+      DAG.getStore(DAG.getEntryNode(), dl, Op, StackPtr, MachinePointerInfo());
   // Result is a load from the stack slot.
-  return DAG.getLoad(DestVT, dl, Store, StackPtr, MachinePointerInfo(),
-                     false, false, false, 0);
+  return DAG.getLoad(DestVT, dl, Store, StackPtr, MachinePointerInfo());
 }
 
 /// Replace the node's results with custom code provided by the target and
@@ -1146,7 +1144,7 @@ void DAGTypeLegalizer::SplitInteger(SDValue Op,
                                     SDValue &Lo, SDValue &Hi) {
   SDLoc dl(Op);
   assert(LoVT.getSizeInBits() + HiVT.getSizeInBits() ==
-         Op.getValueType().getSizeInBits() && "Invalid integer splitting!");
+         Op.getValueSizeInBits() && "Invalid integer splitting!");
   Lo = DAG.getNode(ISD::TRUNCATE, dl, LoVT, Op);
   Hi = DAG.getNode(ISD::SRL, dl, Op.getValueType(), Op,
                    DAG.getConstant(LoVT.getSizeInBits(), dl,
@@ -1158,8 +1156,8 @@ void DAGTypeLegalizer::SplitInteger(SDValue Op,
 /// size of Op's.
 void DAGTypeLegalizer::SplitInteger(SDValue Op,
                                     SDValue &Lo, SDValue &Hi) {
-  EVT HalfVT = EVT::getIntegerVT(*DAG.getContext(),
-                                 Op.getValueType().getSizeInBits()/2);
+  EVT HalfVT =
+      EVT::getIntegerVT(*DAG.getContext(), Op.getValueSizeInBits() / 2);
   SplitInteger(Op, HalfVT, HalfVT, Lo, Hi);
 }
 

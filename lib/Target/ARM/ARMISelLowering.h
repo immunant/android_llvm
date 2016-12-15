@@ -291,6 +291,14 @@ namespace llvm {
     /// by AM is legal for this target, for a load/store of the specified type.
     bool isLegalAddressingMode(const DataLayout &DL, const AddrMode &AM,
                                Type *Ty, unsigned AS) const override;
+
+    /// getScalingFactorCost - Return the cost of the scaling used in
+    /// addressing mode represented by AM.
+    /// If the AM is supported, the return value must be >= 0.
+    /// If the AM is not supported, the return value must be negative.
+    int getScalingFactorCost(const DataLayout &DL, const AddrMode &AM, Type *Ty,
+                             unsigned AS) const override;
+
     bool isLegalT2ScaledAddressingMode(const AddrMode &AM, EVT VT) const;
 
     /// isLegalICmpImmediate - Return true if the specified immediate is legal
@@ -478,6 +486,10 @@ namespace llvm {
       return true;
     }
 
+    bool hasStandaloneRem(EVT VT) const override {
+      return HasStandaloneRem;
+    }
+
   protected:
     std::pair<const TargetRegisterClass *, uint8_t>
     findRepresentativeClass(const TargetRegisterInfo *TRI,
@@ -499,6 +511,10 @@ namespace llvm {
     // TODO: remove this, and have shouldInsertFencesForAtomic do the proper
     // check.
     bool InsertFencesForAtomic;
+
+    bool HasStandaloneRem = true;
+
+    void InitLibcallCallingConvs();
 
     void addTypeForNEON(MVT VT, MVT PromotedLdStVT, MVT PromotedBitwiseVT);
     void addDRTypeForNEON(MVT VT);

@@ -112,7 +112,8 @@ public:
       TargetMachine &TM, std::unique_ptr<MCStreamer> &&Streamer);
   typedef MCAsmBackend *(*MCAsmBackendCtorTy)(const Target &T,
                                               const MCRegisterInfo &MRI,
-                                              const Triple &TT, StringRef CPU);
+                                              const Triple &TT, StringRef CPU,
+                                              const MCTargetOptions &Options);
   typedef MCTargetAsmParser *(*MCAsmParserCtorTy)(
       const MCSubtargetInfo &STI, MCAsmParser &P, const MCInstrInfo &MII,
       const MCTargetOptions &Options);
@@ -365,10 +366,12 @@ public:
   ///
   /// \param TheTriple The target triple string.
   MCAsmBackend *createMCAsmBackend(const MCRegisterInfo &MRI,
-                                   StringRef TheTriple, StringRef CPU) const {
+                                   StringRef TheTriple, StringRef CPU,
+                                   const MCTargetOptions &Options)
+                                   const {
     if (!MCAsmBackendCtorFn)
       return nullptr;
-    return MCAsmBackendCtorFn(*this, MRI, Triple(TheTriple), CPU);
+    return MCAsmBackendCtorFn(*this, MRI, Triple(TheTriple), CPU, Options);
   }
 
   /// createMCAsmParser - Create a target specific assembly parser.
@@ -846,10 +849,13 @@ struct TargetRegistry {
 /// target's initialization function. Usage:
 ///
 ///
-/// Target TheFooTarget; // The global target instance.
-///
+/// Target &getTheFooTarget() { // The global target instance.
+///   static Target TheFooTarget;
+///   return TheFooTarget;
+/// }
 /// extern "C" void LLVMInitializeFooTargetInfo() {
-///   RegisterTarget<Triple::foo> X(TheFooTarget, "foo", "Foo description");
+///   RegisterTarget<Triple::foo> X(getTheFooTarget(), "foo", "Foo
+///   description");
 /// }
 template <Triple::ArchType TargetArchType = Triple::UnknownArch,
           bool HasJIT = false>
@@ -1071,7 +1077,8 @@ template <class MCAsmBackendImpl> struct RegisterMCAsmBackend {
 
 private:
   static MCAsmBackend *Allocator(const Target &T, const MCRegisterInfo &MRI,
-                                 const Triple &TheTriple, StringRef CPU) {
+                                 const Triple &TheTriple, StringRef CPU,
+                                 const MCTargetOptions &Options) {
     return new MCAsmBackendImpl(T, MRI, TheTriple, CPU);
   }
 };

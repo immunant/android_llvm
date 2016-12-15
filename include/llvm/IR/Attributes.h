@@ -68,7 +68,7 @@ public:
     // IR-Level Attributes
     None,                  ///< No attributes have been set
     #define GET_ATTR_ENUM
-    #include "llvm/IR/Attributes.inc"
+    #include "llvm/IR/Attributes.gen"
     EndAttrKinds           ///< Sentinal value useful for loops
   };
 
@@ -210,6 +210,7 @@ public:
 private:
   friend class AttrBuilder;
   friend class AttributeSetImpl;
+  friend class AttributeSetNode;
   template <typename Ty> friend struct DenseMapInfo;
 
   /// \brief The attributes that we are managing. This can be null to represent
@@ -336,6 +337,10 @@ public:
   /// \brief Equivalent to hasAttribute(AttributeSet::FunctionIndex, Kind) but
   /// may be faster.
   bool hasFnAttribute(Attribute::AttrKind Kind) const;
+
+  /// \brief Equivalent to hasAttribute(AttributeSet::FunctionIndex, Kind) but
+  /// may be faster.
+  bool hasFnAttribute(StringRef Kind) const;
 
   /// \brief Return true if the specified attribute is set for at least one
   /// parameter or for the return value. If Index is not nullptr, the index

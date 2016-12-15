@@ -338,16 +338,9 @@ GVN::Expression GVN::ValueTable::createExtractvalueExpr(ExtractValueInst *EI) {
 //===----------------------------------------------------------------------===//
 
 GVN::ValueTable::ValueTable() : nextValueNumber(1) {}
-GVN::ValueTable::ValueTable(const ValueTable &Arg)
-    : valueNumbering(Arg.valueNumbering),
-      expressionNumbering(Arg.expressionNumbering), AA(Arg.AA), MD(Arg.MD),
-      DT(Arg.DT), nextValueNumber(Arg.nextValueNumber) {}
-GVN::ValueTable::ValueTable(ValueTable &&Arg)
-    : valueNumbering(std::move(Arg.valueNumbering)),
-      expressionNumbering(std::move(Arg.expressionNumbering)),
-      AA(std::move(Arg.AA)), MD(std::move(Arg.MD)), DT(std::move(Arg.DT)),
-      nextValueNumber(std::move(Arg.nextValueNumber)) {}
-GVN::ValueTable::~ValueTable() {}
+GVN::ValueTable::ValueTable(const ValueTable &) = default;
+GVN::ValueTable::ValueTable(ValueTable &&) = default;
+GVN::ValueTable::~ValueTable() = default;
 
 /// add - Insert a value into the table with a specified value number.
 void GVN::ValueTable::add(Value *V, uint32_t num) {
@@ -583,7 +576,7 @@ void GVN::ValueTable::verifyRemoved(const Value *V) const {
 //                                GVN Pass
 //===----------------------------------------------------------------------===//
 
-PreservedAnalyses GVN::run(Function &F, AnalysisManager<Function> &AM) {
+PreservedAnalyses GVN::run(Function &F, FunctionAnalysisManager &AM) {
   // FIXME: The order of evaluation of these 'getResult' calls is very
   // significant! Re-ordering these variables will cause GVN when run alone to
   // be less effective! We should fix memdep and basic-aa to not exhibit this
@@ -725,6 +718,10 @@ static Value *CoerceAvailableValueToLoadType(Value *StoredVal, Type *LoadedTy,
   assert(CanCoerceMustAliasedValueToLoad(StoredVal, LoadedTy, DL) &&
          "precondition violation - materialization can't fail");
 
+  if (auto *C = dyn_cast<Constant>(StoredVal))
+    if (auto *FoldedStoredVal = ConstantFoldConstant(C, DL))
+      StoredVal = FoldedStoredVal;
+
   // If this is already the right type, just return it.
   Type *StoredValTy = StoredVal->getType();
 
@@ -735,25 +732,30 @@ static Value *CoerceAvailableValueToLoadType(Value *StoredVal, Type *LoadedTy,
   if (StoredValSize == LoadedValSize) {
     // Pointer to Pointer -> use bitcast.
     if (StoredValTy->getScalarType()->isPointerTy() &&
-        LoadedTy->getScalarType()->isPointerTy())
-      return IRB.CreateBitCast(StoredVal, LoadedTy);
+        LoadedTy->getScalarType()->isPointerTy()) {
+      StoredVal = IRB.CreateBitCast(StoredVal, LoadedTy);
+    } else {
+      // Convert source pointers to integers, which can be bitcast.
+      if (StoredValTy->getScalarType()->isPointerTy()) {
+        StoredValTy = DL.getIntPtrType(StoredValTy);
+        StoredVal = IRB.CreatePtrToInt(StoredVal, StoredValTy);
+      }
 
-    // Convert source pointers to integers, which can be bitcast.
-    if (StoredValTy->getScalarType()->isPointerTy()) {
-      StoredValTy = DL.getIntPtrType(StoredValTy);
-      StoredVal = IRB.CreatePtrToInt(StoredVal, StoredValTy);
+      Type *TypeToCastTo = LoadedTy;
+      if (TypeToCastTo->getScalarType()->isPointerTy())
+        TypeToCastTo = DL.getIntPtrType(TypeToCastTo);
+
+      if (StoredValTy != TypeToCastTo)
+        StoredVal = IRB.CreateBitCast(StoredVal, TypeToCastTo);
+
+      // Cast to pointer if the load needs a pointer type.
+      if (LoadedTy->getScalarType()->isPointerTy())
+        StoredVal = IRB.CreateIntToPtr(StoredVal, LoadedTy);
     }
 
-    Type *TypeToCastTo = LoadedTy;
-    if (TypeToCastTo->getScalarType()->isPointerTy())
-      TypeToCastTo = DL.getIntPtrType(TypeToCastTo);
-
-    if (StoredValTy != TypeToCastTo)
-      StoredVal = IRB.CreateBitCast(StoredVal, TypeToCastTo);
-
-    // Cast to pointer if the load needs a pointer type.
-    if (LoadedTy->getScalarType()->isPointerTy())
-      StoredVal = IRB.CreateIntToPtr(StoredVal, LoadedTy);
+    if (auto *C = dyn_cast<ConstantExpr>(StoredVal))
+      if (auto *FoldedStoredVal = ConstantFoldConstant(C, DL))
+        StoredVal = FoldedStoredVal;
 
     return StoredVal;
   }
@@ -788,15 +790,20 @@ static Value *CoerceAvailableValueToLoadType(Value *StoredVal, Type *LoadedTy,
   Type *NewIntTy = IntegerType::get(StoredValTy->getContext(), LoadedValSize);
   StoredVal  = IRB.CreateTrunc(StoredVal, NewIntTy, "trunc");
 
-  if (LoadedTy == NewIntTy)
-    return StoredVal;
+  if (LoadedTy != NewIntTy) {
+    // If the result is a pointer, inttoptr.
+    if (LoadedTy->getScalarType()->isPointerTy())
+      StoredVal = IRB.CreateIntToPtr(StoredVal, LoadedTy, "inttoptr");
+    else
+      // Otherwise, bitcast.
+      StoredVal = IRB.CreateBitCast(StoredVal, LoadedTy, "bitcast");
+  }
 
-  // If the result is a pointer, inttoptr.
-  if (LoadedTy->getScalarType()->isPointerTy())
-    return IRB.CreateIntToPtr(StoredVal, LoadedTy, "inttoptr");
+  if (auto *C = dyn_cast<Constant>(StoredVal))
+    if (auto *FoldedStoredVal = ConstantFoldConstant(C, DL))
+      StoredVal = FoldedStoredVal;
 
-  // Otherwise, bitcast.
-  return IRB.CreateBitCast(StoredVal, LoadedTy, "bitcast");
+  return StoredVal;
 }
 
 /// This function is called when we have a
@@ -827,16 +834,6 @@ static int AnalyzeLoadFromClobberingWrite(Type *LoadTy, Value *LoadPtr,
   // a must alias.  AA must have gotten confused.
   // FIXME: Study to see if/when this happens.  One case is forwarding a memset
   // to a load from the base of the memset.
-#if 0
-  if (LoadOffset == StoreOffset) {
-    dbgs() << "STORE/LOAD DEP WITH COMMON POINTER MISSED:\n"
-    << "Base       = " << *StoreBase << "\n"
-    << "Store Ptr  = " << *WritePtr << "\n"
-    << "Store Offs = " << StoreOffset << "\n"
-    << "Load Ptr   = " << *LoadPtr << "\n";
-    abort();
-  }
-#endif
 
   // If the load and store don't overlap at all, the store doesn't provide
   // anything to the load.  In this case, they really don't alias at all, AA
@@ -845,8 +842,8 @@ static int AnalyzeLoadFromClobberingWrite(Type *LoadTy, Value *LoadPtr,
 
   if ((WriteSizeInBits & 7) | (LoadSize & 7))
     return -1;
-  uint64_t StoreSize = WriteSizeInBits >> 3;  // Convert to bytes.
-  LoadSize >>= 3;
+  uint64_t StoreSize = WriteSizeInBits / 8;  // Convert to bytes.
+  LoadSize /= 8;
 
 
   bool isAAFailure = false;
@@ -855,17 +852,8 @@ static int AnalyzeLoadFromClobberingWrite(Type *LoadTy, Value *LoadPtr,
   else
     isAAFailure = LoadOffset+int64_t(LoadSize) <= StoreOffset;
 
-  if (isAAFailure) {
-#if 0
-    dbgs() << "STORE LOAD DEP WITH COMMON BASE:\n"
-    << "Base       = " << *StoreBase << "\n"
-    << "Store Ptr  = " << *WritePtr << "\n"
-    << "Store Offs = " << StoreOffset << "\n"
-    << "Load Ptr   = " << *LoadPtr << "\n";
-    abort();
-#endif
+  if (isAAFailure)
     return -1;
-  }
 
   // If the Load isn't completely contained within the stored bits, we don't
   // have all the bits to feed it.  We could do something crazy in the future

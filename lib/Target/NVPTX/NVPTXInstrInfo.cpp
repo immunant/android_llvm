@@ -143,12 +143,14 @@ bool NVPTXInstrInfo::CanTailMerge(const MachineInstr *MI) const {
 ///    operands can be passed to other TargetInstrInfo methods to create new
 ///    branches.
 ///
-/// Note that RemoveBranch and InsertBranch must be implemented to support
+/// Note that removeBranch and insertBranch must be implemented to support
 /// cases where this method returns success.
 ///
-bool NVPTXInstrInfo::AnalyzeBranch(
-    MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
-    SmallVectorImpl<MachineOperand> &Cond, bool AllowModify) const {
+bool NVPTXInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+                                   MachineBasicBlock *&TBB,
+                                   MachineBasicBlock *&FBB,
+                                   SmallVectorImpl<MachineOperand> &Cond,
+                                   bool AllowModify) const {
   // If the block has no terminators, it just falls into the block after it.
   MachineBasicBlock::iterator I = MBB.end();
   if (I == MBB.begin() || !isUnpredicatedTerminator(*--I))
@@ -203,7 +205,9 @@ bool NVPTXInstrInfo::AnalyzeBranch(
   return true;
 }
 
-unsigned NVPTXInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+unsigned NVPTXInstrInfo::removeBranch(MachineBasicBlock &MBB,
+                                      int *BytesRemoved) const {
+  assert(!BytesRemoved && "code size not handled");
   MachineBasicBlock::iterator I = MBB.end();
   if (I == MBB.begin())
     return 0;
@@ -227,13 +231,16 @@ unsigned NVPTXInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
   return 2;
 }
 
-unsigned NVPTXInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+unsigned NVPTXInstrInfo::insertBranch(MachineBasicBlock &MBB,
                                       MachineBasicBlock *TBB,
                                       MachineBasicBlock *FBB,
                                       ArrayRef<MachineOperand> Cond,
-                                      const DebugLoc &DL) const {
+                                      const DebugLoc &DL,
+                                      int *BytesAdded) const {
+  assert(!BytesAdded && "code size not handled");
+
   // Shouldn't be a fall through.
-  assert(TBB && "InsertBranch must not be told to insert a fallthrough");
+  assert(TBB && "insertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&
          "NVPTX branch conditions have two components!");
 

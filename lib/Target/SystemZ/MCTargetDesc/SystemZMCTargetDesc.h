@@ -21,13 +21,14 @@ class MCInstrInfo;
 class MCObjectWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
+class MCTargetOptions;
 class StringRef;
 class Target;
 class Triple;
 class raw_pwrite_stream;
 class raw_ostream;
 
-extern Target TheSystemZTarget;
+Target &getTheSystemZTarget();
 
 namespace SystemZMC {
 // How many bytes are in the ABI-defined, caller-allocated part of
@@ -85,7 +86,8 @@ MCCodeEmitter *createSystemZMCCodeEmitter(const MCInstrInfo &MCII,
 
 MCAsmBackend *createSystemZMCAsmBackend(const Target &T,
                                         const MCRegisterInfo &MRI,
-                                        const Triple &TT, StringRef CPU);
+                                        const Triple &TT, StringRef CPU,
+                                        const MCTargetOptions &Options);
 
 MCObjectWriter *createSystemZObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI);
 } // end namespace llvm

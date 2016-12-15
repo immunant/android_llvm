@@ -1,7 +1,13 @@
 # List of all GlobalISel files.
 set(GLOBAL_ISEL_FILES
+      CallLowering.cpp
       IRTranslator.cpp
+      InstructionSelect.cpp
+      InstructionSelector.cpp
       MachineIRBuilder.cpp
+      LegalizerHelper.cpp
+      Legalizer.cpp
+      LegalizerInfo.cpp
       RegBankSelect.cpp
       RegisterBank.cpp
       RegisterBankInfo.cpp

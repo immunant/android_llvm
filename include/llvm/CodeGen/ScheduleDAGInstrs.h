@@ -100,7 +100,7 @@ namespace llvm {
   class ScheduleDAGInstrs : public ScheduleDAG {
   protected:
     const MachineLoopInfo *MLI;
-    const MachineFrameInfo *MFI;
+    const MachineFrameInfo &MFI;
 
     /// TargetSchedModel provides an interface to the machine model.
     TargetSchedModel SchedModel;
@@ -345,7 +345,6 @@ namespace llvm {
     SUnits.emplace_back(MI, (unsigned)SUnits.size());
     assert((Addr == nullptr || Addr == &SUnits[0]) &&
            "SUnits std::vector reallocated on the fly!");
-    SUnits.back().OrigNode = &SUnits.back();
     return &SUnits.back();
   }
 

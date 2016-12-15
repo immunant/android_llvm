@@ -28,13 +28,14 @@ class MCInstrInfo;
 class MCObjectWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
+class MCTargetOptions;
 class Target;
 class Triple;
 class StringRef;
 class raw_ostream;
 class raw_pwrite_stream;
 
-extern Target TheHexagonTarget;
+Target &getTheHexagonTarget();
 extern cl::opt<bool> HexagonDisableCompound;
 extern cl::opt<bool> HexagonDisableDuplex;
 extern const InstrStage HexagonStages[];
@@ -47,12 +48,13 @@ MCCodeEmitter *createHexagonMCCodeEmitter(const MCInstrInfo &MCII,
 
 MCAsmBackend *createHexagonAsmBackend(const Target &T,
                                       const MCRegisterInfo &MRI,
-                                      const Triple &TT, StringRef CPU);
+                                      const Triple &TT, StringRef CPU,
+                                      const MCTargetOptions &Options);
 
 MCObjectWriter *createHexagonELFObjectWriter(raw_pwrite_stream &OS,
                                              uint8_t OSABI, StringRef CPU);
 
-namespace HEXAGON_MC {
+namespace Hexagon_MC {
   StringRef selectHexagonCPU(const Triple &TT, StringRef CPU);
 }
 

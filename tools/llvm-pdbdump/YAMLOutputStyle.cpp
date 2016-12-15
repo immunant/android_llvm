@@ -12,20 +12,29 @@
 #include "PdbYaml.h"
 #include "llvm-pdbdump.h"
 
+#include "llvm/DebugInfo/MSF/MappedBlockStream.h"
 #include "llvm/DebugInfo/PDB/Raw/DbiStream.h"
 #include "llvm/DebugInfo/PDB/Raw/InfoStream.h"
+#include "llvm/DebugInfo/PDB/Raw/ModStream.h"
 #include "llvm/DebugInfo/PDB/Raw/PDBFile.h"
 #include "llvm/DebugInfo/PDB/Raw/RawConstants.h"
+#include "llvm/DebugInfo/PDB/Raw/TpiStream.h"
 
 using namespace llvm;
 using namespace llvm::pdb;
 
-YAMLOutputStyle::YAMLOutputStyle(PDBFile &File) : File(File), Out(outs()) {}
+YAMLOutputStyle::YAMLOutputStyle(PDBFile &File)
+    : File(File), Out(outs()), Obj(File.getAllocator()) {}
 
 Error YAMLOutputStyle::dump() {
-  if (opts::pdb2yaml::StreamDirectory || opts::pdb2yaml::PdbStream ||
-      opts::pdb2yaml::DbiStream)
+  if (opts::pdb2yaml::StreamDirectory)
     opts::pdb2yaml::StreamMetadata = true;
+  if (opts::pdb2yaml::DbiModuleSyms)
+    opts::pdb2yaml::DbiModuleInfo = true;
+  if (opts::pdb2yaml::DbiModuleSourceFileInfo)
+    opts::pdb2yaml::DbiModuleInfo = true;
+  if (opts::pdb2yaml::DbiModuleInfo)
+    opts::pdb2yaml::DbiStream = true;
 
   if (auto EC = dumpFileHeaders())
     return EC;
@@ -42,6 +51,12 @@ Error YAMLOutputStyle::dump() {
   if (auto EC = dumpDbiStream())
     return EC;
 
+  if (auto EC = dumpTpiStream())
+    return EC;
+
+  if (auto EC = dumpIpiStream())
+    return EC;
+
   flush();
   return Error::success();
 }
@@ -50,11 +65,10 @@ Error YAMLOutputStyle::dumpFileHeaders() {
   if (opts::pdb2yaml::NoFileHeaders)
     return Error::success();
 
-  yaml::MsfHeaders Headers;
+  yaml::MSFHeaders Headers;
   Obj.Headers.emplace();
   Obj.Headers->SuperBlock.NumBlocks = File.getBlockCount();
   Obj.Headers->SuperBlock.BlockMapAddr = File.getBlockMapIndex();
-  Obj.Headers->BlockMapOffset = File.getBlockMapOffset();
   Obj.Headers->SuperBlock.BlockSize = File.getBlockSize();
   auto Blocks = File.getDirectoryBlockArray();
   Obj.Headers->DirectoryBlocks.assign(Blocks.begin(), Blocks.end());
@@ -62,7 +76,7 @@ Error YAMLOutputStyle::dumpFileHeaders() {
   Obj.Headers->SuperBlock.NumDirectoryBytes = File.getNumDirectoryBytes();
   Obj.Headers->NumStreams =
       opts::pdb2yaml::StreamMetadata ? File.getNumStreams() : 0;
-  Obj.Headers->SuperBlock.Unknown0 = File.getUnknown0();
+  Obj.Headers->SuperBlock.FreeBlockMapBlock = File.getFreeBlockMapBlock();
   Obj.Headers->SuperBlock.Unknown1 = File.getUnknown1();
   Obj.Headers->FileSize = File.getFileSize();
 
@@ -73,7 +87,9 @@ Error YAMLOutputStyle::dumpStreamMetadata() {
   if (!opts::pdb2yaml::StreamMetadata)
     return Error::success();
 
-  Obj.StreamSizes = File.getStreamSizes();
+  Obj.StreamSizes.emplace();
+  Obj.StreamSizes->assign(File.getStreamSizes().begin(),
+                          File.getStreamSizes().end());
   return Error::success();
 }
 
@@ -85,7 +101,7 @@ Error YAMLOutputStyle::dumpStreamDirectory() {
   Obj.StreamMap.emplace();
   for (auto &Stream : StreamMap) {
     pdb::yaml::StreamBlockList BlockList;
-    BlockList.Blocks = Stream;
+    BlockList.Blocks.assign(Stream.begin(), Stream.end());
     Obj.StreamMap->push_back(BlockList);
   }
 
@@ -106,6 +122,12 @@ Error YAMLOutputStyle::dumpPDBStream() {
   Obj.PdbStream->Guid = InfoS.getGuid();
   Obj.PdbStream->Signature = InfoS.getSignature();
   Obj.PdbStream->Version = InfoS.getVersion();
+  for (auto &NS : InfoS.named_streams()) {
+    yaml::NamedStreamMapping Mapping;
+    Mapping.StreamName = NS.getKey();
+    Mapping.StreamNumber = NS.getValue();
+    Obj.PdbStream->NamedStreams.push_back(Mapping);
+  }
 
   return Error::success();
 }
@@ -127,6 +149,79 @@ Error YAMLOutputStyle::dumpDbiStream() {
   Obj.DbiStream->PdbDllRbld = DS.getPdbDllRbld();
   Obj.DbiStream->PdbDllVersion = DS.getPdbDllVersion();
   Obj.DbiStream->VerHeader = DS.getDbiVersion();
+  if (opts::pdb2yaml::DbiModuleInfo) {
+    for (const auto &MI : DS.modules()) {
+      yaml::PdbDbiModuleInfo DMI;
+      DMI.Mod = MI.Info.getModuleName();
+      DMI.Obj = MI.Info.getObjFileName();
+      if (opts::pdb2yaml::DbiModuleSourceFileInfo)
+        DMI.SourceFiles = MI.SourceFiles;
+
+      if (opts::pdb2yaml::DbiModuleSyms &&
+          MI.Info.getModuleStreamIndex() != kInvalidStreamIndex) {
+        DMI.Modi.emplace();
+        auto ModStreamData = msf::MappedBlockStream::createIndexedStream(
+            File.getMsfLayout(), File.getMsfBuffer(),
+            MI.Info.getModuleStreamIndex());
+
+        pdb::ModStream ModS(MI.Info, std::move(ModStreamData));
+        if (auto EC = ModS.reload())
+          return EC;
+
+        DMI.Modi->Signature = ModS.signature();
+        bool HadError = false;
+        for (auto &Sym : ModS.symbols(&HadError)) {
+          pdb::yaml::PdbSymbolRecord Record{Sym};
+          DMI.Modi->Symbols.push_back(Record);
+        }
+      }
+      Obj.DbiStream->ModInfos.push_back(DMI);
+    }
+  }
+  return Error::success();
+}
+
+Error YAMLOutputStyle::dumpTpiStream() {
+  if (!opts::pdb2yaml::TpiStream)
+    return Error::success();
+
+  auto TpiS = File.getPDBTpiStream();
+  if (!TpiS)
+    return TpiS.takeError();
+
+  auto &TS = TpiS.get();
+  Obj.TpiStream.emplace();
+  Obj.TpiStream->Version = TS.getTpiVersion();
+  for (auto &Record : TS.types(nullptr)) {
+    yaml::PdbTpiRecord R;
+    // It's not necessary to set R.RecordData here.  That only exists as a
+    // way to have the `PdbTpiRecord` structure own the memory that `R.Record`
+    // references.  In the case of reading an existing PDB though, that memory
+    // is owned by the backing stream.
+    R.Record = Record;
+    Obj.TpiStream->Records.push_back(R);
+  }
+
+  return Error::success();
+}
+
+Error YAMLOutputStyle::dumpIpiStream() {
+  if (!opts::pdb2yaml::IpiStream)
+    return Error::success();
+
+  auto IpiS = File.getPDBIpiStream();
+  if (!IpiS)
+    return IpiS.takeError();
+
+  auto &IS = IpiS.get();
+  Obj.IpiStream.emplace();
+  Obj.IpiStream->Version = IS.getTpiVersion();
+  for (auto &Record : IS.types(nullptr)) {
+    yaml::PdbTpiRecord R;
+    R.Record = Record;
+    Obj.IpiStream->Records.push_back(R);
+  }
+
   return Error::success();
 }
 

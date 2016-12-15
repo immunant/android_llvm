@@ -40,11 +40,11 @@ using namespace llvm;
 /// Return true if the specified function should have a dedicated frame pointer
 /// register.
 bool WebAssemblyFrameLowering::hasFP(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
   const auto *RegInfo =
       MF.getSubtarget<WebAssemblySubtarget>().getRegisterInfo();
-  return MFI->isFrameAddressTaken() || MFI->hasVarSizedObjects() ||
-         MFI->hasStackMap() || MFI->hasPatchPoint() ||
+  return MFI.isFrameAddressTaken() || MFI.hasVarSizedObjects() ||
+         MFI.hasStackMap() || MFI.hasPatchPoint() ||
          RegInfo->needsStackRealignment(MF);
 }
 
@@ -55,7 +55,7 @@ bool WebAssemblyFrameLowering::hasFP(const MachineFunction &MF) const {
 /// frame.
 bool WebAssemblyFrameLowering::hasReservedCallFrame(
     const MachineFunction &MF) const {
-  return !MF.getFrameInfo()->hasVarSizedObjects();
+  return !MF.getFrameInfo().hasVarSizedObjects();
 }
 
 
@@ -88,18 +88,17 @@ static void writeSPToMemory(unsigned SrcReg, MachineFunction &MF,
   const TargetRegisterClass *PtrRC =
       MRI.getTargetRegisterInfo()->getPointerRegClass(MF);
   unsigned Zero = MRI.createVirtualRegister(PtrRC);
-  unsigned Drop = MRI.createVirtualRegister(PtrRC);
   const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
 
   BuildMI(MBB, InsertAddr, DL, TII->get(WebAssembly::CONST_I32), Zero)
       .addImm(0);
-  auto *MMO = new MachineMemOperand(MachinePointerInfo(MF.getPSVManager()
-                                        .getExternalSymbolCallEntry(ES)),
-                                    MachineMemOperand::MOStore, 4, 4);
-  BuildMI(MBB, InsertStore, DL, TII->get(WebAssembly::STORE_I32), Drop)
+  MachineMemOperand *MMO = MF.getMachineMemOperand(
+      MachinePointerInfo(MF.getPSVManager().getExternalSymbolCallEntry(ES)),
+      MachineMemOperand::MOStore, 4, 4);
+  BuildMI(MBB, InsertStore, DL, TII->get(WebAssembly::STORE_I32))
+      .addImm(2)  // p2align
       .addExternalSymbol(SPSymbol)
       .addReg(Zero)
-      .addImm(2)  // p2align
       .addReg(SrcReg)
       .addMemOperand(MMO);
 }
@@ -112,7 +111,7 @@ WebAssemblyFrameLowering::eliminateCallFramePseudoInstr(
          "Call frame pseudos should only be used for dynamic stack adjustment");
   const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
   if (I->getOpcode() == TII->getCallFrameDestroyOpcode() &&
-      needsSPWriteback(MF, *MF.getFrameInfo())) {
+      needsSPWriteback(MF, MF.getFrameInfo())) {
     DebugLoc DL = I->getDebugLoc();
     writeSPToMemory(WebAssembly::SP32, MF, MBB, I, I, DL);
   }
@@ -122,12 +121,12 @@ WebAssemblyFrameLowering::eliminateCallFramePseudoInstr(
 void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
                                             MachineBasicBlock &MBB) const {
   // TODO: Do ".setMIFlag(MachineInstr::FrameSetup)" on emitted instructions
-  auto *MFI = MF.getFrameInfo();
-  assert(MFI->getCalleeSavedInfo().empty() &&
+  auto &MFI = MF.getFrameInfo();
+  assert(MFI.getCalleeSavedInfo().empty() &&
          "WebAssembly should not have callee-saved registers");
 
-  if (!needsSP(MF, *MFI)) return;
-  uint64_t StackSize = MFI->getStackSize();
+  if (!needsSP(MF, MFI)) return;
+  uint64_t StackSize = MFI.getStackSize();
 
   const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
   auto &MRI = MF.getRegInfo();
@@ -143,15 +142,15 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
   auto *SPSymbol = MF.createExternalSymbolName(ES);
   BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::CONST_I32), Zero)
       .addImm(0);
-  auto *LoadMMO = new MachineMemOperand(MachinePointerInfo(MF.getPSVManager()
-                                            .getExternalSymbolCallEntry(ES)),
-                                        MachineMemOperand::MOLoad, 4, 4);
+  MachineMemOperand *LoadMMO = MF.getMachineMemOperand(
+      MachinePointerInfo(MF.getPSVManager().getExternalSymbolCallEntry(ES)),
+      MachineMemOperand::MOLoad, 4, 4);
   // Load the SP value.
   BuildMI(MBB, InsertPt, DL, TII->get(WebAssembly::LOAD_I32),
           StackSize ? SPReg : (unsigned)WebAssembly::SP32)
+      .addImm(2)       // p2align
       .addExternalSymbol(SPSymbol)
       .addReg(Zero)    // addr
-      .addImm(2)       // p2align
       .addMemOperand(LoadMMO);
 
   if (StackSize) {
@@ -172,16 +171,16 @@ void WebAssemblyFrameLowering::emitPrologue(MachineFunction &MF,
             WebAssembly::FP32)
         .addReg(WebAssembly::SP32);
   }
-  if (StackSize && needsSPWriteback(MF, *MFI)) {
+  if (StackSize && needsSPWriteback(MF, MFI)) {
     writeSPToMemory(WebAssembly::SP32, MF, MBB, InsertPt, InsertPt, DL);
   }
 }
 
 void WebAssemblyFrameLowering::emitEpilogue(MachineFunction &MF,
                                             MachineBasicBlock &MBB) const {
-  auto *MFI = MF.getFrameInfo();
-  uint64_t StackSize = MFI->getStackSize();
-  if (!needsSP(MF, *MFI) || !needsSPWriteback(MF, *MFI)) return;
+  auto &MFI = MF.getFrameInfo();
+  uint64_t StackSize = MFI.getStackSize();
+  if (!needsSP(MF, MFI) || !needsSPWriteback(MF, MFI)) return;
   const auto *TII = MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
   auto &MRI = MF.getRegInfo();
   auto InsertPt = MBB.getFirstTerminator();
