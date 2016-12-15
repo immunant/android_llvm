@@ -44,7 +44,7 @@ public:
                                        unsigned OpIdx1,
                                        unsigned OpIdx2) const override;
 
-  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+  bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify = false) const override;

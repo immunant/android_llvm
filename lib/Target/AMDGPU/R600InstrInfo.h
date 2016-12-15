@@ -160,7 +160,8 @@ public:
   bool ReverseBranchCondition(
     SmallVectorImpl<MachineOperand> &Cond) const override;
 
-  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+  bool AnalyzeBranch(MachineBasicBlock &MBB,
+                     MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify) const override;

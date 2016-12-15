@@ -149,7 +149,7 @@ public:
   bool findCommutedOpIndices(MachineInstr &MI, unsigned &SrcOpIdx1,
                              unsigned &SrcOpIdx2) const override;
 
-  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+  bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify) const override;

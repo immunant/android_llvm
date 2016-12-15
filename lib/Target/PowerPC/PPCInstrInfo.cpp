@@ -444,8 +444,7 @@ void PPCInstrInfo::getNoopForMachoTarget(MCInst &NopInst) const {
 // Branch analysis.
 // Note: If the condition register is set to CTR or CTR8 then this is a
 // BDNZ (imm == 1) or BDZ (imm == 0) branch.
-bool PPCInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
-                                 MachineBasicBlock *&TBB,
+bool PPCInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
                                  MachineBasicBlock *&FBB,
                                  SmallVectorImpl<MachineOperand> &Cond,
                                  bool AllowModify) const {

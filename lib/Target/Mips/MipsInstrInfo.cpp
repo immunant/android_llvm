@@ -83,13 +83,13 @@ void MipsInstrInfo::AnalyzeCondBr(const MachineInstr *Inst, unsigned Opc,
     Cond.push_back(Inst->getOperand(i));
 }
 
-bool MipsInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+bool MipsInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                   MachineBasicBlock *&TBB,
                                   MachineBasicBlock *&FBB,
                                   SmallVectorImpl<MachineOperand> &Cond,
                                   bool AllowModify) const {
   SmallVector<MachineInstr*, 2> BranchInstrs;
-  BranchType BT = analyzeBranch(MBB, TBB, FBB, Cond, AllowModify, BranchInstrs);
+  BranchType BT = AnalyzeBranch(MBB, TBB, FBB, Cond, AllowModify, BranchInstrs);
 
   return (BT == BT_None) || (BT == BT_Indirect);
 }
@@ -176,7 +176,7 @@ bool MipsInstrInfo::ReverseBranchCondition(
   return false;
 }
 
-MipsInstrInfo::BranchType MipsInstrInfo::analyzeBranch(
+MipsInstrInfo::BranchType MipsInstrInfo::AnalyzeBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
     SmallVectorImpl<MachineOperand> &Cond, bool AllowModify,
     SmallVectorImpl<MachineInstr *> &BranchInstrs) const {

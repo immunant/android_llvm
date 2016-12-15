@@ -75,7 +75,7 @@ void BPFInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     llvm_unreachable("Can't load this register from stack slot");
 }
 
-bool BPFInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+bool BPFInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                  MachineBasicBlock *&TBB,
                                  MachineBasicBlock *&FBB,
                                  SmallVectorImpl<MachineOperand> &Cond,

@@ -120,7 +120,7 @@ public:
                                      const ScheduleDAG *DAG) const override;
 
   // Branch analysis.
-  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+  bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,
                      bool AllowModify = false) const override;

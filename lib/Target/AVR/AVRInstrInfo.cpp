@@ -238,7 +238,7 @@ AVRCC::CondCodes AVRInstrInfo::getOppositeCondition(AVRCC::CondCodes CC) const {
   }
 }
 
-bool AVRInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+bool AVRInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                  MachineBasicBlock *&TBB,
                                  MachineBasicBlock *&FBB,
                                  SmallVectorImpl<MachineOperand> &Cond,
