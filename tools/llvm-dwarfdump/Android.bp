@@ -8,6 +8,7 @@ cc_binary_host {
     srcs: ["llvm-dwarfdump.cpp"],
     static_libs: [
         "libLLVMDebugInfoDWARF",
+        "libLLVMDebugInfoMSF",
         "libLLVMDebugInfoPDB",
         "libLLVMObject",
         "libLLVMBitReader",

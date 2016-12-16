@@ -129,7 +129,7 @@ cc_library_headers {
 llvm_tblgen {
     name: "llvm-gen-attributes",
     in: "include/llvm/IR/Attributes.td",
-    outs: ["llvm/IR/Attributes.inc"],
+    outs: ["llvm/IR/Attributes.gen"],
 }
 
 llvm_tblgen {
@@ -197,6 +197,7 @@ cc_library_shared {
         "libLLVMLinker",
         "libLLVMipo",
         "libLLVMDebugInfoDWARF",
+        "libLLVMDebugInfoMSF",
         "libLLVMDebugInfoPDB",
         "libLLVMSymbolize",
         "libLLVMIRReader",
@@ -210,6 +211,7 @@ cc_library_shared {
         "libLLVMCodeGen",
         "libLLVMDebugInfoCodeView",
         "libLLVMObject",
+        "libLLVMCoroutines",
         "libLLVMScalarOpts",
         "libLLVMInstCombine",
         "libLLVMInstrumentation",
@@ -226,8 +228,10 @@ cc_library_shared {
         "libLLVMOption",
         "libLLVMSupport",
         "libLLVMVectorize",
+        "libLLVMPasses",
         "libLLVMProfileData",
         "libLLVMProfileDataCoverage",
+        "libLLVMDemangle",
         "libLLVMLibDriver",
     ],
 

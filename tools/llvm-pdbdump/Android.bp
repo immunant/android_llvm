@@ -5,6 +5,7 @@ cc_binary_host {
     static_libs: [
         "libLLVMDebugInfoPDB",
         "libLLVMDebugInfoCodeView",
+        "libLLVMDebugInfoMSF",
         "libLLVMSupport",
     ],
 }
