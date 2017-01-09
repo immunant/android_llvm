@@ -126,7 +126,7 @@ func outToGenerator(ctx android.ModuleContext, out string) string {
 		return "-gen-arm-decoder"
 	case strings.HasSuffix(out, "Options.inc"):
 		return "-gen-opt-parser-defs"
-	case out == "Attributes.inc", out == "AttributesCompatFunc.inc":
+	case out == "Attributes.gen", out == "AttributesCompatFunc.inc":
 		return "-gen-attrs"
 	case out == "Intrinsics.gen":
 		return "-gen-intrinsic"

@@ -69,10 +69,6 @@ static cl::opt<bool>
 AssumeMisalignedLoadStores("arm-assume-misaligned-load-store", cl::Hidden,
     cl::init(false), cl::desc("Be more conservative in ARM load/store opt"));
 
-namespace llvm {
-void initializeARMLoadStoreOptPass(PassRegistry &);
-}
-
 #define ARM_LOAD_STORE_OPT_NAME "ARM load / store optimization pass"
 
 namespace {
@@ -80,9 +76,7 @@ namespace {
   /// form ldm / stm instructions.
   struct ARMLoadStoreOpt : public MachineFunctionPass {
     static char ID;
-    ARMLoadStoreOpt() : MachineFunctionPass(ID) {
-      initializeARMLoadStoreOptPass(*PassRegistry::getPassRegistry());
-    }
+    ARMLoadStoreOpt() : MachineFunctionPass(ID) {}
 
     const MachineFunction *MF;
     const TargetInstrInfo *TII;
@@ -101,12 +95,10 @@ namespace {
 
     MachineFunctionProperties getRequiredProperties() const override {
       return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::AllVRegsAllocated);
+          MachineFunctionProperties::Property::NoVRegs);
     }
 
-    const char *getPassName() const override {
-      return ARM_LOAD_STORE_OPT_NAME;
-    }
+    StringRef getPassName() const override { return ARM_LOAD_STORE_OPT_NAME; }
 
   private:
     /// A set of load/store MachineInstrs with same base register sorted by
@@ -172,7 +164,8 @@ namespace {
   char ARMLoadStoreOpt::ID = 0;
 }
 
-INITIALIZE_PASS(ARMLoadStoreOpt, "arm-load-store-opt", ARM_LOAD_STORE_OPT_NAME, false, false)
+INITIALIZE_PASS(ARMLoadStoreOpt, "arm-ldst-opt", ARM_LOAD_STORE_OPT_NAME, false,
+                false)
 
 static bool definesCPSR(const MachineInstr &MI) {
   for (const auto &MO : MI.operands()) {
@@ -839,7 +832,7 @@ MachineInstr *ARMLoadStoreOpt::MergeOpsUpdate(const MergeCandidate &Cand) {
         assert(MO.isImplicit());
         unsigned DefReg = MO.getReg();
 
-        if (std::find(ImpDefs.begin(), ImpDefs.end(), DefReg) != ImpDefs.end())
+        if (is_contained(ImpDefs, DefReg))
           continue;
         // We can ignore cases where the super-reg is read and written.
         if (MI->readsRegister(DefReg))
@@ -1856,7 +1849,7 @@ bool ARMLoadStoreOpt::MergeReturnIntoLDM(MachineBasicBlock &MBB) {
   if (MBB.empty()) return false;
 
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
-  if (MBBI != MBB.begin() &&
+  if (MBBI != MBB.begin() && MBBI != MBB.end() &&
       (MBBI->getOpcode() == ARM::BX_RET ||
        MBBI->getOpcode() == ARM::tBX_RET ||
        MBBI->getOpcode() == ARM::MOVPCLR)) {
@@ -1939,10 +1932,6 @@ bool ARMLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {
   return Modified;
 }
 
-namespace llvm {
-void initializeARMPreAllocLoadStoreOptPass(PassRegistry &);
-}
-
 #define ARM_PREALLOC_LOAD_STORE_OPT_NAME                                       \
   "ARM pre- register allocation load / store optimization pass"
 
@@ -1951,9 +1940,7 @@ namespace {
   /// locations close to make it more likely they will be combined later.
   struct ARMPreAllocLoadStoreOpt : public MachineFunctionPass{
     static char ID;
-    ARMPreAllocLoadStoreOpt() : MachineFunctionPass(ID) {
-      initializeARMPreAllocLoadStoreOptPass(*PassRegistry::getPassRegistry());
-    }
+    ARMPreAllocLoadStoreOpt() : MachineFunctionPass(ID) {}
 
     const DataLayout *TD;
     const TargetInstrInfo *TII;
@@ -1964,7 +1951,7 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &Fn) override;
 
-    const char *getPassName() const override {
+    StringRef getPassName() const override {
       return ARM_PREALLOC_LOAD_STORE_OPT_NAME;
     }
 
@@ -1984,7 +1971,7 @@ namespace {
   char ARMPreAllocLoadStoreOpt::ID = 0;
 }
 
-INITIALIZE_PASS(ARMPreAllocLoadStoreOpt, "arm-prera-load-store-opt",
+INITIALIZE_PASS(ARMPreAllocLoadStoreOpt, "arm-prera-ldst-opt",
                 ARM_PREALLOC_LOAD_STORE_OPT_NAME, false, false)
 
 bool ARMPreAllocLoadStoreOpt::runOnMachineFunction(MachineFunction &Fn) {

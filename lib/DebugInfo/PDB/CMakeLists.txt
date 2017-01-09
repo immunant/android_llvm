@@ -31,22 +31,25 @@ add_pdb_impl_folder(Raw
   Raw/DbiStream.cpp
   Raw/DbiStreamBuilder.cpp
   Raw/EnumTables.cpp
+  Raw/GlobalsStream.cpp
+  Raw/GSI.cpp
   Raw/Hash.cpp
-  Raw/IndexedStreamData.cpp
   Raw/InfoStream.cpp
   Raw/InfoStreamBuilder.cpp
-  Raw/MappedBlockStream.cpp
   Raw/ModInfo.cpp
   Raw/ModStream.cpp
   Raw/NameHashTable.cpp
   Raw/NameMap.cpp
+  Raw/NameMapBuilder.cpp
   Raw/PDBFile.cpp
   Raw/PDBFileBuilder.cpp
   Raw/PublicsStream.cpp
   Raw/RawError.cpp
   Raw/RawSession.cpp
   Raw/SymbolStream.cpp
-  Raw/TpiStream.cpp)
+  Raw/TpiHashing.cpp
+  Raw/TpiStream.cpp
+  Raw/TpiStreamBuilder.cpp)
 
 list(APPEND LIBPDB_ADDITIONAL_HEADER_DIRS "${LLVM_MAIN_INCLUDE_DIR}/llvm/DebugInfo/PDB/Raw")
 list(APPEND LIBPDB_ADDITIONAL_HEADER_DIRS "${LLVM_MAIN_INCLUDE_DIR}/llvm/DebugInfo/PDB")

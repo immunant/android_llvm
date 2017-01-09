@@ -165,7 +165,7 @@ namespace {
         : SelectionDAGISel(tm, OptLevel), OptForSize(false),
           OptForMinSize(false) {}
 
-    const char *getPassName() const override {
+    StringRef getPassName() const override {
       return "X86 DAG->DAG Instruction Selection";
     }
 
@@ -629,13 +629,11 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
     SDLoc dl(N);
 
     // FIXME: optimize the case where the src/dest is a load or store?
-    SDValue Store = CurDAG->getTruncStore(CurDAG->getEntryNode(), dl,
-                                          N->getOperand(0),
-                                          MemTmp, MachinePointerInfo(), MemVT,
-                                          false, false, 0);
+    SDValue Store =
+        CurDAG->getTruncStore(CurDAG->getEntryNode(), dl, N->getOperand(0),
+                              MemTmp, MachinePointerInfo(), MemVT);
     SDValue Result = CurDAG->getExtLoad(ISD::EXTLOAD, dl, DstVT, Store, MemTmp,
-                                        MachinePointerInfo(),
-                                        MemVT, false, false, false, 0);
+                                        MachinePointerInfo(), MemVT);
 
     // We're about to replace all uses of the FP_ROUND/FP_EXTEND with the
     // extload we created.  This will cause general havok on the dag because
@@ -1236,7 +1234,7 @@ bool X86DAGToDAGISel::matchAddressRecursively(SDValue N, X86ISelAddressMode &AM,
   case ISD::UMUL_LOHI:
     // A mul_lohi where we need the low part can be folded as a plain multiply.
     if (N.getResNo() != 0) break;
-    // FALL THROUGH
+    LLVM_FALLTHROUGH;
   case ISD::MUL:
   case X86ISD::MUL_IMM:
     // X*[3,5,9] -> X+X*[2,4,8]
@@ -1437,7 +1435,7 @@ bool X86DAGToDAGISel::selectVectorAddr(SDNode *Parent, SDValue N, SDValue &Base,
   SDLoc DL(N);
   Base = Mgs->getBasePtr();
   Index = Mgs->getIndex();
-  unsigned ScalarSize = Mgs->getValue().getValueType().getScalarSizeInBits();
+  unsigned ScalarSize = Mgs->getValue().getScalarValueSizeInBits();
   Scale = getI8Imm(ScalarSize/8, DL);
 
   // If Base is 0, the whole address is in index and the Scale is 1
@@ -2702,7 +2700,7 @@ SelectInlineAsmMemoryOperand(const SDValue &Op, unsigned ConstraintID,
   case InlineAsm::Constraint_i:
     // FIXME: It seems strange that 'i' is needed here since it's supposed to
     //        be an immediate and not a memory constraint.
-    // Fallthrough.
+    LLVM_FALLTHROUGH;
   case InlineAsm::Constraint_o: // offsetable        ??
   case InlineAsm::Constraint_v: // not offsetable    ??
   case InlineAsm::Constraint_m: // memory

@@ -5,11 +5,13 @@ add_llvm_library(LLVMCodeGen
   AtomicExpandPass.cpp
   BasicTargetTransformInfo.cpp
   BranchFolding.cpp
+  BranchRelaxation.cpp
   BuiltinGCs.cpp
   CalcSpillWeights.cpp
   CallingConvLower.cpp
   CodeGen.cpp
   CodeGenPrepare.cpp
+  CountingFunctionInserter.cpp
   CriticalAntiDepBreaker.cpp
   DeadMachineInstructionElim.cpp
   DetectDeadLanes.cpp
@@ -48,6 +50,7 @@ add_llvm_library(LLVMCodeGen
   LiveVariables.cpp
   LLVMTargetMachine.cpp
   LocalStackSlotAllocation.cpp
+  LowLevelType.cpp
   LowerEmuTLS.cpp
   MachineBasicBlock.cpp
   MachineBlockFrequencyInfo.cpp
@@ -58,7 +61,6 @@ add_llvm_library(LLVMCodeGen
   MachineCSE.cpp
   MachineDominanceFrontier.cpp
   MachineDominators.cpp
-  MachineFunctionAnalysis.cpp
   MachineFunction.cpp
   MachineFunctionPass.cpp
   MachineFunctionPrinterPass.cpp
@@ -105,6 +107,7 @@ add_llvm_library(LLVMCodeGen
   RegisterUsageInfo.cpp
   RegUsageInfoCollector.cpp
   RegUsageInfoPropagate.cpp
+  ResetMachineFunctionPass.cpp
   SafeStack.cpp
   SafeStackColoring.cpp
   SafeStackLayout.cpp

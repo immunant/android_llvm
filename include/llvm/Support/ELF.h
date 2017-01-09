@@ -310,7 +310,9 @@ enum {
   EM_NORC          = 218, // Nanoradio Optimized RISC
   EM_CSR_KALIMBA   = 219, // CSR Kalimba architecture family
   EM_AMDGPU        = 224, // AMD GPU architecture
+  EM_RISCV         = 243, // RISC-V
   EM_LANAI         = 244, // Lanai 32-bit processor
+  EM_BPF           = 247, // Linux kernel bpf virtual machine
 
   // A request has been made to the maintainer of the official registry for
   // such numbers for an official value for WebAssembly. As soon as one is
@@ -596,6 +598,11 @@ enum {
 #include "ELFRelocs/Lanai.def"
 };
 
+// ELF Relocation types for RISC-V
+enum {
+#include "ELFRelocs/RISCV.def"
+};
+
 // ELF Relocation types for S390/zSeries
 enum {
 #include "ELFRelocs/SystemZ.def"
@@ -614,6 +621,11 @@ enum {
 // ELF Relocation types for AMDGPU
 enum {
 #include "ELFRelocs/AMDGPU.def"
+};
+
+// ELF Relocation types for BPF
+enum {
+#include "ELFRelocs/BPF.def"
 };
 
 #undef ELF_RELOC
@@ -1030,8 +1042,11 @@ enum {
   PT_SUNW_EH_FRAME = 0x6474e550,
   PT_SUNW_UNWIND   = 0x6464e550,
 
-  PT_GNU_STACK  = 0x6474e551, // Indicates stack executability.
-  PT_GNU_RELRO  = 0x6474e552, // Read-only after relocation.
+  PT_GNU_STACK = 0x6474e551, // Indicates stack executability.
+  PT_GNU_RELRO = 0x6474e552, // Read-only after relocation.
+
+  PT_OPENBSD_RANDOMIZE = 0x65a3dbe6, // Fill with random data.
+  PT_OPENBSD_WXNEEDED  = 0x65a3dbe7, // Program does W^X violations.
 
   // ARM program header types.
   PT_ARM_ARCHEXT = 0x70000000, // Platform architecture compatibility info
@@ -1317,7 +1332,20 @@ enum {
 
 // SHT_NOTE section types
 enum {
-  NT_GNU_BUILD_ID = 3
+  NT_GNU_ABI_TAG = 1,
+  NT_GNU_HWCAP = 2,
+  NT_GNU_BUILD_ID = 3,
+  NT_GNU_GOLD_VERSION = 4,
+};
+
+enum {
+  GNU_ABI_TAG_LINUX = 0,
+  GNU_ABI_TAG_HURD = 1,
+  GNU_ABI_TAG_SOLARIS = 2,
+  GNU_ABI_TAG_FREEBSD = 3,
+  GNU_ABI_TAG_NETBSD = 4,
+  GNU_ABI_TAG_SYLLABLE = 5,
+  GNU_ABI_TAG_NACL = 6,
 };
 
 // Compressed section header for ELF32.

@@ -10,6 +10,8 @@ cc_library_static {
     // set, these files fail compilation based on a macro check.
     exclude_srcs: [
         "AArch64CallLowering.cpp",
+        "AArch64InstructionSelector.cpp",
+        "AArch64LegalizerInfo.cpp",
         "AArch64RegisterBankInfo.cpp",
     ],
 }

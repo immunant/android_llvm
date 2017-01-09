@@ -1,6 +1,7 @@
 add_llvm_library(LLVMDebugInfoCodeView
-  ByteStream.cpp
   CodeViewError.cpp
+  CodeViewRecordIO.cpp
+  CVSymbolVisitor.cpp
   CVTypeVisitor.cpp
   EnumTables.cpp
   FieldListRecordBuilder.cpp
@@ -11,12 +12,11 @@ add_llvm_library(LLVMDebugInfoCodeView
   ModuleSubstream.cpp
   ModuleSubstreamVisitor.cpp
   RecordSerialization.cpp
-  StreamReader.cpp
-  StreamWriter.cpp
   SymbolDumper.cpp
   TypeDumper.cpp
   TypeRecord.cpp
   TypeRecordBuilder.cpp
+  TypeRecordMapping.cpp
   TypeStreamMerger.cpp
   TypeTableBuilder.cpp
 

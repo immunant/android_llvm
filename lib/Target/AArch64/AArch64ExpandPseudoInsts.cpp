@@ -23,10 +23,6 @@
 #include "llvm/Support/MathExtras.h"
 using namespace llvm;
 
-namespace llvm {
-void initializeAArch64ExpandPseudoPass(PassRegistry &);
-}
-
 #define AARCH64_EXPAND_PSEUDO_NAME "AArch64 pseudo instruction expansion pass"
 
 namespace {
@@ -41,9 +37,7 @@ public:
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
-  const char *getPassName() const override {
-    return AARCH64_EXPAND_PSEUDO_NAME;
-  }
+  StringRef getPassName() const override { return AARCH64_EXPAND_PSEUDO_NAME; }
 
 private:
   bool expandMBB(MachineBasicBlock &MBB);

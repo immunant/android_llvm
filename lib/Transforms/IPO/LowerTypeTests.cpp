@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/IPO/LowerTypeTests.h"
-#include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/EquivalenceClasses.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/IR/Constant.h"
@@ -25,12 +25,15 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 
 using namespace llvm;
 using namespace lowertypetests;
@@ -79,8 +82,7 @@ bool BitSetInfo::containsValue(
     if (!Result)
       return false;
     COffset += APOffset.getZExtValue();
-    return containsValue(DL, GlobalLayout, GEP->getPointerOperand(),
-                         COffset);
+    return containsValue(DL, GlobalLayout, GEP->getPointerOperand(), COffset);
   }
 
   if (auto Op = dyn_cast<Operator>(V)) {
@@ -204,28 +206,30 @@ struct ByteArrayInfo {
   Constant *Mask;
 };
 
-struct LowerTypeTests : public ModulePass {
-  static char ID;
-  LowerTypeTests() : ModulePass(ID) {
-    initializeLowerTypeTestsPass(*PassRegistry::getPassRegistry());
-  }
-
-  Module *M;
+class LowerTypeTestsModule {
+  Module &M;
 
   bool LinkerSubsectionsViaSymbols;
   Triple::ArchType Arch;
   Triple::ObjectFormatType ObjectFormat;
-  IntegerType *Int1Ty;
-  IntegerType *Int8Ty;
-  IntegerType *Int32Ty;
-  Type *Int32PtrTy;
-  IntegerType *Int64Ty;
-  IntegerType *IntPtrTy;
+
+  IntegerType *Int1Ty = Type::getInt1Ty(M.getContext());
+  IntegerType *Int8Ty = Type::getInt8Ty(M.getContext());
+  IntegerType *Int32Ty = Type::getInt32Ty(M.getContext());
+  PointerType *Int32PtrTy = PointerType::getUnqual(Int32Ty);
+  IntegerType *Int64Ty = Type::getInt64Ty(M.getContext());
+  IntegerType *IntPtrTy = M.getDataLayout().getIntPtrType(M.getContext(), 0);
+
+  // Indirect function call index assignment counter for WebAssembly
+  uint64_t IndirectIndex = 1;
 
   // Mapping from type identifiers to the call sites that test them.
   DenseMap<Metadata *, std::vector<CallInst *>> TypeTestCallSites;
 
   std::vector<ByteArrayInfo> ByteArrayInfos;
+
+  Mangler Mang;
+  Function *WeakInitializerFn = nullptr;
 
   BitSetInfo
   buildBitSet(Metadata *TypeId,
@@ -245,15 +249,40 @@ struct LowerTypeTests : public ModulePass {
                                        ArrayRef<GlobalVariable *> Globals);
   unsigned getJumpTableEntrySize();
   Type *getJumpTableEntryType();
-  Constant *createJumpTableEntry(GlobalObject *Src, Function *Dest,
-                                 unsigned Distance);
+  void createJumpTableEntry(raw_ostream &OS, Function *Dest, unsigned Distance);
+  void createJumpTableAlias(raw_ostream &OS, Function *Dest,
+                            GlobalVariable *JumpTable, unsigned Distance);
   void verifyTypeMDNode(GlobalObject *GO, MDNode *Type);
   void buildBitSetsFromFunctions(ArrayRef<Metadata *> TypeIds,
                                  ArrayRef<Function *> Functions);
+  void buildBitSetsFromFunctionsNative(ArrayRef<Metadata *> TypeIds,
+                                    ArrayRef<Function *> Functions);
+  void buildBitSetsFromFunctionsWASM(ArrayRef<Metadata *> TypeIds,
+                                     ArrayRef<Function *> Functions);
   void buildBitSetsFromDisjointSet(ArrayRef<Metadata *> TypeIds,
                                    ArrayRef<GlobalObject *> Globals);
+
+  void replaceWeakDeclarationWithJumpTablePtr(Function *F, Constant *JT);
+  void moveInitializerToModuleConstructor(GlobalVariable *GV);
+  void findGlobalVariableUsersOf(Constant *C,
+                                 SmallSetVector<GlobalVariable *, 8> &Out);
+
+public:
+  LowerTypeTestsModule(Module &M);
   bool lower();
-  bool runOnModule(Module &M) override;
+};
+
+struct LowerTypeTests : public ModulePass {
+  static char ID;
+  LowerTypeTests() : ModulePass(ID) {
+    initializeLowerTypeTestsPass(*PassRegistry::getPassRegistry());
+  }
+
+  bool runOnModule(Module &M) override {
+    if (skipModule(M))
+      return false;
+    return LowerTypeTestsModule(M).lower();
+  }
 };
 
 } // anonymous namespace
@@ -266,9 +295,8 @@ ModulePass *llvm::createLowerTypeTestsPass() { return new LowerTypeTests; }
 
 /// Build a bit set for TypeId using the object layouts in
 /// GlobalLayout.
-BitSetInfo LowerTypeTests::buildBitSet(
-    Metadata *TypeId,
-    const DenseMap<GlobalObject *, uint64_t> &GlobalLayout) {
+BitSetInfo LowerTypeTestsModule::buildBitSet(
+    Metadata *TypeId, const DenseMap<GlobalObject *, uint64_t> &GlobalLayout) {
   BitSetBuilder BSB;
 
   // Compute the byte offset of each address associated with this type
@@ -281,8 +309,9 @@ BitSetInfo LowerTypeTests::buildBitSet(
       if (Type->getOperand(1) != TypeId)
         continue;
       uint64_t Offset =
-          cast<ConstantInt>(cast<ConstantAsMetadata>(Type->getOperand(0))
-                                ->getValue())->getZExtValue();
+          cast<ConstantInt>(
+              cast<ConstantAsMetadata>(Type->getOperand(0))->getValue())
+              ->getZExtValue();
       BSB.addOffset(GlobalAndOffset.second + Offset);
     }
   }
@@ -305,14 +334,14 @@ static Value *createMaskedBitTest(IRBuilder<> &B, Value *Bits,
   return B.CreateICmpNE(MaskedBits, ConstantInt::get(BitsType, 0));
 }
 
-ByteArrayInfo *LowerTypeTests::createByteArray(BitSetInfo &BSI) {
+ByteArrayInfo *LowerTypeTestsModule::createByteArray(BitSetInfo &BSI) {
   // Create globals to stand in for byte arrays and masks. These never actually
   // get initialized, we RAUW and erase them later in allocateByteArrays() once
   // we know the offset and mask to use.
   auto ByteArrayGlobal = new GlobalVariable(
-      *M, Int8Ty, /*isConstant=*/true, GlobalValue::PrivateLinkage, nullptr);
-  auto MaskGlobal = new GlobalVariable(
-      *M, Int8Ty, /*isConstant=*/true, GlobalValue::PrivateLinkage, nullptr);
+      M, Int8Ty, /*isConstant=*/true, GlobalValue::PrivateLinkage, nullptr);
+  auto MaskGlobal = new GlobalVariable(M, Int8Ty, /*isConstant=*/true,
+                                       GlobalValue::PrivateLinkage, nullptr);
 
   ByteArrayInfos.emplace_back();
   ByteArrayInfo *BAI = &ByteArrayInfos.back();
@@ -324,7 +353,7 @@ ByteArrayInfo *LowerTypeTests::createByteArray(BitSetInfo &BSI) {
   return BAI;
 }
 
-void LowerTypeTests::allocateByteArrays() {
+void LowerTypeTestsModule::allocateByteArrays() {
   std::stable_sort(ByteArrayInfos.begin(), ByteArrayInfos.end(),
                    [](const ByteArrayInfo &BAI1, const ByteArrayInfo &BAI2) {
                      return BAI1.BitSize > BAI2.BitSize;
@@ -343,9 +372,9 @@ void LowerTypeTests::allocateByteArrays() {
     cast<GlobalVariable>(BAI->Mask->getOperand(0))->eraseFromParent();
   }
 
-  Constant *ByteArrayConst = ConstantDataArray::get(M->getContext(), BAB.Bytes);
+  Constant *ByteArrayConst = ConstantDataArray::get(M.getContext(), BAB.Bytes);
   auto ByteArray =
-      new GlobalVariable(*M, ByteArrayConst->getType(), /*isConstant=*/true,
+      new GlobalVariable(M, ByteArrayConst->getType(), /*isConstant=*/true,
                          GlobalValue::PrivateLinkage, ByteArrayConst);
 
   for (unsigned I = 0; I != ByteArrayInfos.size(); ++I) {
@@ -363,7 +392,7 @@ void LowerTypeTests::allocateByteArrays() {
       BAI->ByteArray->replaceAllUsesWith(GEP);
     } else {
       GlobalAlias *Alias = GlobalAlias::create(
-          Int8Ty, 0, GlobalValue::PrivateLinkage, "bits", GEP, M);
+          Int8Ty, 0, GlobalValue::PrivateLinkage, "bits", GEP, &M);
       BAI->ByteArray->replaceAllUsesWith(Alias);
     }
     BAI->ByteArray->eraseFromParent();
@@ -377,8 +406,9 @@ void LowerTypeTests::allocateByteArrays() {
 
 /// Build a test that bit BitOffset is set in BSI, where
 /// BitSetGlobal is a global containing the bits in BSI.
-Value *LowerTypeTests::createBitSetTest(IRBuilder<> &B, BitSetInfo &BSI,
-                                        ByteArrayInfo *&BAI, Value *BitOffset) {
+Value *LowerTypeTestsModule::createBitSetTest(IRBuilder<> &B, BitSetInfo &BSI,
+                                              ByteArrayInfo *&BAI,
+                                              Value *BitOffset) {
   if (BSI.BitSize <= 64) {
     // If the bit set is sufficiently small, we can avoid a load by bit testing
     // a constant.
@@ -407,7 +437,7 @@ Value *LowerTypeTests::createBitSetTest(IRBuilder<> &B, BitSetInfo &BSI,
       // improving the security of the CFI mechanism based on this pass.
       ByteArray = GlobalAlias::create(BAI->ByteArray->getValueType(), 0,
                                       GlobalValue::PrivateLinkage, "bits_use",
-                                      ByteArray, M);
+                                      ByteArray, &M);
     }
 
     Value *ByteAddr = B.CreateGEP(Ty, ByteArray, BitOffset);
@@ -420,15 +450,15 @@ Value *LowerTypeTests::createBitSetTest(IRBuilder<> &B, BitSetInfo &BSI,
 
 /// Lower a llvm.type.test call to its implementation. Returns the value to
 /// replace the call with.
-Value *LowerTypeTests::lowerBitSetCall(
+Value *LowerTypeTestsModule::lowerBitSetCall(
     CallInst *CI, BitSetInfo &BSI, ByteArrayInfo *&BAI,
     Constant *CombinedGlobalIntAddr,
     const DenseMap<GlobalObject *, uint64_t> &GlobalLayout) {
   Value *Ptr = CI->getArgOperand(0);
-  const DataLayout &DL = M->getDataLayout();
+  const DataLayout &DL = M.getDataLayout();
 
   if (BSI.containsValue(DL, GlobalLayout, Ptr))
-    return ConstantInt::getTrue(M->getContext());
+    return ConstantInt::getTrue(M.getContext());
 
   Constant *OffsetedGlobalAsInt = ConstantExpr::getAdd(
       CombinedGlobalIntAddr, ConstantInt::get(IntPtrTy, BSI.ByteOffset));
@@ -490,14 +520,14 @@ Value *LowerTypeTests::lowerBitSetCall(
 
 /// Given a disjoint set of type identifiers and globals, lay out the globals,
 /// build the bit sets and lower the llvm.type.test calls.
-void LowerTypeTests::buildBitSetsFromGlobalVariables(
+void LowerTypeTestsModule::buildBitSetsFromGlobalVariables(
     ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalVariable *> Globals) {
   // Build a new global with the combined contents of the referenced globals.
   // This global is a struct whose even-indexed elements contain the original
   // contents of the referenced globals and whose odd-indexed elements contain
   // any padding required to align the next element to the next power of 2.
   std::vector<Constant *> GlobalInits;
-  const DataLayout &DL = M->getDataLayout();
+  const DataLayout &DL = M.getDataLayout();
   for (GlobalVariable *G : Globals) {
     GlobalInits.push_back(G->getInitializer());
     uint64_t InitSize = DL.getTypeAllocSize(G->getValueType());
@@ -515,9 +545,9 @@ void LowerTypeTests::buildBitSetsFromGlobalVariables(
   }
   if (!GlobalInits.empty())
     GlobalInits.pop_back();
-  Constant *NewInit = ConstantStruct::getAnon(M->getContext(), GlobalInits);
+  Constant *NewInit = ConstantStruct::getAnon(M.getContext(), GlobalInits);
   auto *CombinedGlobal =
-      new GlobalVariable(*M, NewInit->getType(), /*isConstant=*/true,
+      new GlobalVariable(M, NewInit->getType(), /*isConstant=*/true,
                          GlobalValue::PrivateLinkage, NewInit);
 
   StructType *NewTy = cast<StructType>(NewInit->getType());
@@ -546,7 +576,7 @@ void LowerTypeTests::buildBitSetsFromGlobalVariables(
       assert(Globals[I]->getType()->getAddressSpace() == 0);
       GlobalAlias *GAlias = GlobalAlias::create(NewTy->getElementType(I * 2), 0,
                                                 Globals[I]->getLinkage(), "",
-                                                CombinedGlobalElemPtr, M);
+                                                CombinedGlobalElemPtr, &M);
       GAlias->setVisibility(Globals[I]->getVisibility());
       GAlias->takeName(Globals[I]);
       Globals[I]->replaceAllUsesWith(GAlias);
@@ -555,7 +585,7 @@ void LowerTypeTests::buildBitSetsFromGlobalVariables(
   }
 }
 
-void LowerTypeTests::lowerTypeTestCalls(
+void LowerTypeTestsModule::lowerTypeTestCalls(
     ArrayRef<Metadata *> TypeIds, Constant *CombinedGlobalAddr,
     const DenseMap<GlobalObject *, uint64_t> &GlobalLayout) {
   Constant *CombinedGlobalIntAddr =
@@ -586,10 +616,9 @@ void LowerTypeTests::lowerTypeTestCalls(
   }
 }
 
-void LowerTypeTests::verifyTypeMDNode(GlobalObject *GO, MDNode *Type) {
+void LowerTypeTestsModule::verifyTypeMDNode(GlobalObject *GO, MDNode *Type) {
   if (Type->getNumOperands() != 2)
-    report_fatal_error(
-        "All operands of type metadata must have 2 elements");
+    report_fatal_error("All operands of type metadata must have 2 elements");
 
   if (GO->isThreadLocal())
     report_fatal_error("Bit set element may not be thread-local");
@@ -610,60 +639,179 @@ void LowerTypeTests::verifyTypeMDNode(GlobalObject *GO, MDNode *Type) {
 }
 
 static const unsigned kX86JumpTableEntrySize = 8;
+static const unsigned kARMJumpTableEntrySize = 4;
 
-unsigned LowerTypeTests::getJumpTableEntrySize() {
-  if (Arch != Triple::x86 && Arch != Triple::x86_64)
-    report_fatal_error("Unsupported architecture for jump tables");
+unsigned LowerTypeTestsModule::getJumpTableEntrySize() {
+  switch (Arch) {
+    case Triple::x86:
+    case Triple::x86_64:
+      return kX86JumpTableEntrySize;
+    case Triple::arm:
+    case Triple::thumb:
+    case Triple::aarch64:
+      return kARMJumpTableEntrySize;
+    default:
+      report_fatal_error("Unsupported architecture for jump tables");
+  }
+}
 
-  return kX86JumpTableEntrySize;
+static bool isValidAsmUnquotedName(StringRef Name) {
+  if (Name.empty())
+    return false;
+
+  for (char C : Name) {
+    if (!((C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z') ||
+          (C >= '0' && C <= '9') || C == '_' || C == '$' || C == '.' ||
+          C == '@'))
+      return false;
+  }
+
+  return true;
 }
 
 // Create a constant representing a jump table entry for the target. This
 // consists of an instruction sequence containing a relative branch to Dest. The
 // constant will be laid out at address Src+(Len*Distance) where Len is the
 // target-specific jump table entry size.
-Constant *LowerTypeTests::createJumpTableEntry(GlobalObject *Src,
-                                               Function *Dest,
-                                               unsigned Distance) {
-  if (Arch != Triple::x86 && Arch != Triple::x86_64)
+void LowerTypeTestsModule::createJumpTableEntry(raw_ostream &OS, Function *Dest,
+                                                unsigned Distance) {
+  // FIXME: replace IR Mangler with TargetLoweringObjectFile interface.
+  // A private instance of Mangler we use here can not deal with unnamed
+  // symbols, as it may create colliding labels. Thankfully(?), the use of
+  // inline asm requires us to give names to all affected functions anyway.
+  assert(Dest->hasName() && "jumptable targets can not be anonymous");
+  SmallString<16> Name;
+  Mang.getNameWithPrefix(Name, Dest, /* CannotUsePrivateLabel */ false);
+
+  if (!isValidAsmUnquotedName(Name)) {
+    // We are going to emit a function call as textual asm. Escaped strings
+    // in such expressions are not well supported.
+    report_fatal_error(
+        "CFI-ICall does not allow special characters in a function name.");
+  }
+
+  if (Arch == Triple::x86 || Arch == Triple::x86_64) {
+    OS << "jmp " << Name << "@plt\n";
+    OS << "int3\nint3\nint3\n";
+  } else if (Arch == Triple::arm || Arch == Triple::aarch64) {
+    OS << "b " << Name << "\n";
+  } else if (Arch == Triple::thumb) {
+    OS << "b.w " << Name << "\n";
+  } else {
     report_fatal_error("Unsupported architecture for jump tables");
-
-  const unsigned kJmpPCRel32Code = 0xe9;
-  const unsigned kInt3Code = 0xcc;
-
-  ConstantInt *Jmp = ConstantInt::get(Int8Ty, kJmpPCRel32Code);
-
-  // Build a constant representing the displacement between the constant's
-  // address and Dest. This will resolve to a PC32 relocation referring to Dest.
-  Constant *DestInt = ConstantExpr::getPtrToInt(Dest, IntPtrTy);
-  Constant *SrcInt = ConstantExpr::getPtrToInt(Src, IntPtrTy);
-  Constant *Disp = ConstantExpr::getSub(DestInt, SrcInt);
-  ConstantInt *DispOffset =
-      ConstantInt::get(IntPtrTy, Distance * kX86JumpTableEntrySize + 5);
-  Constant *OffsetedDisp = ConstantExpr::getSub(Disp, DispOffset);
-  OffsetedDisp = ConstantExpr::getTruncOrBitCast(OffsetedDisp, Int32Ty);
-
-  ConstantInt *Int3 = ConstantInt::get(Int8Ty, kInt3Code);
-
-  Constant *Fields[] = {
-      Jmp, OffsetedDisp, Int3, Int3, Int3,
-  };
-  return ConstantStruct::getAnon(Fields, /*Packed=*/true);
+  }
 }
 
-Type *LowerTypeTests::getJumpTableEntryType() {
-  if (Arch != Triple::x86 && Arch != Triple::x86_64)
-    report_fatal_error("Unsupported architecture for jump tables");
+void LowerTypeTestsModule::createJumpTableAlias(raw_ostream &OS, Function *Dest,
+                                                GlobalVariable *JumpTable,
+                                                unsigned Distance) {
+  assert(Dest->hasName() && "jumptable targets can not be anonymous");
+  SmallString<16> Name;
+  Mang.getNameWithPrefix(Name, Dest, /* CannotUsePrivateLabel */ false);
 
-  return StructType::get(M->getContext(),
-                         {Int8Ty, Int32Ty, Int8Ty, Int8Ty, Int8Ty},
-                         /*Packed=*/true);
+  if (!isValidAsmUnquotedName(Name)) {
+    // We are going to emit a function alias as textual asm. Escaped strings
+    // in such expressions are not well supported.
+    report_fatal_error(
+        "CFI-ICall does not allow special characters in a function name.");
+  }
+
+  if (Dest->isWeakForLinker())
+    OS << ".weak " << Name << "\n";
+  else if (!Dest->hasLocalLinkage())
+    OS << ".globl " << Name << "\n";
+  OS << ".type " << Name << ", function\n";
+  if (Arch == Triple::thumb) {
+    OS << ".thumb_set " << Name << ", " << JumpTable->getName() << " + "
+       << (getJumpTableEntrySize() * Distance) << "\n";
+  } else {
+    OS << Name << " = " << JumpTable->getName() << " + "
+       << (getJumpTableEntrySize() * Distance) << "\n";
+  }
+  OS << ".size " << Name << ", " << getJumpTableEntrySize() << "\n";
+}
+
+Type *LowerTypeTestsModule::getJumpTableEntryType() {
+  return ArrayType::get(Int8Ty, getJumpTableEntrySize());
+}
+
+/// Given a disjoint set of type identifiers and functions, build the bit sets
+/// and lower the llvm.type.test calls, architecture dependently.
+void LowerTypeTestsModule::buildBitSetsFromFunctions(
+    ArrayRef<Metadata *> TypeIds, ArrayRef<Function *> Functions) {
+  if (Arch == Triple::x86 || Arch == Triple::x86_64 || Arch == Triple::arm ||
+      Arch == Triple::thumb || Arch == Triple::aarch64)
+    buildBitSetsFromFunctionsNative(TypeIds, Functions);
+  else if (Arch == Triple::wasm32 || Arch == Triple::wasm64)
+    buildBitSetsFromFunctionsWASM(TypeIds, Functions);
+  else
+    report_fatal_error("Unsupported architecture for jump tables");
+}
+
+void LowerTypeTestsModule::moveInitializerToModuleConstructor(
+    GlobalVariable *GV) {
+  if (WeakInitializerFn == nullptr) {
+    WeakInitializerFn = Function::Create(
+        FunctionType::get(Type::getVoidTy(M.getContext()),
+                          /* IsVarArg */ false),
+        GlobalValue::InternalLinkage, "__cfi_global_var_init", &M);
+    BasicBlock *BB =
+        BasicBlock::Create(M.getContext(), "entry", WeakInitializerFn);
+    ReturnInst::Create(M.getContext(), BB);
+    WeakInitializerFn->setSection(
+        ObjectFormat == Triple::MachO
+            ? "__TEXT,__StaticInit,regular,pure_instructions"
+            : ".text.startup");
+    // This code is equivalent to relocation application, and should run at the
+    // earliest possible time (i.e. with the highest priority).
+    appendToGlobalCtors(M, WeakInitializerFn, /* Priority */ 0);
+  }
+
+  IRBuilder<> IRB(WeakInitializerFn->getEntryBlock().getTerminator());
+  GV->setConstant(false);
+  IRB.CreateAlignedStore(GV->getInitializer(), GV, GV->getAlignment());
+  GV->setInitializer(Constant::getNullValue(GV->getValueType()));
+}
+
+void LowerTypeTestsModule::findGlobalVariableUsersOf(
+    Constant *C, SmallSetVector<GlobalVariable *, 8> &Out) {
+  for (auto *U : C->users()){
+    if (auto *GV = dyn_cast<GlobalVariable>(U))
+      Out.insert(GV);
+    else if (auto *C2 = dyn_cast<Constant>(U))
+      findGlobalVariableUsersOf(C2, Out);
+  }
+}
+
+// Replace all uses of F with (F ? JT : 0).
+void LowerTypeTestsModule::replaceWeakDeclarationWithJumpTablePtr(
+    Function *F, Constant *JT) {
+  // The target expression can not appear in a constant initializer on most
+  // (all?) targets. Switch to a runtime initializer.
+  SmallSetVector<GlobalVariable *, 8> GlobalVarUsers;
+  findGlobalVariableUsersOf(F, GlobalVarUsers);
+  for (auto GV : GlobalVarUsers)
+    moveInitializerToModuleConstructor(GV);
+
+  // Can not RAUW F with an expression that uses F. Replace with a temporary
+  // placeholder first.
+  Function *PlaceholderFn =
+      Function::Create(cast<FunctionType>(F->getValueType()),
+                       GlobalValue::ExternalWeakLinkage, "", &M);
+  F->replaceAllUsesWith(PlaceholderFn);
+
+  Constant *Target = ConstantExpr::getSelect(
+      ConstantExpr::getICmp(CmpInst::ICMP_NE, F,
+                            Constant::getNullValue(F->getType())),
+      JT, Constant::getNullValue(F->getType()));
+  PlaceholderFn->replaceAllUsesWith(Target);
+  PlaceholderFn->eraseFromParent();
 }
 
 /// Given a disjoint set of type identifiers and functions, build a jump table
 /// for the functions, build the bit sets and lower the llvm.type.test calls.
-void LowerTypeTests::buildBitSetsFromFunctions(ArrayRef<Metadata *> TypeIds,
-                                               ArrayRef<Function *> Functions) {
+void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
+    ArrayRef<Metadata *> TypeIds, ArrayRef<Function *> Functions) {
   // Unlike the global bitset builder, the function bitset builder cannot
   // re-arrange functions in a particular order and base its calculations on the
   // layout of the functions' entry points, as we have no idea how large a
@@ -697,39 +845,35 @@ void LowerTypeTests::buildBitSetsFromFunctions(ArrayRef<Metadata *> TypeIds,
   // mov h, %ecx
   // ret
   //
-  // To create a jump table for these functions, we instruct the LLVM code
-  // generator to output a jump table in the .text section. This is done by
-  // representing the instructions in the jump table as an LLVM constant and
-  // placing them in a global variable in the .text section. The end result will
-  // (conceptually) look like this:
+  // We output the jump table as module-level inline asm string. The end result
+  // will (conceptually) look like this:
   //
-  // f:
-  // jmp .Ltmp0 ; 5 bytes
+  // f = .cfi.jumptable
+  // g = .cfi.jumptable + 4
+  // h = .cfi.jumptable + 8
+  // .cfi.jumptable:
+  // jmp f.cfi  ; 5 bytes
   // int3       ; 1 byte
   // int3       ; 1 byte
   // int3       ; 1 byte
-  //
-  // g:
-  // jmp .Ltmp1 ; 5 bytes
+  // jmp g.cfi  ; 5 bytes
   // int3       ; 1 byte
   // int3       ; 1 byte
   // int3       ; 1 byte
-  //
-  // h:
-  // jmp .Ltmp2 ; 5 bytes
+  // jmp h.cfi  ; 5 bytes
   // int3       ; 1 byte
   // int3       ; 1 byte
   // int3       ; 1 byte
   //
-  // .Ltmp0:
+  // f.cfi:
   // mov 0, %eax
   // ret
   //
-  // .Ltmp1:
+  // g.cfi:
   // mov 1, %eax
   // ret
   //
-  // .Ltmp2:
+  // h.cfi:
   // mov 2, %eax
   // ret
   //
@@ -743,6 +887,8 @@ void LowerTypeTests::buildBitSetsFromFunctions(ArrayRef<Metadata *> TypeIds,
   // normal case the check can be carried out using the same kind of simple
   // arithmetic that we normally use for globals.
 
+  // FIXME: find a better way to represent the jumptable in the IR.
+
   assert(!Functions.empty());
 
   // Build a simple layout based on the regular layout of jump tables.
@@ -754,48 +900,122 @@ void LowerTypeTests::buildBitSetsFromFunctions(ArrayRef<Metadata *> TypeIds,
   // Create a constant to hold the jump table.
   ArrayType *JumpTableType =
       ArrayType::get(getJumpTableEntryType(), Functions.size());
-  auto JumpTable = new GlobalVariable(*M, JumpTableType,
-                                      /*isConstant=*/true,
-                                      GlobalValue::PrivateLinkage, nullptr);
-  JumpTable->setSection(ObjectFormat == Triple::MachO
-                            ? "__TEXT,__text,regular,pure_instructions"
-                            : ".text");
+  auto JumpTable =
+      new GlobalVariable(M, JumpTableType,
+                         /*isConstant=*/true, GlobalValue::ExternalLinkage,
+                         nullptr, ".cfi.jumptable");
+  JumpTable->setVisibility(GlobalValue::HiddenVisibility);
   lowerTypeTestCalls(TypeIds, JumpTable, GlobalLayout);
+
+  std::string AsmStr;
+  raw_string_ostream AsmOS(AsmStr);
 
   // Build aliases pointing to offsets into the jump table, and replace
   // references to the original functions with references to the aliases.
   for (unsigned I = 0; I != Functions.size(); ++I) {
-    Constant *CombinedGlobalElemPtr = ConstantExpr::getBitCast(
-        ConstantExpr::getGetElementPtr(
-            JumpTableType, JumpTable,
-            ArrayRef<Constant *>{ConstantInt::get(IntPtrTy, 0),
-                                 ConstantInt::get(IntPtrTy, I)}),
-        Functions[I]->getType());
+    // Need a name for the asm label. Normally, unnamed functions get temporary
+    // asm labels in TargetLoweringObjectFile but we don't have access to that
+    // here.
+    if (!Functions[I]->hasName())
+      Functions[I]->setName("unnamed");
     if (LinkerSubsectionsViaSymbols || Functions[I]->isDeclarationForLinker()) {
-      Functions[I]->replaceAllUsesWith(CombinedGlobalElemPtr);
+      Constant *CombinedGlobalElemPtr = ConstantExpr::getBitCast(
+          ConstantExpr::getGetElementPtr(
+              JumpTableType, JumpTable,
+              ArrayRef<Constant *>{ConstantInt::get(IntPtrTy, 0),
+                                   ConstantInt::get(IntPtrTy, I)}),
+          Functions[I]->getType());
+
+
+      if (Functions[I]->isWeakForLinker()) {
+        AsmOS << ".weak " << Functions[I]->getName() << "\n";
+        replaceWeakDeclarationWithJumpTablePtr(Functions[I],
+                                               CombinedGlobalElemPtr);
+      } else {
+        Functions[I]->replaceAllUsesWith(CombinedGlobalElemPtr);
+      }
     } else {
       assert(Functions[I]->getType()->getAddressSpace() == 0);
-      GlobalAlias *GAlias = GlobalAlias::create(Functions[I]->getValueType(), 0,
-                                                Functions[I]->getLinkage(), "",
-                                                CombinedGlobalElemPtr, M);
-      GAlias->setVisibility(Functions[I]->getVisibility());
-      GAlias->takeName(Functions[I]);
-      Functions[I]->replaceAllUsesWith(GAlias);
+
+      createJumpTableAlias(AsmOS, Functions[I], JumpTable, I);
+
+      Function *DeclAlias =
+          Function::Create(cast<FunctionType>(Functions[I]->getValueType()),
+                           GlobalValue::ExternalLinkage, "", &M);
+      // Since the alias (DeclAlias) is actually a declaration, it can not have
+      // internal linkage. Compensate for that by giving it hidden visibility.
+      // With this we end up with a GOT relocation against a local symbol.
+      DeclAlias->setVisibility(Functions[I]->hasLocalLinkage()
+                                   ? GlobalValue::HiddenVisibility
+                                   : Functions[I]->getVisibility());
+      DeclAlias->takeName(Functions[I]);
+      // Unnamed functions can not be added to llvm.used.
+      Functions[I]->setName(DeclAlias->getName() + ".cfi");
+      Functions[I]->replaceAllUsesWith(DeclAlias);
     }
     if (!Functions[I]->isDeclarationForLinker())
-      Functions[I]->setLinkage(GlobalValue::PrivateLinkage);
+      Functions[I]->setLinkage(GlobalValue::InternalLinkage);
   }
 
-  // Build and set the jump table's initializer.
-  std::vector<Constant *> JumpTableEntries;
+  // Try to emit the jump table at the end of the text segment.
+  // Jump table must come after __cfi_check in the cross-dso mode.
+  // FIXME: this magic section name seems to do the trick.
+  AsmOS << ".section " << (ObjectFormat == Triple::MachO
+                               ? "__TEXT,__text,regular,pure_instructions"
+                               : ".text.cfi, \"ax\", %progbits")
+        << "\n";
+  // Align the whole table by entry size.
+  AsmOS << ".balign " << EntrySize << "\n";
+  if (Arch == Triple::thumb)
+    AsmOS << ".thumb_func\n";
+  AsmOS << JumpTable->getName() << ":\n";
   for (unsigned I = 0; I != Functions.size(); ++I)
-    JumpTableEntries.push_back(
-        createJumpTableEntry(JumpTable, Functions[I], I));
-  JumpTable->setInitializer(
-      ConstantArray::get(JumpTableType, JumpTableEntries));
+    createJumpTableEntry(AsmOS, Functions[I], I);
+
+  M.appendModuleInlineAsm(AsmOS.str());
+
+  SmallVector<GlobalValue *, 16> Used;
+  Used.reserve(Functions.size());
+  for (auto *F : Functions)
+    Used.push_back(F);
+  appendToUsed(M, Used);
 }
 
-void LowerTypeTests::buildBitSetsFromDisjointSet(
+/// Assign a dummy layout using an incrementing counter, tag each function
+/// with its index represented as metadata, and lower each type test to an
+/// integer range comparison. During generation of the indirect function call
+/// table in the backend, it will assign the given indexes.
+/// Note: Dynamic linking is not supported, as the WebAssembly ABI has not yet
+/// been finalized.
+void LowerTypeTestsModule::buildBitSetsFromFunctionsWASM(
+    ArrayRef<Metadata *> TypeIds, ArrayRef<Function *> Functions) {
+  assert(!Functions.empty());
+
+  // Build consecutive monotonic integer ranges for each call target set
+  DenseMap<GlobalObject *, uint64_t> GlobalLayout;
+
+  for (Function *F : Functions) {
+    // Skip functions that are not address taken, to avoid bloating the table
+    if (!F->hasAddressTaken())
+      continue;
+
+    // Store metadata with the index for each function
+    MDNode *MD = MDNode::get(F->getContext(),
+                             ArrayRef<Metadata *>(ConstantAsMetadata::get(
+                                 ConstantInt::get(Int64Ty, IndirectIndex))));
+    F->setMetadata("wasm.index", MD);
+
+    // Assign the counter value
+    GlobalLayout[F] = IndirectIndex++;
+  }
+
+  // The indirect function table index space starts at zero, so pass a NULL
+  // pointer as the subtracted "jump table" offset.
+  lowerTypeTestCalls(TypeIds, ConstantPointerNull::get(Int32PtrTy),
+                     GlobalLayout);
+}
+
+void LowerTypeTestsModule::buildBitSetsFromDisjointSet(
     ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalObject *> Globals) {
   llvm::DenseMap<Metadata *, uint64_t> TypeIdIndices;
   for (unsigned I = 0; I != TypeIds.size(); ++I)
@@ -867,9 +1087,16 @@ void LowerTypeTests::buildBitSetsFromDisjointSet(
 }
 
 /// Lower all type tests in this module.
-bool LowerTypeTests::lower() {
+LowerTypeTestsModule::LowerTypeTestsModule(Module &M) : M(M) {
+  Triple TargetTriple(M.getTargetTriple());
+  LinkerSubsectionsViaSymbols = TargetTriple.isMacOSX();
+  Arch = TargetTriple.getArch();
+  ObjectFormat = TargetTriple.getObjectFormat();
+}
+
+bool LowerTypeTestsModule::lower() {
   Function *TypeTestFunc =
-      M->getFunction(Intrinsic::getName(Intrinsic::type_test));
+      M.getFunction(Intrinsic::getName(Intrinsic::type_test));
   if (!TypeTestFunc || TypeTestFunc->use_empty())
     return false;
 
@@ -886,7 +1113,7 @@ bool LowerTypeTests::lower() {
   llvm::DenseMap<Metadata *, unsigned> TypeIdIndices;
   unsigned I = 0;
   SmallVector<MDNode *, 2> Types;
-  for (GlobalObject &GO : M->global_objects()) {
+  for (GlobalObject &GO : M.global_objects()) {
     Types.clear();
     GO.getMetadata(LLVMContext::MD_type, Types);
     for (MDNode *Type : Types) {
@@ -900,8 +1127,7 @@ bool LowerTypeTests::lower() {
 
     auto BitSetMDVal = dyn_cast<MetadataAsValue>(CI->getArgOperand(1));
     if (!BitSetMDVal)
-      report_fatal_error(
-          "Second argument of llvm.type.test must be metadata");
+      report_fatal_error("Second argument of llvm.type.test must be metadata");
     auto BitSet = BitSetMDVal->getMetadata();
 
     // Add the call site to the list of call sites for this type identifier. We
@@ -920,7 +1146,7 @@ bool LowerTypeTests::lower() {
     GlobalClassesTy::member_iterator CurSet = GlobalClasses.findLeader(GCI);
 
     // Add the referenced globals to the type identifier's equivalence class.
-    for (GlobalObject &GO : M->global_objects()) {
+    for (GlobalObject &GO : M.global_objects()) {
       Types.clear();
       GO.getMetadata(LLVMContext::MD_type, Types);
       for (MDNode *Type : Types)
@@ -939,7 +1165,8 @@ bool LowerTypeTests::lower() {
   for (GlobalClassesTy::iterator I = GlobalClasses.begin(),
                                  E = GlobalClasses.end();
        I != E; ++I) {
-    if (!I->isLeader()) continue;
+    if (!I->isLeader())
+      continue;
     ++NumTypeIdDisjointSets;
 
     unsigned MaxIndex = 0;
@@ -985,35 +1212,9 @@ bool LowerTypeTests::lower() {
   return true;
 }
 
-// Initialization helper shared by the old and the new PM.
-static void init(LowerTypeTests *LTT, Module &M) {
-  LTT->M = &M;
-  const DataLayout &DL = M.getDataLayout();
-  Triple TargetTriple(M.getTargetTriple());
-  LTT->LinkerSubsectionsViaSymbols = TargetTriple.isMacOSX();
-  LTT->Arch = TargetTriple.getArch();
-  LTT->ObjectFormat = TargetTriple.getObjectFormat();
-  LTT->Int1Ty = Type::getInt1Ty(M.getContext());
-  LTT->Int8Ty = Type::getInt8Ty(M.getContext());
-  LTT->Int32Ty = Type::getInt32Ty(M.getContext());
-  LTT->Int32PtrTy = PointerType::getUnqual(LTT->Int32Ty);
-  LTT->Int64Ty = Type::getInt64Ty(M.getContext());
-  LTT->IntPtrTy = DL.getIntPtrType(M.getContext(), 0);
-  LTT->TypeTestCallSites.clear();
-}
-
-bool LowerTypeTests::runOnModule(Module &M) {
-  if (skipModule(M))
-    return false;
-  init(this, M);
-  return lower();
-}
-
 PreservedAnalyses LowerTypeTestsPass::run(Module &M,
-                                          AnalysisManager<Module> &AM) {
-  LowerTypeTests Impl;
-  init(&Impl, M);
-  bool Changed = Impl.lower();
+                                          ModuleAnalysisManager &AM) {
+  bool Changed = LowerTypeTestsModule(M).lower();
   if (!Changed)
     return PreservedAnalyses::all();
   return PreservedAnalyses::none();

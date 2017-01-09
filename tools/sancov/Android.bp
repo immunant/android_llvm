@@ -34,6 +34,7 @@ cc_binary_host {
         "libLLVMDebugInfoDWARF",
         "libLLVMDebugInfoPDB",
         "libLLVMDebugInfoCodeView",
+        "libLLVMDebugInfoMSF",
         "libLLVMAsmPrinter",
         "libLLVMSelectionDAG",
         "libLLVMCodeGen",

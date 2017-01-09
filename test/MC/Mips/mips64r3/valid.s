@@ -136,8 +136,8 @@ a:
         floor.l.s $f12,$f5
         floor.w.d $f14,$f11
         floor.w.s $f8,$f9
-        j         1f                   # CHECK: j $tmp0 # encoding: [0b000010AA,A,A,A]
-                                       # CHECK:         #   fixup A - offset: 0, value: ($tmp0), kind: fixup_Mips_26
+        j         1f                   # CHECK: j .Ltmp0 # encoding: [0b000010AA,A,A,A]
+                                       # CHECK:          #   fixup A - offset: 0, value: .Ltmp0, kind: fixup_Mips_26
         j         a                    # CHECK: j a     # encoding: [0b000010AA,A,A,A]
                                        # CHECK:         #   fixup A - offset: 0, value: a, kind: fixup_Mips_26
         j         1328                 # CHECK: j 1328  # encoding: [0x08,0x00,0x01,0x4c]
@@ -145,6 +145,8 @@ a:
         jr.hb     $4                   # CHECK: jr.hb  $4 # encoding: [0x00,0x80,0x04,0x08]
         jalr.hb   $4                   # CHECK: jalr.hb  $4 # encoding: [0x00,0x80,0xfc,0x09]
         jalr.hb   $4, $5               # CHECK: jalr.hb  $4, $5 # encoding: [0x00,0xa0,0x24,0x09]
+        l.s       $f2, 8($3)           # CHECK: lwc1 $f2, 8($3) # encoding: [0xc4,0x62,0x00,0x08]
+        l.d       $f2, 8($3)           # CHECK: ldc1 $f2, 8($3) # encoding: [0xd4,0x62,0x00,0x08]
         lb        $24,-14515($10)
         lbu       $8,30195($v1)
         ld        $sp,-28645($s1)
@@ -212,6 +214,8 @@ a:
         mult      $sp,$v0
         multu     $gp,$k0
         multu     $9,$s2
+        neg       $2                   # CHECK: neg  $2, $2            # encoding: [0x00,0x02,0x10,0x22]
+        neg       $2, $3               # CHECK: neg  $2, $3            # encoding: [0x00,0x03,0x10,0x22]
         negu      $2                   # CHECK: negu $2, $2            # encoding: [0x00,0x02,0x10,0x23]
         negu      $2,$3                # CHECK: negu $2, $3            # encoding: [0x00,0x03,0x10,0x23]
         neg.d     $f27,$f18
@@ -230,6 +234,8 @@ a:
                                        # CHECK-NEXT: .set  mips32r2
                                        # CHECK-NEXT: rdhwr $sp, $11
                                        # CHECK-NEXT: .set  pop          # encoding: [0x7c,0x1d,0x58,0x3b]
+        recip.d   $f19,$f6             # CHECK: recip.d $f19, $f6       # encoding: [0x46,0x20,0x34,0xd5]
+        recip.s   $f3,$f30             # CHECK: recip.s $f3, $f30       # encoding: [0x46,0x00,0xf0,0xd5]
         rotr      $1,15                # CHECK: rotr $1, $1, 15         # encoding: [0x00,0x21,0x0b,0xc2]
         rotr      $1,$14,15            # CHECK: rotr $1, $14, 15        # encoding: [0x00,0x2e,0x0b,0xc2]
         rotrv     $1,$14,$15           # CHECK: rotrv $1, $14, $15      # encoding: [0x01,0xee,0x08,0x46]
@@ -237,6 +243,10 @@ a:
         round.l.s $f25,$f5
         round.w.d $f6,$f4
         round.w.s $f27,$f28
+        rsqrt.s   $f0,$f4              # CHECK: rsqrt.s $f0, $f4       # encoding: [0x46,0x00,0x20,0x16]
+        rsqrt.d   $f2,$f6              # CHECK: rsqrt.d $f2, $f6       # encoding: [0x46,0x20,0x30,0x96]
+        s.s       $f2, 8($3)           # CHECK: swc1  $f2, 8($3)       # encoding: [0xe4,0x62,0x00,0x08]
+        s.d       $f2, 8($3)           # CHECK: sdc1  $f2, 8($3)       # encoding: [0xf4,0x62,0x00,0x08]
         sb        $s6,-19857($14)
         sc        $15,18904($s3)       # CHECK: sc $15, 18904($19)     # encoding: [0xe2,0x6f,0x49,0xd8]
         scd       $15,-8243($sp)       # CHECK: scd $15, -8243($sp)    # encoding: [0xf3,0xaf,0xdf,0xcd]

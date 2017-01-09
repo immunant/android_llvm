@@ -86,12 +86,14 @@ private:
 /// Error instance is in. For Error instances indicating success, it
 /// is sufficient to invoke the boolean conversion operator. E.g.:
 ///
+///   @code{.cpp}
 ///   Error foo(<...>);
 ///
 ///   if (auto E = foo(<...>))
 ///     return E; // <- Return E if it is in the error state.
 ///   // We have verified that E was in the success state. It can now be safely
 ///   // destroyed.
+///   @endcode
 ///
 /// A success value *can not* be dropped. For example, just calling 'foo(<...>)'
 /// without testing the return value will raise a runtime error, even if foo
@@ -100,6 +102,7 @@ private:
 /// For Error instances representing failure, you must use either the
 /// handleErrors or handleAllErrors function with a typed handler. E.g.:
 ///
+///   @code{.cpp}
 ///   class MyErrorInfo : public ErrorInfo<MyErrorInfo> {
 ///     // Custom error info.
 ///   };
@@ -122,6 +125,7 @@ private:
 ///       );
 ///   // Note - we must check or return NewE in case any of the handlers
 ///   // returned a new error.
+///   @endcode
 ///
 /// The handleAllErrors function is identical to handleErrors, except
 /// that it has a void return type, and requires all errors to be handled and
@@ -131,7 +135,7 @@ private:
 /// *All* Error instances must be checked before destruction, even if
 /// they're moved-assigned or constructed from Success values that have already
 /// been checked. This enforces checking through all levels of the call stack.
-class Error {
+class LLVM_NODISCARD Error {
 
   // ErrorList needs to be able to yank ErrorInfoBase pointers out of this
   // class to add to the error list.
@@ -148,7 +152,7 @@ class Error {
 public:
   /// Create a success value. Prefer using 'Error::success()' for readability
   /// where possible.
-  Error() {
+  Error() : Payload(nullptr) {
     setPtr(nullptr);
     setChecked(false);
   }
@@ -163,7 +167,7 @@ public:
   /// Move-construct an error value. The newly constructed error is considered
   /// unchecked, even if the source error had been checked. The original error
   /// becomes a checked Success value, regardless of its original state.
-  Error(Error &&Other) {
+  Error(Error &&Other) : Payload(nullptr) {
     setChecked(true);
     *this = std::move(Other);
   }
@@ -234,16 +238,17 @@ private:
   }
 
   ErrorInfoBase *getPtr() const {
-#ifndef NDEBUG
-    return PayloadAndCheckedBit.getPointer();
-#else
-    return Payload;
-#endif
+    return reinterpret_cast<ErrorInfoBase*>(
+             reinterpret_cast<uintptr_t>(Payload) &
+             ~static_cast<uintptr_t>(0x1));
   }
 
   void setPtr(ErrorInfoBase *EI) {
 #ifndef NDEBUG
-    PayloadAndCheckedBit.setPointer(EI);
+    Payload = reinterpret_cast<ErrorInfoBase*>(
+                (reinterpret_cast<uintptr_t>(EI) &
+                 ~static_cast<uintptr_t>(0x1)) |
+                (reinterpret_cast<uintptr_t>(Payload) & 0x1));
 #else
     Payload = EI;
 #endif
@@ -251,16 +256,17 @@ private:
 
   bool getChecked() const {
 #ifndef NDEBUG
-    return PayloadAndCheckedBit.getInt();
+    return (reinterpret_cast<uintptr_t>(Payload) & 0x1) == 0;
 #else
     return true;
 #endif
   }
 
   void setChecked(bool V) {
-#ifndef NDEBUG
-    PayloadAndCheckedBit.setInt(V);
-#endif
+    Payload = reinterpret_cast<ErrorInfoBase*>(
+                (reinterpret_cast<uintptr_t>(Payload) &
+                  ~static_cast<uintptr_t>(0x1)) |
+                  (V ? 0 : 1));
   }
 
   std::unique_ptr<ErrorInfoBase> takePayload() {
@@ -270,11 +276,7 @@ private:
     return Tmp;
   }
 
-#ifndef NDEBUG
-  PointerIntPair<ErrorInfoBase *, 1> PayloadAndCheckedBit;
-#else
   ErrorInfoBase *Payload;
-#endif
 };
 
 /// Make a Error instance representing failure using the given error info
@@ -570,25 +572,35 @@ inline void consumeError(Error Err) {
 /// to check the result. This helper performs these actions automatically using
 /// RAII:
 ///
-/// Result foo(Error &Err) {
-///   ErrorAsOutParameter ErrAsOutParam(Err); // 'Checked' flag set
-///   // <body of foo>
-///   // <- 'Checked' flag auto-cleared when ErrAsOutParam is destructed.
-/// }
+///   @code{.cpp}
+///   Result foo(Error &Err) {
+///     ErrorAsOutParameter ErrAsOutParam(&Err); // 'Checked' flag set
+///     // <body of foo>
+///     // <- 'Checked' flag auto-cleared when ErrAsOutParam is destructed.
+///   }
+///   @endcode
+///
+/// ErrorAsOutParameter takes an Error* rather than Error& so that it can be
+/// used with optional Errors (Error pointers that are allowed to be null). If
+/// ErrorAsOutParameter took an Error reference, an instance would have to be
+/// created inside every condition that verified that Error was non-null. By
+/// taking an Error pointer we can just create one instance at the top of the
+/// function.
 class ErrorAsOutParameter {
 public:
-  ErrorAsOutParameter(Error &Err) : Err(Err) {
+  ErrorAsOutParameter(Error *Err) : Err(Err) {
     // Raise the checked bit if Err is success.
-    (void)!!Err;
+    if (Err)
+      (void)!!*Err;
   }
   ~ErrorAsOutParameter() {
     // Clear the checked bit.
-    if (!Err)
-      Err = Error::success();
+    if (Err && !*Err)
+      *Err = Error::success();
   }
 
 private:
-  Error &Err;
+  Error *Err;
 };
 
 /// Tagged union holding either a T or a Error.
@@ -597,7 +609,7 @@ private:
 /// Error cannot be copied, this class replaces getError() with
 /// takeError(). It also adds an bool errorIsA<ErrT>() method for testing the
 /// error class type.
-template <class T> class Expected {
+template <class T> class LLVM_NODISCARD Expected {
   template <class OtherT> friend class Expected;
   static const bool isRef = std::is_reference<T>::value;
   typedef ReferenceStorage<typename std::remove_reference<T>::type> wrap;
@@ -617,11 +629,17 @@ private:
 public:
   /// Create an Expected<T> error value from the given Error.
   Expected(Error Err)
-      : HasError(true)
+      : HasError(true),
 #ifndef NDEBUG
-        ,
-        Checked(false)
+        // Expected is unchecked upon construction in Debug builds.
+        Unchecked(true)
+#else
+        // Expected's unchecked flag is set to false in Release builds. This
+        // allows Expected values constructed in a Release build library to be
+        // consumed by a Debug build application.
+        Unchecked(false)
 #endif
+
   {
     assert(Err && "Cannot create Expected<T> from Error success value.");
     new (getErrorStorage()) Error(std::move(Err));
@@ -633,10 +651,15 @@ public:
   Expected(OtherT &&Val,
            typename std::enable_if<std::is_convertible<OtherT, T>::value>::type
                * = nullptr)
-      : HasError(false)
+      : HasError(false),
 #ifndef NDEBUG
-        ,
-        Checked(false)
+        // Expected is unchecked upon construction in Debug builds.
+        Unchecked(true)
+#else
+        // Expected's 'unchecked' flag is set to false in Release builds. This
+        // allows Expected values constructed in a Release build library to be
+        // consumed by a Debug build application.
+        Unchecked(false)
 #endif
   {
     new (getStorage()) storage_type(std::forward<OtherT>(Val));
@@ -682,7 +705,7 @@ public:
   /// \brief Return false if there is an error.
   explicit operator bool() {
 #ifndef NDEBUG
-    Checked = !HasError;
+    Unchecked = HasError;
 #endif
     return !HasError;
   }
@@ -710,7 +733,7 @@ public:
   /// be made on the Expected<T> vaule.
   Error takeError() {
 #ifndef NDEBUG
-    Checked = true;
+    Unchecked = false;
 #endif
     return HasError ? Error(std::move(*getErrorStorage())) : Error::success();
   }
@@ -752,11 +775,8 @@ private:
 
   template <class OtherT> void moveConstruct(Expected<OtherT> &&Other) {
     HasError = Other.HasError;
-
-#ifndef NDEBUG
-    Checked = false;
-    Other.Checked = true;
-#endif
+    Unchecked = true;
+    Other.Unchecked = false;
 
     if (!HasError)
       new (getStorage()) storage_type(std::move(*Other.getStorage()));
@@ -799,7 +819,7 @@ private:
 
   void assertIsChecked() {
 #ifndef NDEBUG
-    if (!Checked) {
+    if (Unchecked) {
       dbgs() << "Expected<T> must be checked before access or destruction.\n";
       if (HasError) {
         dbgs() << "Unchecked Expected<T> contained error:\n";
@@ -818,9 +838,7 @@ private:
     AlignedCharArrayUnion<error_type> ErrorStorage;
   };
   bool HasError : 1;
-#ifndef NDEBUG
-  bool Checked : 1;
-#endif
+  bool Unchecked : 1;
 };
 
 /// This class wraps a std::error_code in a Error.

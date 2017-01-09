@@ -17,6 +17,7 @@ cc_binary_host {
         "libLLVMAnalysis",
         "libLLVMTarget",
         "libLLVMCore",
+        "libLLVMProfileData",
         "libLLVMSupport",
     ],
 }

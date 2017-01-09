@@ -56,7 +56,7 @@ public:
   }
 
   // Pass Name
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "Lanai DAG->DAG Pattern Instruction Selection";
   }
 
@@ -201,7 +201,7 @@ bool LanaiDAGToDAGISel::selectAddrRiSpls(SDValue Addr, SDValue &Base,
 
 bool LanaiDAGToDAGISel::selectAddrRi(SDValue Addr, SDValue &Base,
                                      SDValue &Offset, SDValue &AluOp) {
-  return selectAddrRiSpls(Addr, Base, Offset, AluOp, /*RImode=*/true);
+  return selectAddrRiSpls(Addr, Base, Offset, AluOp, /*RiMode=*/true);
 }
 
 bool LanaiDAGToDAGISel::selectAddrSpls(SDValue Addr, SDValue &Base,

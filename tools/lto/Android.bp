@@ -29,6 +29,7 @@ cc_library_host_shared {
         "libLLVMLinker",
         "libLLVMipo",
         "libLLVMDebugInfoDWARF",
+        "libLLVMDebugInfoMSF",
         "libLLVMDebugInfoPDB",
         "libLLVMIRReader",
         "libLLVMBitWriter",

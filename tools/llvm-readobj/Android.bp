@@ -12,6 +12,7 @@ cc_binary_host {
         "libLLVMMipsInfo",
         "libLLVMX86Info",
         "libLLVMDebugInfoCodeView",
+        "libLLVMDebugInfoMSF",
         "libLLVMObject",
         "libLLVMBitReader",
         "libLLVMMC",

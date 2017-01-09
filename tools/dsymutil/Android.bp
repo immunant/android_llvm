@@ -37,6 +37,7 @@ cc_binary_host {
         "libLLVMProfileData",
         "libLLVMGlobalISel",
         "libLLVMDebugInfoDWARF",
+        "libLLVMDebugInfoMSF",
         "libLLVMInstrumentation",
         "libLLVMMCParser",
         "libLLVMMCDisassembler",

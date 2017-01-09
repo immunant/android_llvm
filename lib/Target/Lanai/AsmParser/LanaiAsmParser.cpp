@@ -627,7 +627,7 @@ public:
   }
 };
 
-bool LanaiAsmParser::ParseDirective(AsmToken DirectiveId) { return true; }
+bool LanaiAsmParser::ParseDirective(AsmToken /*DirectiveId*/) { return true; }
 
 bool LanaiAsmParser::MatchAndEmitInstruction(SMLoc IdLoc, unsigned &Opcode,
                                              OperandVector &Operands,
@@ -640,6 +640,7 @@ bool LanaiAsmParser::MatchAndEmitInstruction(SMLoc IdLoc, unsigned &Opcode,
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm)) {
   case Match_Success:
     Out.EmitInstruction(Inst, SubtargetInfo);
+    Opcode = Inst.getOpcode();
     return false;
   case Match_MissingFeature:
     return Error(IdLoc, "Instruction use requires option to be enabled");
@@ -688,10 +689,13 @@ std::unique_ptr<LanaiOperand> LanaiAsmParser::parseRegister() {
 
 bool LanaiAsmParser::ParseRegister(unsigned &RegNum, SMLoc &StartLoc,
                                    SMLoc &EndLoc) {
+  const AsmToken &Tok = getParser().getTok();
+  StartLoc = Tok.getLoc();
+  EndLoc = Tok.getEndLoc();
   std::unique_ptr<LanaiOperand> Op = parseRegister();
-  if (Op != 0)
+  if (Op != nullptr)
     RegNum = Op->getReg();
-  return (Op == 0);
+  return (Op == nullptr);
 }
 
 std::unique_ptr<LanaiOperand> LanaiAsmParser::parseIdentifier() {
@@ -840,7 +844,7 @@ bool shouldBeSls(const LanaiOperand &Op) {
 }
 
 // Matches memory operand. Returns true if error encountered.
-LanaiAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 LanaiAsmParser::parseMemoryOperand(OperandVector &Operands) {
   // Try to match a memory operand.
   // The memory operands are of the form:
@@ -974,7 +978,7 @@ LanaiAsmParser::parseMemoryOperand(OperandVector &Operands) {
 // Looks at a token type and creates the relevant operand from this
 // information, adding to operands.
 // If operand was parsed, returns false, else true.
-LanaiAsmParser::OperandMatchResultTy
+OperandMatchResultTy
 LanaiAsmParser::parseOperand(OperandVector *Operands, StringRef Mnemonic) {
   // Check if the current operand has a custom associated parser, if so, try to
   // custom parse the operand, or fallback to the general approach.
@@ -1133,7 +1137,7 @@ static bool MaybePredicatedInst(const OperandVector &Operands) {
       .Default(false);
 }
 
-bool LanaiAsmParser::ParseInstruction(ParseInstructionInfo &Info,
+bool LanaiAsmParser::ParseInstruction(ParseInstructionInfo & /*Info*/,
                                       StringRef Name, SMLoc NameLoc,
                                       OperandVector &Operands) {
   // First operand is token for instruction
@@ -1203,7 +1207,7 @@ bool LanaiAsmParser::ParseInstruction(ParseInstructionInfo &Info,
 } // namespace
 
 extern "C" void LLVMInitializeLanaiAsmParser() {
-  RegisterMCAsmParser<LanaiAsmParser> x(TheLanaiTarget);
+  RegisterMCAsmParser<LanaiAsmParser> x(getTheLanaiTarget());
 }
 
 } // namespace llvm

@@ -1035,19 +1035,33 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
     return replaceInstUsesWith(I, V);
 
   if (Value *V = SimplifyAddInst(LHS, RHS, I.hasNoSignedWrap(),
-                                 I.hasNoUnsignedWrap(), DL, TLI, DT, AC))
+                                 I.hasNoUnsignedWrap(), DL, &TLI, &DT, &AC))
     return replaceInstUsesWith(I, V);
 
    // (A*B)+(A*C) -> A*(B+C) etc
   if (Value *V = SimplifyUsingDistributiveLaws(I))
     return replaceInstUsesWith(I, V);
 
-  if (ConstantInt *CI = dyn_cast<ConstantInt>(RHS)) {
+  const APInt *Val;
+  if (match(RHS, m_APInt(Val))) {
     // X + (signbit) --> X ^ signbit
-    const APInt &Val = CI->getValue();
-    if (Val.isSignBit())
+    if (Val->isSignBit())
       return BinaryOperator::CreateXor(LHS, RHS);
 
+    // Is this add the last step in a convoluted sext?
+    Value *X;
+    const APInt *C;
+    if (match(LHS, m_ZExt(m_Xor(m_Value(X), m_APInt(C)))) &&
+        C->isMinSignedValue() &&
+        C->sext(LHS->getType()->getScalarSizeInBits()) == *Val) {
+      // add(zext(xor i16 X, -32768), -32768) --> sext X
+      return CastInst::Create(Instruction::SExt, X, LHS->getType());
+    }
+  }
+
+  // FIXME: Use the match above instead of dyn_cast to allow these transforms
+  // for splat vectors.
+  if (ConstantInt *CI = dyn_cast<ConstantInt>(RHS)) {
     // See if SimplifyDemandedBits can simplify this.  This handles stuff like
     // (X & 254)+1 -> (X&254)|1
     if (SimplifyDemandedInstructionBits(I))
@@ -1140,7 +1154,7 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
     return replaceInstUsesWith(I, V);
 
   // A+B --> A|B iff A and B have no bits set in common.
-  if (haveNoCommonBitsSet(LHS, RHS, DL, AC, &I, DT))
+  if (haveNoCommonBitsSet(LHS, RHS, DL, &AC, &I, &DT))
     return BinaryOperator::CreateOr(LHS, RHS);
 
   if (Constant *CRHS = dyn_cast<Constant>(RHS)) {
@@ -1149,6 +1163,9 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
       return BinaryOperator::CreateSub(SubOne(CRHS), X);
   }
 
+  // FIXME: We already did a check for ConstantInt RHS above this.
+  // FIXME: Is this pattern covered by another fold? No regression tests fail on
+  // removal.
   if (ConstantInt *CRHS = dyn_cast<ConstantInt>(RHS)) {
     // (X & FF00) + xx00  -> (X+xx00) & FF00
     Value *X;
@@ -1300,7 +1317,7 @@ Instruction *InstCombiner::visitFAdd(BinaryOperator &I) {
     return replaceInstUsesWith(I, V);
 
   if (Value *V =
-          SimplifyFAddInst(LHS, RHS, I.getFastMathFlags(), DL, TLI, DT, AC))
+          SimplifyFAddInst(LHS, RHS, I.getFastMathFlags(), DL, &TLI, &DT, &AC))
     return replaceInstUsesWith(I, V);
 
   if (isa<Constant>(RHS)) {
@@ -1476,7 +1493,7 @@ Instruction *InstCombiner::visitSub(BinaryOperator &I) {
     return replaceInstUsesWith(I, V);
 
   if (Value *V = SimplifySubInst(Op0, Op1, I.hasNoSignedWrap(),
-                                 I.hasNoUnsignedWrap(), DL, TLI, DT, AC))
+                                 I.hasNoUnsignedWrap(), DL, &TLI, &DT, &AC))
     return replaceInstUsesWith(I, V);
 
   // (A*B)-(A*C) -> A*(B-C) etc
@@ -1537,34 +1554,35 @@ Instruction *InstCombiner::visitSub(BinaryOperator &I) {
         return CastInst::CreateZExtOrBitCast(X, Op1->getType());
   }
 
-  if (ConstantInt *C = dyn_cast<ConstantInt>(Op0)) {
+  const APInt *Op0C;
+  if (match(Op0, m_APInt(Op0C))) {
+    unsigned BitWidth = I.getType()->getScalarSizeInBits();
+
     // -(X >>u 31) -> (X >>s 31)
     // -(X >>s 31) -> (X >>u 31)
-    if (C->isZero()) {
+    if (*Op0C == 0) {
       Value *X;
-      ConstantInt *CI;
-      if (match(Op1, m_LShr(m_Value(X), m_ConstantInt(CI))) &&
-          // Verify we are shifting out everything but the sign bit.
-          CI->getValue() == I.getType()->getPrimitiveSizeInBits() - 1)
-        return BinaryOperator::CreateAShr(X, CI);
-
-      if (match(Op1, m_AShr(m_Value(X), m_ConstantInt(CI))) &&
-          // Verify we are shifting out everything but the sign bit.
-          CI->getValue() == I.getType()->getPrimitiveSizeInBits() - 1)
-        return BinaryOperator::CreateLShr(X, CI);
+      const APInt *ShAmt;
+      if (match(Op1, m_LShr(m_Value(X), m_APInt(ShAmt))) &&
+          *ShAmt == BitWidth - 1) {
+        Value *ShAmtOp = cast<Instruction>(Op1)->getOperand(1);
+        return BinaryOperator::CreateAShr(X, ShAmtOp);
+      }
+      if (match(Op1, m_AShr(m_Value(X), m_APInt(ShAmt))) &&
+          *ShAmt == BitWidth - 1) {
+        Value *ShAmtOp = cast<Instruction>(Op1)->getOperand(1);
+        return BinaryOperator::CreateLShr(X, ShAmtOp);
+      }
     }
 
     // Turn this into a xor if LHS is 2^n-1 and the remaining bits are known
     // zero.
-    APInt IntVal = C->getValue();
-    if ((IntVal + 1).isPowerOf2()) {
-      unsigned BitWidth = I.getType()->getScalarSizeInBits();
+    if ((*Op0C + 1).isPowerOf2()) {
       APInt KnownZero(BitWidth, 0);
       APInt KnownOne(BitWidth, 0);
       computeKnownBits(&I, KnownZero, KnownOne, 0, &I);
-      if ((IntVal | KnownZero).isAllOnesValue()) {
-        return BinaryOperator::CreateXor(Op1, C);
-      }
+      if ((*Op0C | KnownZero).isAllOnesValue())
+        return BinaryOperator::CreateXor(Op1, Op0);
     }
   }
 
@@ -1625,6 +1643,17 @@ Instruction *InstCombiner::visitSub(BinaryOperator &I) {
       if (Value *XNeg = dyn_castNegVal(X))
         return BinaryOperator::CreateShl(XNeg, Y);
 
+    // Subtracting -1/0 is the same as adding 1/0:
+    // sub [nsw] Op0, sext(bool Y) -> add [nsw] Op0, zext(bool Y)
+    // 'nuw' is dropped in favor of the canonical form.
+    if (match(Op1, m_SExt(m_Value(Y))) &&
+        Y->getType()->getScalarSizeInBits() == 1) {
+      Value *Zext = Builder->CreateZExt(Y, I.getType());
+      BinaryOperator *Add = BinaryOperator::CreateAdd(Op0, Zext);
+      Add->setHasNoSignedWrap(I.hasNoSignedWrap());
+      return Add;
+    }
+
     // X - A*-B -> X + A*B
     // X - -A*B -> X + A*B
     Value *A, *B;
@@ -1675,7 +1704,7 @@ Instruction *InstCombiner::visitFSub(BinaryOperator &I) {
     return replaceInstUsesWith(I, V);
 
   if (Value *V =
-          SimplifyFSubInst(Op0, Op1, I.getFastMathFlags(), DL, TLI, DT, AC))
+          SimplifyFSubInst(Op0, Op1, I.getFastMathFlags(), DL, &TLI, &DT, &AC))
     return replaceInstUsesWith(I, V);
 
   // fsub nsz 0, X ==> fsub nsz -0.0, X

@@ -29,10 +29,6 @@ class MDNode;
 class BasicBlock;
 struct AAMDNodes;
 
-template <>
-struct SymbolTableListSentinelTraits<Instruction>
-    : public ilist_half_embedded_sentinel_traits<Instruction> {};
-
 class Instruction : public User,
                     public ilist_node_with_parent<Instruction, BasicBlock> {
   void operator=(const Instruction &) = delete;
@@ -93,6 +89,11 @@ public:
   /// Unlink this instruction from its current basic block and insert it into
   /// the basic block that MovePos lives in, right before MovePos.
   void moveBefore(Instruction *MovePos);
+
+  /// Unlink this instruction and insert into BB before I.
+  ///
+  /// \pre I is a valid iterator into BB.
+  void moveBefore(BasicBlock &BB, SymbolTableList<Instruction>::iterator I);
 
   //===--------------------------------------------------------------------===//
   // Subclass classification.
@@ -197,6 +198,17 @@ public:
   void setMetadata(unsigned KindID, MDNode *Node);
   void setMetadata(StringRef Kind, MDNode *Node);
 
+  /// Copy metadata from \p SrcInst to this instruction. \p WL, if not empty,
+  /// specifies the list of meta data that needs to be copied. If \p WL is
+  /// empty, all meta data will be copied.
+  void copyMetadata(const Instruction &SrcInst,
+                    ArrayRef<unsigned> WL = ArrayRef<unsigned>());
+
+  /// If the instruction has "branch_weights" MD_prof metadata and the MDNode
+  /// has three operands (including name string), swap the order of the
+  /// metadata.
+  void swapProfMetadata();
+
   /// Drop all unknown metadata except for debug locations.
   /// @{
   /// Passes are required to drop metadata they don't understand. This is a
@@ -220,12 +232,12 @@ public:
   /// Retrieve the raw weight values of a conditional branch or select.
   /// Returns true on success with profile weights filled in.
   /// Returns false if no metadata or invalid metadata was found.
-  bool extractProfMetadata(uint64_t &TrueVal, uint64_t &FalseVal);
+  bool extractProfMetadata(uint64_t &TrueVal, uint64_t &FalseVal) const;
 
   /// Retrieve total raw weight values of a branch.
   /// Returns true on success with profile total weights filled in.
   /// Returns false if no metadata was found.
-  bool extractProfTotalWeight(uint64_t &TotalVal);
+  bool extractProfTotalWeight(uint64_t &TotalVal) const;
 
   /// Set the debug location information for this instruction.
   void setDebugLoc(DebugLoc Loc) { DbgLoc = std::move(Loc); }
@@ -399,6 +411,23 @@ public:
   /// Return true if this instruction may throw an exception.
   bool mayThrow() const;
 
+  /// Return true if this instruction behaves like a memory fence: it can load
+  /// or store to memory location without being given a memory location.
+  bool isFenceLike() const {
+    switch (getOpcode()) {
+    default:
+      return false;
+    // This list should be kept in sync with the list in mayWriteToMemory for
+    // all opcodes which don't have a memory location.
+    case Instruction::Fence:
+    case Instruction::CatchPad:
+    case Instruction::CatchRet:
+    case Instruction::Call:
+    case Instruction::Invoke:
+      return true;
+    }
+  }
+
   /// Return true if the instruction may have side effects.
   ///
   /// Note that this does not consider malloc and alloca to have side
@@ -433,7 +462,7 @@ public:
   bool isIdenticalTo(const Instruction *I) const;
 
   /// This is like isIdenticalTo, except that it ignores the
-  /// SubclassOptionalData flags, which specify conditions under which the
+  /// SubclassOptionalData flags, which may specify conditions under which the
   /// instruction's result is undefined.
   bool isIdenticalToWhenDefined(const Instruction *I) const;
 

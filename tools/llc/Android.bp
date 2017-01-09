@@ -51,6 +51,7 @@ cc_binary_host {
         "libLLVMGlobalISel",
         "libLLVMAsmPrinter",
         "libLLVMDebugInfoCodeView",
+        "libLLVMDebugInfoMSF",
         "libLLVMIRReader",
         "libLLVMAsmParser",
         "libLLVMBitReader",

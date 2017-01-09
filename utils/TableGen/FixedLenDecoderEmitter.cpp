@@ -14,6 +14,7 @@
 
 #include "CodeGenTarget.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/CachedHashString.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -66,8 +67,8 @@ typedef std::vector<uint8_t> DecoderTable;
 typedef uint32_t DecoderFixup;
 typedef std::vector<DecoderFixup> FixupList;
 typedef std::vector<FixupList> FixupScopeList;
-typedef SmallSetVector<std::string, 16> PredicateSet;
-typedef SmallSetVector<std::string, 16> DecoderSet;
+typedef SmallSetVector<CachedHashString, 16> PredicateSet;
+typedef SmallSetVector<CachedHashString, 16> DecoderSet;
 struct DecoderTableInfo {
   DecoderTable Table;
   FixupScopeList FixupStack;
@@ -166,7 +167,7 @@ static void dumpBits(raw_ostream &o, const BitsInit &bits) {
   }
 }
 
-static BitsInit &getBitsField(const Record &def, const char *str) {
+static BitsInit &getBitsField(const Record &def, StringRef str) {
   BitsInit *bits = def.getValueAsBitsInit(str);
   return *bits;
 }
@@ -1106,11 +1107,9 @@ unsigned FilterChooser::getDecoderIndex(DecoderSet &Decoders,
   // overkill for now, though.
 
   // Make sure the predicate is in the table.
-  Decoders.insert(StringRef(Decoder));
+  Decoders.insert(CachedHashString(Decoder));
   // Now figure out the index for when we write out the table.
-  DecoderSet::const_iterator P = std::find(Decoders.begin(),
-                                           Decoders.end(),
-                                           Decoder.str());
+  DecoderSet::const_iterator P = find(Decoders, Decoder.str());
   return (unsigned)(P - Decoders.begin());
 }
 
@@ -1181,11 +1180,9 @@ unsigned FilterChooser::getPredicateIndex(DecoderTableInfo &TableInfo,
   // overkill for now, though.
 
   // Make sure the predicate is in the table.
-  TableInfo.Predicates.insert(Predicate.str());
+  TableInfo.Predicates.insert(CachedHashString(Predicate));
   // Now figure out the index for when we write out the table.
-  PredicateSet::const_iterator P = std::find(TableInfo.Predicates.begin(),
-                                             TableInfo.Predicates.end(),
-                                             Predicate.str());
+  PredicateSet::const_iterator P = find(TableInfo.Predicates, Predicate);
   return (unsigned)(P - TableInfo.Predicates.begin());
 }
 
@@ -1692,6 +1689,34 @@ void FilterChooser::emitTableEntries(DecoderTableInfo &TableInfo) const {
   }
 }
 
+static std::string findOperandDecoderMethod(TypedInit *TI) {
+  std::string Decoder;
+
+  RecordRecTy *Type = cast<RecordRecTy>(TI->getType());
+  Record *TypeRecord = Type->getRecord();
+
+  RecordVal *DecoderString = TypeRecord->getValue("DecoderMethod");
+  StringInit *String = DecoderString ?
+    dyn_cast<StringInit>(DecoderString->getValue()) : nullptr;
+  if (String) {
+    Decoder = String->getValue();
+    if (!Decoder.empty())
+      return Decoder;
+  }
+
+  if (TypeRecord->isSubClassOf("RegisterOperand"))
+    TypeRecord = TypeRecord->getValueAsDef("RegClass");
+
+  if (TypeRecord->isSubClassOf("RegisterClass")) {
+    Decoder = "Decode" + TypeRecord->getName() + "RegisterClass";
+  } else if (TypeRecord->isSubClassOf("PointerLikeRegClass")) {
+    Decoder = "DecodePointerLikeRegClass" +
+      utostr(TypeRecord->getValueAsInt("RegClassKind"));
+  }
+
+  return Decoder;
+}
+
 static bool populateInstruction(CodeGenTarget &Target,
                        const CodeGenInstruction &CGI, unsigned Opc,
                        std::map<unsigned, std::vector<OperandInfo> > &Operands){
@@ -1917,33 +1942,13 @@ static bool populateInstruction(CodeGenTarget &Target,
       continue;
     }
 
-    std::string Decoder = "";
-
-    // At this point, we can locate the field, but we need to know how to
-    // interpret it.  As a first step, require the target to provide callbacks
-    // for decoding register classes.
-    // FIXME: This need to be extended to handle instructions with custom
-    // decoder methods, and operands with (simple) MIOperandInfo's.
     TypedInit *TI = cast<TypedInit>(Op.first);
-    RecordRecTy *Type = cast<RecordRecTy>(TI->getType());
-    Record *TypeRecord = Type->getRecord();
-    bool isReg = false;
-    if (TypeRecord->isSubClassOf("RegisterOperand"))
-      TypeRecord = TypeRecord->getValueAsDef("RegClass");
-    if (TypeRecord->isSubClassOf("RegisterClass")) {
-      Decoder = "Decode" + TypeRecord->getName() + "RegisterClass";
-      isReg = true;
-    } else if (TypeRecord->isSubClassOf("PointerLikeRegClass")) {
-      Decoder = "DecodePointerLikeRegClass" +
-                utostr(TypeRecord->getValueAsInt("RegClassKind"));
-      isReg = true;
-    }
 
-    RecordVal *DecoderString = TypeRecord->getValue("DecoderMethod");
-    StringInit *String = DecoderString ?
-      dyn_cast<StringInit>(DecoderString->getValue()) : nullptr;
-    if (!isReg && String && String->getValue() != "")
-      Decoder = String->getValue();
+    // At this point, we can locate the decoder field, but we need to know how
+    // to interpret it.  As a first step, require the target to provide
+    // callbacks for decoding register classes.
+    std::string Decoder = findOperandDecoderMethod(TI);
+    Record *TypeRecord = cast<RecordRecTy>(TI->getType())->getRecord();
 
     RecordVal *HasCompleteDecoderVal =
       TypeRecord->getValue("hasCompleteDecoder");
