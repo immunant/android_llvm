@@ -100,6 +100,19 @@ public:
     /// peephole optimizations similar to the instruction combiner. These passes
     /// will be inserted after each instance of the instruction combiner pass.
     EP_Peephole,
+
+    /// EP_LateLoopOptimizations - This extension point allows adding late loop
+    /// canonicalization and simplification passes. This is the last point in
+    /// the loop optimization pipeline before loop deletion. Each pass added
+    /// here must be an instance of LoopPass.
+    /// This is the place to add passes that can remove loops, such as target-
+    /// specific loop idiom recognition.
+    EP_LateLoopOptimizations,
+
+    /// EP_CGSCCOptimizerLate - This extension point allows adding CallGraphSCC
+    /// passes at the end of the main CallGraphSCC passes and before any
+    /// function simplification passes run by CGPassManager.
+    EP_CGSCCOptimizerLate,
   };
 
   /// The Optimization Level - Specify the basic optimization level.
@@ -119,8 +132,10 @@ public:
   /// added to the per-module passes.
   Pass *Inliner;
 
-  /// The module summary index to use for function importing.
-  const ModuleSummaryIndex *ModuleSummary;
+  /// The module summary index to use for passing information between the
+  /// regular LTO phase and the thin LTO backends, for example the CFI and
+  /// devirtualization type tests.
+  ModuleSummaryIndex *Summary = nullptr;
 
   bool DisableTailCalls;
   bool DisableUnitAtATime;
@@ -130,6 +145,7 @@ public:
   bool LoopVectorize;
   bool RerollLoops;
   bool LoadCombine;
+  bool NewGVN;
   bool DisableGVNLoadPRE;
   bool VerifyInput;
   bool VerifyOutput;
@@ -138,10 +154,14 @@ public:
   bool PrepareForThinLTO;
   bool PerformThinLTO;
 
+  /// Enable profile instrumentation pass.
+  bool EnablePGOInstrGen;
   /// Profile data file name that the instrumentation will be written to.
   std::string PGOInstrGen;
   /// Path of the profile data file.
   std::string PGOInstrUse;
+  /// Path of the sample Profile data file.
+  std::string PGOSampleUse;
 
 private:
   /// ExtensionList - This is list of all of the extensions that are registered.

@@ -64,7 +64,7 @@ public:
 
   bool runOnFunction(Function &Fn) override;
 
-  const char *getPassName() const override { return "Constant Hoisting"; }
+  StringRef getPassName() const override { return "Constant Hoisting"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
@@ -289,8 +289,8 @@ void ConstantHoistingPass::collectConstantCandidates(Function &Fn) {
 // bit widths (APInt Operator- does not like that). If the value cannot be
 // represented in uint64 we return an "empty" APInt. This is then interpreted
 // as the value is not in range.
-static llvm::Optional<APInt> calculateOffsetDiff(APInt V1, APInt V2)
-{
+static llvm::Optional<APInt> calculateOffsetDiff(const APInt &V1,
+                                                 const APInt &V2) {
   llvm::Optional<APInt> Res = None;
   unsigned BW = V1.getBitWidth() > V2.getBitWidth() ?
                 V1.getBitWidth() : V2.getBitWidth();
@@ -444,7 +444,7 @@ void ConstantHoistingPass::findBaseConstants() {
 
 /// \brief Updates the operand at Idx in instruction Inst with the result of
 ///        instruction Mat. If the instruction is a PHI node then special
-///        handling for duplicate values form the same incomming basic block is
+///        handling for duplicate values form the same incoming basic block is
 ///        required.
 /// \return The update will always succeed, but the return value indicated if
 ///         Mat was used for the update or not.
@@ -623,6 +623,7 @@ PreservedAnalyses ConstantHoistingPass::run(Function &F,
   if (!runImpl(F, TTI, DT, F.getEntryBlock()))
     return PreservedAnalyses::all();
 
-  // FIXME: This should also 'preserve the CFG'.
-  return PreservedAnalyses::none();
+  PreservedAnalyses PA;
+  PA.preserveSet<CFGAnalyses>();
+  return PA;
 }

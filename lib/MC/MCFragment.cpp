@@ -10,6 +10,7 @@
 #include "llvm/MC/MCFragment.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCAsmLayout.h"
@@ -144,14 +145,14 @@ const MCSymbol *MCAsmLayout::getBaseSymbol(const MCSymbol &Symbol) const {
   MCValue Value;
   if (!Expr->evaluateAsValue(Value, *this)) {
     Assembler.getContext().reportError(
-        SMLoc(), "expression could not be evaluated");
+        Expr->getLoc(), "expression could not be evaluated");
     return nullptr;
   }
 
   const MCSymbolRefExpr *RefB = Value.getSymB();
   if (RefB) {
     Assembler.getContext().reportError(
-        SMLoc(), Twine("symbol '") + RefB->getSymbol().getName() +
+        Expr->getLoc(), Twine("symbol '") + RefB->getSymbol().getName() +
                      "' could not be evaluated in a subtraction expression");
     return nullptr;
   }
@@ -163,8 +164,7 @@ const MCSymbol *MCAsmLayout::getBaseSymbol(const MCSymbol &Symbol) const {
   const MCSymbol &ASym = A->getSymbol();
   const MCAssembler &Asm = getAssembler();
   if (ASym.isCommon()) {
-    // FIXME: we should probably add a SMLoc to MCExpr.
-    Asm.getContext().reportError(SMLoc(),
+    Asm.getContext().reportError(Expr->getLoc(),
                                  "Common symbol '" + ASym.getName() +
                                      "' cannot be used in assignment expr");
     return nullptr;
@@ -231,13 +231,7 @@ uint64_t llvm::computeBundlePadding(const MCAssembler &Assembler,
 
 /* *** */
 
-void ilist_node_traits<MCFragment>::deleteNode(MCFragment *V) {
-  V->destroy();
-}
-
-MCFragment::MCFragment() : Kind(FragmentType(~0)), HasInstructions(false),
-                           AlignToBundleEnd(false), BundlePadding(0) {
-}
+void ilist_alloc_traits<MCFragment>::deleteNode(MCFragment *V) { V->destroy(); }
 
 MCFragment::~MCFragment() { }
 

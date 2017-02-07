@@ -14,12 +14,38 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Transforms/InstrProfiling.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
-#include "llvm/IR/IRBuilder.h"
+#include "llvm/ADT/Twine.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/IR/Attributes.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Constant.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Type.h"
+#include "llvm/Pass.h"
 #include "llvm/ProfileData/InstrProf.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <string>
 
 using namespace llvm;
 
@@ -31,10 +57,16 @@ cl::opt<bool> DoNameCompression("enable-name-compression",
                                 cl::desc("Enable name string compression"),
                                 cl::init(true));
 
+cl::opt<bool> DoHashBasedCounterSplit(
+    "hash-based-counter-split",
+    cl::desc("Rename counter variable of a comdat function based on cfg hash"),
+    cl::init(true));
+
 cl::opt<bool> ValueProfileStaticAlloc(
     "vp-static-alloc",
     cl::desc("Do static counter allocation for value profiler"),
     cl::init(true));
+
 cl::opt<double> NumCountersPerValueSite(
     "vp-counters-per-site",
     cl::desc("The average number of profile counters allocated "
@@ -50,33 +82,43 @@ class InstrProfilingLegacyPass : public ModulePass {
 
 public:
   static char ID;
-  InstrProfilingLegacyPass() : ModulePass(ID), InstrProf() {}
+
+  InstrProfilingLegacyPass() : ModulePass(ID) {}
   InstrProfilingLegacyPass(const InstrProfOptions &Options)
       : ModulePass(ID), InstrProf(Options) {}
-  const char *getPassName() const override {
+
+  StringRef getPassName() const override {
     return "Frontend instrumentation-based coverage lowering";
   }
 
-  bool runOnModule(Module &M) override { return InstrProf.run(M); }
+  bool runOnModule(Module &M) override {
+    return InstrProf.run(M, getAnalysis<TargetLibraryInfoWrapperPass>().getTLI());
+  }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
+    AU.addRequired<TargetLibraryInfoWrapperPass>();
   }
 };
 
-} // anonymous namespace
+} // end anonymous namespace
 
-PreservedAnalyses InstrProfiling::run(Module &M, AnalysisManager<Module> &AM) {
-  if (!run(M))
+PreservedAnalyses InstrProfiling::run(Module &M, ModuleAnalysisManager &AM) {
+  auto &TLI = AM.getResult<TargetLibraryAnalysis>(M);
+  if (!run(M, TLI))
     return PreservedAnalyses::all();
 
   return PreservedAnalyses::none();
 }
 
 char InstrProfilingLegacyPass::ID = 0;
-INITIALIZE_PASS(InstrProfilingLegacyPass, "instrprof",
-                "Frontend instrumentation-based coverage lowering.", false,
-                false)
+INITIALIZE_PASS_BEGIN(
+    InstrProfilingLegacyPass, "instrprof",
+    "Frontend instrumentation-based coverage lowering.", false, false)
+INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
+INITIALIZE_PASS_END(
+    InstrProfilingLegacyPass, "instrprof",
+    "Frontend instrumentation-based coverage lowering.", false, false)
 
 ModulePass *
 llvm::createInstrProfilingLegacyPass(const InstrProfOptions &Options) {
@@ -107,10 +149,18 @@ StringRef InstrProfiling::getCoverageSection() const {
   return getInstrProfCoverageSectionName(isMachO());
 }
 
-bool InstrProfiling::run(Module &M) {
+static InstrProfIncrementInst *castToIncrementInst(Instruction *Instr) {
+  InstrProfIncrementInst *Inc = dyn_cast<InstrProfIncrementInstStep>(Instr);
+  if (Inc)
+    return Inc;
+  return dyn_cast<InstrProfIncrementInst>(Instr);
+}
+
+bool InstrProfiling::run(Module &M, const TargetLibraryInfo &TLI) {
   bool MadeChange = false;
 
   this->M = &M;
+  this->TLI = &TLI;
   NamesVar = nullptr;
   NamesSize = 0;
   ProfileDataMap.clear();
@@ -138,7 +188,8 @@ bool InstrProfiling::run(Module &M) {
     for (BasicBlock &BB : F)
       for (auto I = BB.begin(), E = BB.end(); I != E;) {
         auto Instr = I++;
-        if (auto *Inc = dyn_cast<InstrProfIncrementInst>(Instr)) {
+        InstrProfIncrementInst *Inc = castToIncrementInst(&*Instr);
+        if (Inc) {
           lowerIncrement(Inc);
           MadeChange = true;
         } else if (auto *Ind = dyn_cast<InstrProfValueProfileInst>(Instr)) {
@@ -165,7 +216,8 @@ bool InstrProfiling::run(Module &M) {
   return true;
 }
 
-static Constant *getOrInsertValueProfilingCall(Module &M) {
+static Constant *getOrInsertValueProfilingCall(Module &M,
+                                               const TargetLibraryInfo &TLI) {
   LLVMContext &Ctx = M.getContext();
   auto *ReturnTy = Type::getVoidTy(M.getContext());
   Type *ParamTypes[] = {
@@ -174,12 +226,16 @@ static Constant *getOrInsertValueProfilingCall(Module &M) {
   };
   auto *ValueProfilingCallTy =
       FunctionType::get(ReturnTy, makeArrayRef(ParamTypes), false);
-  return M.getOrInsertFunction(getInstrProfValueProfFuncName(),
-                               ValueProfilingCallTy);
+  Constant *Res = M.getOrInsertFunction(getInstrProfValueProfFuncName(),
+                                        ValueProfilingCallTy);
+  if (Function *FunRes = dyn_cast<Function>(Res)) {
+    if (auto AK = TLI.getExtAttrForI32Param(false))
+      FunRes->addAttribute(3, AK);
+  }
+  return Res;
 }
 
 void InstrProfiling::computeNumValueSiteCounts(InstrProfValueProfileInst *Ind) {
-
   GlobalVariable *Name = Ind->getName();
   uint64_t ValueKind = Ind->getValueKind()->getZExtValue();
   uint64_t Index = Ind->getIndex()->getZExtValue();
@@ -193,7 +249,6 @@ void InstrProfiling::computeNumValueSiteCounts(InstrProfValueProfileInst *Ind) {
 }
 
 void InstrProfiling::lowerValueProfileInst(InstrProfValueProfileInst *Ind) {
-
   GlobalVariable *Name = Ind->getName();
   auto It = ProfileDataMap.find(Name);
   assert(It != ProfileDataMap.end() && It->second.DataVar &&
@@ -209,8 +264,11 @@ void InstrProfiling::lowerValueProfileInst(InstrProfValueProfileInst *Ind) {
   Value *Args[3] = {Ind->getTargetValue(),
                     Builder.CreateBitCast(DataVar, Builder.getInt8PtrTy()),
                     Builder.getInt32(Index)};
-  Ind->replaceAllUsesWith(
-      Builder.CreateCall(getOrInsertValueProfilingCall(*M), Args));
+  CallInst *Call = Builder.CreateCall(getOrInsertValueProfilingCall(*M, *TLI),
+                                      Args);
+  if (auto AK = TLI->getExtAttrForI32Param(false))
+    Call->addAttribute(3, AK);
+  Ind->replaceAllUsesWith(Call);
   Ind->eraseFromParent();
 }
 
@@ -221,13 +279,12 @@ void InstrProfiling::lowerIncrement(InstrProfIncrementInst *Inc) {
   uint64_t Index = Inc->getIndex()->getZExtValue();
   Value *Addr = Builder.CreateConstInBoundsGEP2_64(Counters, 0, Index);
   Value *Count = Builder.CreateLoad(Addr, "pgocount");
-  Count = Builder.CreateAdd(Count, Builder.getInt64(1));
+  Count = Builder.CreateAdd(Count, Inc->getStep());
   Inc->replaceAllUsesWith(Builder.CreateStore(Count, Addr));
   Inc->eraseFromParent();
 }
 
 void InstrProfiling::lowerCoverageData(GlobalVariable *CoverageNamesVar) {
-
   ConstantArray *Names =
       cast<ConstantArray>(CoverageNamesVar->getInitializer());
   for (unsigned I = 0, E = Names->getNumOperands(); I < E; ++I) {
@@ -245,7 +302,16 @@ void InstrProfiling::lowerCoverageData(GlobalVariable *CoverageNamesVar) {
 static std::string getVarName(InstrProfIncrementInst *Inc, StringRef Prefix) {
   StringRef NamePrefix = getInstrProfNameVarPrefix();
   StringRef Name = Inc->getName()->getName().substr(NamePrefix.size());
-  return (Prefix + Name).str();
+  Function *F = Inc->getParent()->getParent();
+  Module *M = F->getParent();
+  if (!DoHashBasedCounterSplit || !isIRPGOFlagSet(M) ||
+      !canRenameComdatFunc(*F))
+    return (Prefix + Name).str();
+  uint64_t FuncHash = Inc->getHash()->getZExtValue();
+  SmallVector<char, 24> HashPostfix;
+  if (Name.endswith((Twine(".") + Twine(FuncHash)).toStringRef(HashPostfix)))
+    return (Prefix + Name).str();
+  return (Prefix + Name + "." + Twine(FuncHash)).str();
 }
 
 static inline bool shouldRecordFunctionAddr(Function *F) {
@@ -266,33 +332,6 @@ static inline bool shouldRecordFunctionAddr(Function *F) {
   // with missing address may be picked by the linker leading  to missing
   // indirect call target info.
   return F->hasAddressTaken() || F->hasLinkOnceLinkage();
-}
-
-static inline bool needsComdatForCounter(Function &F, Module &M) {
-
-  if (F.hasComdat())
-    return true;
-
-  Triple TT(M.getTargetTriple());
-  if (!TT.isOSBinFormatELF())
-    return false;
-
-  // See createPGOFuncNameVar for more details. To avoid link errors, profile
-  // counters for function with available_externally linkage needs to be changed
-  // to linkonce linkage. On ELF based systems, this leads to weak symbols to be
-  // created. Without using comdat, duplicate entries won't be removed by the
-  // linker leading to increased data segement size and raw profile size. Even
-  // worse, since the referenced counter from profile per-function data object
-  // will be resolved to the common strong definition, the profile counts for
-  // available_externally functions will end up being duplicated in raw profile
-  // data. This can result in distorted profile as the counts of those dups
-  // will be accumulated by the profile merger.
-  GlobalValue::LinkageTypes Linkage = F.getLinkage();
-  if (Linkage != GlobalValue::ExternalWeakLinkage &&
-      Linkage != GlobalValue::AvailableExternallyLinkage)
-    return false;
-
-  return true;
 }
 
 static inline Comdat *getOrCreateProfileComdat(Module &M, Function &F,
@@ -362,7 +401,6 @@ InstrProfiling::getOrCreateRegionCounters(InstrProfIncrementInst *Inc) {
   // the current function.
   Constant *ValuesPtrExpr = ConstantPointerNull::get(Int8PtrTy);
   if (ValueProfileStaticAlloc && !needsRuntimeRegistrationOfSectionRange(*M)) {
-
     uint64_t NS = 0;
     for (uint32_t Kind = IPVK_First; Kind <= IPVK_Last; ++Kind)
       NS += PD.NumValueSites[Kind];
@@ -378,7 +416,7 @@ InstrProfiling::getOrCreateRegionCounters(InstrProfIncrementInst *Inc) {
       ValuesVar->setAlignment(8);
       ValuesVar->setComdat(ProfileVarsComdat);
       ValuesPtrExpr =
-          ConstantExpr::getBitCast(ValuesVar, llvm::Type::getInt8PtrTy(Ctx));
+          ConstantExpr::getBitCast(ValuesVar, Type::getInt8PtrTy(Ctx));
     }
   }
 
@@ -467,7 +505,7 @@ void InstrProfiling::emitVNodes() {
 
   ArrayType *VNodesTy = ArrayType::get(VNodeTy, NumCounters);
   auto *VNodesVar = new GlobalVariable(
-      *M, VNodesTy, false, llvm::GlobalValue::PrivateLinkage,
+      *M, VNodesTy, false, GlobalValue::PrivateLinkage,
       Constant::getNullValue(VNodesTy), getInstrProfVNodesVarName());
   VNodesVar->setSection(getInstrProfVNodesSectionName(isMachO()));
   UsedVars.push_back(VNodesVar);
@@ -482,15 +520,15 @@ void InstrProfiling::emitNameData() {
   std::string CompressedNameStr;
   if (Error E = collectPGOFuncNameStrings(ReferencedNames, CompressedNameStr,
                                           DoNameCompression)) {
-    llvm::report_fatal_error(toString(std::move(E)), false);
+    report_fatal_error(toString(std::move(E)), false);
   }
 
   auto &Ctx = M->getContext();
-  auto *NamesVal = llvm::ConstantDataArray::getString(
+  auto *NamesVal = ConstantDataArray::getString(
       Ctx, StringRef(CompressedNameStr), false);
-  NamesVar = new llvm::GlobalVariable(*M, NamesVal->getType(), true,
-                                      llvm::GlobalValue::PrivateLinkage,
-                                      NamesVal, getInstrProfNamesVarName());
+  NamesVar = new GlobalVariable(*M, NamesVal->getType(), true,
+                                GlobalValue::PrivateLinkage, NamesVal,
+                                getInstrProfNamesVarName());
   NamesSize = CompressedNameStr.size();
   NamesVar->setSection(getNameSection());
   UsedVars.push_back(NamesVar);
@@ -536,7 +574,6 @@ void InstrProfiling::emitRegistration() {
 }
 
 void InstrProfiling::emitRuntimeHook() {
-
   // We expect the linker to be invoked with -u<hook_var> flag for linux,
   // for which case there is no need to emit the user function.
   if (Triple(M->getTargetTriple()).isOSLinux())
@@ -572,38 +609,30 @@ void InstrProfiling::emitRuntimeHook() {
 }
 
 void InstrProfiling::emitUses() {
-  if (UsedVars.empty())
-    return;
-
-  GlobalVariable *LLVMUsed = M->getGlobalVariable("llvm.used");
-  std::vector<Constant *> MergedVars;
-  if (LLVMUsed) {
-    // Collect the existing members of llvm.used.
-    ConstantArray *Inits = cast<ConstantArray>(LLVMUsed->getInitializer());
-    for (unsigned I = 0, E = Inits->getNumOperands(); I != E; ++I)
-      MergedVars.push_back(Inits->getOperand(I));
-    LLVMUsed->eraseFromParent();
-  }
-
-  Type *i8PTy = Type::getInt8PtrTy(M->getContext());
-  // Add uses for our data.
-  for (auto *Value : UsedVars)
-    MergedVars.push_back(
-        ConstantExpr::getBitCast(cast<Constant>(Value), i8PTy));
-
-  // Recreate llvm.used.
-  ArrayType *ATy = ArrayType::get(i8PTy, MergedVars.size());
-  LLVMUsed =
-      new GlobalVariable(*M, ATy, false, GlobalValue::AppendingLinkage,
-                         ConstantArray::get(ATy, MergedVars), "llvm.used");
-  LLVMUsed->setSection("llvm.metadata");
+  if (!UsedVars.empty())
+    appendToUsed(*M, UsedVars);
 }
 
 void InstrProfiling::emitInitialization() {
-  std::string InstrProfileOutput = Options.InstrProfileOutput;
+  StringRef InstrProfileOutput = Options.InstrProfileOutput;
+
+  if (!InstrProfileOutput.empty()) {
+    // Create variable for profile name.
+    Constant *ProfileNameConst =
+        ConstantDataArray::getString(M->getContext(), InstrProfileOutput, true);
+    GlobalVariable *ProfileNameVar = new GlobalVariable(
+        *M, ProfileNameConst->getType(), true, GlobalValue::WeakAnyLinkage,
+        ProfileNameConst, INSTR_PROF_QUOTE(INSTR_PROF_PROFILE_NAME_VAR));
+    Triple TT(M->getTargetTriple());
+    if (TT.supportsCOMDAT()) {
+      ProfileNameVar->setLinkage(GlobalValue::ExternalLinkage);
+      ProfileNameVar->setComdat(M->getOrInsertComdat(
+          StringRef(INSTR_PROF_QUOTE(INSTR_PROF_PROFILE_NAME_VAR))));
+    }
+  }
 
   Constant *RegisterF = M->getFunction(getInstrProfRegFuncsName());
-  if (!RegisterF && InstrProfileOutput.empty())
+  if (!RegisterF)
     return;
 
   // Create the initialization function.
@@ -620,21 +649,6 @@ void InstrProfiling::emitInitialization() {
   IRBuilder<> IRB(BasicBlock::Create(M->getContext(), "", F));
   if (RegisterF)
     IRB.CreateCall(RegisterF, {});
-  if (!InstrProfileOutput.empty()) {
-    auto *Int8PtrTy = Type::getInt8PtrTy(M->getContext());
-    auto *SetNameTy = FunctionType::get(VoidTy, Int8PtrTy, false);
-    auto *SetNameF = Function::Create(SetNameTy, GlobalValue::ExternalLinkage,
-                                      getInstrProfFileOverriderFuncName(), M);
-
-    // Create variable for profile name.
-    Constant *ProfileNameConst =
-        ConstantDataArray::getString(M->getContext(), InstrProfileOutput, true);
-    GlobalVariable *ProfileName =
-        new GlobalVariable(*M, ProfileNameConst->getType(), true,
-                           GlobalValue::PrivateLinkage, ProfileNameConst);
-
-    IRB.CreateCall(SetNameF, IRB.CreatePointerCast(ProfileName, Int8PtrTy));
-  }
   IRB.CreateRetVoid();
 
   appendToGlobalCtors(*M, F, 0);

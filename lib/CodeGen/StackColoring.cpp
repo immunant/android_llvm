@@ -385,14 +385,13 @@ void StackColoring::getAnalysisUsage(AnalysisUsage &AU) const {
   MachineFunctionPass::getAnalysisUsage(AU);
 }
 
-#ifndef NDEBUG
-
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void StackColoring::dumpBV(const char *tag,
                                             const BitVector &BV) const {
-  DEBUG(dbgs() << tag << " : { ");
+  dbgs() << tag << " : { ";
   for (unsigned I = 0, E = BV.size(); I != E; ++I)
-    DEBUG(dbgs() << BV.test(I) << " ");
-  DEBUG(dbgs() << "}\n");
+    dbgs() << BV.test(I) << " ";
+  dbgs() << "}\n";
 }
 
 LLVM_DUMP_METHOD void StackColoring::dumpBB(MachineBasicBlock *MBB) const {
@@ -408,20 +407,19 @@ LLVM_DUMP_METHOD void StackColoring::dumpBB(MachineBasicBlock *MBB) const {
 
 LLVM_DUMP_METHOD void StackColoring::dump() const {
   for (MachineBasicBlock *MBB : depth_first(MF)) {
-    DEBUG(dbgs() << "Inspecting block #" << MBB->getNumber() << " ["
-                 << MBB->getName() << "]\n");
-    DEBUG(dumpBB(MBB));
+    dbgs() << "Inspecting block #" << MBB->getNumber() << " ["
+           << MBB->getName() << "]\n";
+    dumpBB(MBB);
   }
 }
 
 LLVM_DUMP_METHOD void StackColoring::dumpIntervals() const {
   for (unsigned I = 0, E = Intervals.size(); I != E; ++I) {
-    DEBUG(dbgs() << "Interval[" << I << "]:\n");
-    DEBUG(Intervals[I]->dump());
+    dbgs() << "Interval[" << I << "]:\n";
+    Intervals[I]->dump();
   }
 }
-
-#endif // not NDEBUG
+#endif
 
 static inline int getStartOrEndSlot(const MachineInstr &MI)
 {
@@ -778,10 +776,9 @@ void StackColoring::remapInstructions(DenseMap<int, int> &SlotRemap) {
   unsigned FixedInstr = 0;
   unsigned FixedMemOp = 0;
   unsigned FixedDbg = 0;
-  MachineModuleInfo *MMI = &MF->getMMI();
 
   // Remap debug information that refers to stack slots.
-  for (auto &VI : MMI->getVariableDbgInfo()) {
+  for (auto &VI : MF->getVariableDbgInfo()) {
     if (!VI.Var)
       continue;
     if (SlotRemap.count(VI.Slot)) {
@@ -980,7 +977,7 @@ bool StackColoring::runOnMachineFunction(MachineFunction &Func) {
                << "********** Function: "
                << ((const Value*)Func.getFunction())->getName() << '\n');
   MF = &Func;
-  MFI = MF->getFrameInfo();
+  MFI = &MF->getFrameInfo();
   Indexes = &getAnalysis<SlotIndexes>();
   SP = &getAnalysis<StackProtector>();
   BlockLiveness.clear();

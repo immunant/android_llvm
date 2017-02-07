@@ -14,14 +14,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm-pdbdump.h"
-#include "CompilandDumper.h"
-#include "ExternalSymbolDumper.h"
-#include "FunctionDumper.h"
 #include "LLVMOutputStyle.h"
 #include "LinePrinter.h"
 #include "OutputStyle.h"
-#include "TypeDumper.h"
-#include "VariableDumper.h"
+#include "PrettyCompilandDumper.h"
+#include "PrettyExternalSymbolDumper.h"
+#include "PrettyFunctionDumper.h"
+#include "PrettyTypeDumper.h"
+#include "PrettyVariableDumper.h"
 #include "YAMLOutputStyle.h"
 
 #include "llvm/ADT/ArrayRef.h"
@@ -29,26 +29,30 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Config/config.h"
-#include "llvm/DebugInfo/CodeView/ByteStream.h"
+#include "llvm/DebugInfo/MSF/ByteStream.h"
+#include "llvm/DebugInfo/MSF/MSFBuilder.h"
 #include "llvm/DebugInfo/PDB/GenericError.h"
 #include "llvm/DebugInfo/PDB/IPDBEnumChildren.h"
 #include "llvm/DebugInfo/PDB/IPDBRawSymbol.h"
 #include "llvm/DebugInfo/PDB/IPDBSession.h"
+#include "llvm/DebugInfo/PDB/Native/DbiStream.h"
+#include "llvm/DebugInfo/PDB/Native/DbiStreamBuilder.h"
+#include "llvm/DebugInfo/PDB/Native/InfoStream.h"
+#include "llvm/DebugInfo/PDB/Native/InfoStreamBuilder.h"
+#include "llvm/DebugInfo/PDB/Native/NativeSession.h"
+#include "llvm/DebugInfo/PDB/Native/PDBFile.h"
+#include "llvm/DebugInfo/PDB/Native/PDBFileBuilder.h"
+#include "llvm/DebugInfo/PDB/Native/RawConstants.h"
+#include "llvm/DebugInfo/PDB/Native/RawError.h"
+#include "llvm/DebugInfo/PDB/Native/StringTableBuilder.h"
+#include "llvm/DebugInfo/PDB/Native/TpiStream.h"
+#include "llvm/DebugInfo/PDB/Native/TpiStreamBuilder.h"
 #include "llvm/DebugInfo/PDB/PDB.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolCompiland.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolData.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolExe.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolFunc.h"
 #include "llvm/DebugInfo/PDB/PDBSymbolThunk.h"
-#include "llvm/DebugInfo/PDB/Raw/DbiStream.h"
-#include "llvm/DebugInfo/PDB/Raw/DbiStreamBuilder.h"
-#include "llvm/DebugInfo/PDB/Raw/InfoStream.h"
-#include "llvm/DebugInfo/PDB/Raw/InfoStreamBuilder.h"
-#include "llvm/DebugInfo/PDB/Raw/PDBFile.h"
-#include "llvm/DebugInfo/PDB/Raw/PDBFileBuilder.h"
-#include "llvm/DebugInfo/PDB/Raw/RawConstants.h"
-#include "llvm/DebugInfo/PDB/Raw/RawError.h"
-#include "llvm/DebugInfo/PDB/Raw/RawSession.h"
 #include "llvm/Support/COM.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ConvertUTF.h"
@@ -59,34 +63,15 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Process.h"
+#include "llvm/Support/Regex.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 using namespace llvm::codeview;
+using namespace llvm::msf;
 using namespace llvm::pdb;
-
-namespace {
-// A simple adapter that acts like a ByteStream but holds ownership over
-// and underlying FileOutputBuffer.
-class FileBufferByteStream : public ByteStream<true> {
-public:
-  FileBufferByteStream(std::unique_ptr<FileOutputBuffer> Buffer)
-      : ByteStream(MutableArrayRef<uint8_t>(Buffer->getBufferStart(),
-                                            Buffer->getBufferEnd())),
-        FileBuffer(std::move(Buffer)) {}
-
-  Error commit() const override {
-    if (FileBuffer->commit())
-      return llvm::make_error<RawError>(raw_error_code::not_writable);
-    return Error::success();
-  }
-
-private:
-  std::unique_ptr<FileOutputBuffer> FileBuffer;
-};
-}
 
 namespace opts {
 
@@ -186,8 +171,27 @@ cl::opt<bool> DumpStreamBlocks("stream-blocks",
 cl::opt<bool> DumpStreamSummary("stream-summary",
                                 cl::desc("dump summary of the PDB streams"),
                                 cl::cat(MsfOptions), cl::sub(RawSubcommand));
+cl::opt<bool> DumpPageStats(
+    "page-stats",
+    cl::desc("dump allocation stats of the pages in the MSF file"),
+    cl::cat(MsfOptions), cl::sub(RawSubcommand));
+cl::opt<std::string>
+    DumpBlockRangeOpt("block-data", cl::value_desc("start[-end]"),
+                      cl::desc("Dump binary data from specified range."),
+                      cl::cat(MsfOptions), cl::sub(RawSubcommand));
+llvm::Optional<BlockRange> DumpBlockRange;
+
+cl::list<uint32_t>
+    DumpStreamData("stream-data", cl::CommaSeparated, cl::ZeroOrMore,
+                   cl::desc("Dump binary data from specified streams."),
+                   cl::cat(MsfOptions), cl::sub(RawSubcommand));
 
 // TYPE OPTIONS
+cl::opt<bool>
+    CompactRecords("compact-records",
+                   cl::desc("Dump type and symbol records with less detail"),
+                   cl::cat(TypeOptions), cl::sub(RawSubcommand));
+
 cl::opt<bool>
     DumpTpiRecords("tpi-records",
                    cl::desc("dump CodeView type records from TPI stream"),
@@ -217,6 +221,8 @@ cl::opt<bool> DumpLineInfo("line-info",
                            cl::cat(FileOptions), cl::sub(RawSubcommand));
 
 // SYMBOL OPTIONS
+cl::opt<bool> DumpGlobals("globals", cl::desc("dump globals stream data"),
+                          cl::cat(SymbolOptions), cl::sub(RawSubcommand));
 cl::opt<bool> DumpModuleSyms("module-syms", cl::desc("dump module symbols"),
                              cl::cat(SymbolOptions), cl::sub(RawSubcommand));
 cl::opt<bool> DumpPublics("publics", cl::desc("dump Publics stream data"),
@@ -227,6 +233,9 @@ cl::opt<bool>
                        cl::cat(SymbolOptions), cl::sub(RawSubcommand));
 
 // MISCELLANEOUS OPTIONS
+cl::opt<bool> DumpStringTable("string-table", cl::desc("dump PDB String Table"),
+                              cl::cat(MiscOptions), cl::sub(RawSubcommand));
+
 cl::opt<bool> DumpSectionContribs("section-contribs",
                                   cl::desc("dump section contributions"),
                                   cl::cat(MiscOptions), cl::sub(RawSubcommand));
@@ -237,14 +246,6 @@ cl::opt<bool> DumpSectionHeaders("section-headers",
                                  cl::cat(MiscOptions), cl::sub(RawSubcommand));
 cl::opt<bool> DumpFpo("fpo", cl::desc("dump FPO records"), cl::cat(MiscOptions),
                       cl::sub(RawSubcommand));
-
-cl::opt<std::string> DumpStreamDataIdx("stream", cl::desc("dump stream data"),
-                                       cl::cat(MiscOptions),
-                                       cl::sub(RawSubcommand));
-cl::opt<std::string> DumpStreamDataName("stream-name",
-                                        cl::desc("dump stream data"),
-                                        cl::cat(MiscOptions),
-                                        cl::sub(RawSubcommand));
 
 cl::opt<bool> RawAll("all", cl::desc("Implies most other options."),
                      cl::cat(MiscOptions), cl::sub(RawSubcommand));
@@ -279,14 +280,39 @@ cl::opt<bool> StreamDirectory(
     "stream-directory",
     cl::desc("Dump each stream's block map (implies -stream-metadata)"),
     cl::sub(PdbToYamlSubcommand), cl::init(false));
-cl::opt<bool> PdbStream(
-    "pdb-stream",
-    cl::desc("Dump the PDB Stream (Stream 1) (implies -stream-metadata)"),
+cl::opt<bool> PdbStream("pdb-stream",
+                        cl::desc("Dump the PDB Stream (Stream 1)"),
+                        cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::opt<bool> StringTable("string-table", cl::desc("Dump the PDB String Table"),
+                          cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::opt<bool> DbiStream("dbi-stream",
+                        cl::desc("Dump the DBI Stream (Stream 2)"),
+                        cl::sub(PdbToYamlSubcommand), cl::init(false));
+cl::opt<bool>
+    DbiModuleInfo("dbi-module-info",
+                  cl::desc("Dump DBI Module Information (implies -dbi-stream)"),
+                  cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::opt<bool> DbiModuleSyms(
+    "dbi-module-syms",
+    cl::desc("Dump DBI Module Information (implies -dbi-module-info)"),
     cl::sub(PdbToYamlSubcommand), cl::init(false));
-cl::opt<bool> DbiStream(
-    "dbi-stream",
-    cl::desc("Dump the DBI Stream (Stream 2) (implies -stream-metadata)"),
+
+cl::opt<bool> DbiModuleSourceFileInfo(
+    "dbi-module-source-info",
+    cl::desc(
+        "Dump DBI Module Source File Information (implies -dbi-module-info"),
     cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::opt<bool> TpiStream("tpi-stream",
+                        cl::desc("Dump the TPI Stream (Stream 3)"),
+                        cl::sub(PdbToYamlSubcommand), cl::init(false));
+
+cl::opt<bool> IpiStream("ipi-stream",
+                        cl::desc("Dump the IPI Stream (Stream 5)"),
+                        cl::sub(PdbToYamlSubcommand), cl::init(false));
 
 cl::list<std::string> InputFilename(cl::Positional,
                                     cl::desc("<input PDB file>"), cl::Required,
@@ -297,6 +323,7 @@ cl::list<std::string> InputFilename(cl::Positional,
 static ExitOnError ExitOnErr;
 
 static void yamlToPdb(StringRef Path) {
+  BumpPtrAllocator Allocator;
   ErrorOr<std::unique_ptr<MemoryBuffer>> ErrorOrBuffer =
       MemoryBuffer::getFileOrSTDIN(Path, /*FileSize=*/-1,
                                    /*RequiresNullTerminator=*/false);
@@ -308,36 +335,28 @@ static void yamlToPdb(StringRef Path) {
   std::unique_ptr<MemoryBuffer> &Buffer = ErrorOrBuffer.get();
 
   llvm::yaml::Input In(Buffer->getBuffer());
-  pdb::yaml::PdbObject YamlObj;
+  pdb::yaml::PdbObject YamlObj(Allocator);
   In >> YamlObj;
   if (!YamlObj.Headers.hasValue())
     ExitOnErr(make_error<GenericError>(generic_error_code::unspecified,
                                        "Yaml does not contain MSF headers"));
 
-  auto OutFileOrError = FileOutputBuffer::create(
-      opts::yaml2pdb::YamlPdbOutputFile, YamlObj.Headers->FileSize);
-  if (OutFileOrError.getError())
-    ExitOnErr(make_error<GenericError>(generic_error_code::invalid_path,
-                                       opts::yaml2pdb::YamlPdbOutputFile));
+  PDBFileBuilder Builder(Allocator);
 
-  auto FileByteStream =
-      llvm::make_unique<FileBufferByteStream>(std::move(*OutFileOrError));
-  PDBFileBuilder Builder(std::move(FileByteStream));
+  ExitOnErr(Builder.initialize(YamlObj.Headers->SuperBlock.BlockSize));
+  // Add each of the reserved streams.  We ignore stream metadata in the
+  // yaml, because we will reconstruct our own view of the streams.  For
+  // example, the YAML may say that there were 20 streams in the original
+  // PDB, but maybe we only dump a subset of those 20 streams, so we will
+  // have fewer, and the ones we do have may end up with different indices
+  // than the ones in the original PDB.  So we just start with a clean slate.
+  for (uint32_t I = 0; I < kSpecialStreamCount; ++I)
+    ExitOnErr(Builder.getMsfBuilder().addStream(0));
 
-  ExitOnErr(Builder.setSuperBlock(YamlObj.Headers->SuperBlock));
-  if (YamlObj.StreamSizes.hasValue()) {
-    Builder.setStreamSizes(YamlObj.StreamSizes.getValue());
-  }
-  Builder.setDirectoryBlocks(YamlObj.Headers->DirectoryBlocks);
-
-  if (YamlObj.StreamMap.hasValue()) {
-    std::vector<ArrayRef<support::ulittle32_t>> StreamMap;
-    for (auto &E : YamlObj.StreamMap.getValue()) {
-      StreamMap.push_back(E.Blocks);
-    }
-    Builder.setStreamMap(StreamMap);
-  } else {
-    ExitOnErr(Builder.generateSimpleStreamMap());
+  if (YamlObj.StringTable.hasValue()) {
+    auto &Strings = Builder.getStringTableBuilder();
+    for (auto S : *YamlObj.StringTable)
+      Strings.insert(S);
   }
 
   if (YamlObj.PdbStream.hasValue()) {
@@ -357,20 +376,35 @@ static void yamlToPdb(StringRef Path) {
     DbiBuilder.setPdbDllRbld(YamlObj.DbiStream->PdbDllRbld);
     DbiBuilder.setPdbDllVersion(YamlObj.DbiStream->PdbDllVersion);
     DbiBuilder.setVersionHeader(YamlObj.DbiStream->VerHeader);
+    for (const auto &MI : YamlObj.DbiStream->ModInfos) {
+      ExitOnErr(DbiBuilder.addModuleInfo(MI.Obj, MI.Mod));
+      for (auto S : MI.SourceFiles)
+        ExitOnErr(DbiBuilder.addModuleSourceFile(MI.Mod, S));
+    }
   }
 
-  auto Pdb = Builder.build();
-  ExitOnErr(Pdb.takeError());
+  if (YamlObj.TpiStream.hasValue()) {
+    auto &TpiBuilder = Builder.getTpiBuilder();
+    TpiBuilder.setVersionHeader(YamlObj.TpiStream->Version);
+    for (const auto &R : YamlObj.TpiStream->Records)
+      TpiBuilder.addTypeRecord(R.Record);
+  }
 
-  auto &PdbFile = *Pdb;
-  ExitOnErr(PdbFile->commit());
+  if (YamlObj.IpiStream.hasValue()) {
+    auto &IpiBuilder = Builder.getIpiBuilder();
+    IpiBuilder.setVersionHeader(YamlObj.IpiStream->Version);
+    for (const auto &R : YamlObj.IpiStream->Records)
+      IpiBuilder.addTypeRecord(R.Record);
+  }
+
+  ExitOnErr(Builder.commit(opts::yaml2pdb::YamlPdbOutputFile));
 }
 
 static void pdb2Yaml(StringRef Path) {
   std::unique_ptr<IPDBSession> Session;
-  ExitOnErr(loadDataForPDB(PDB_ReaderType::Raw, Path, Session));
+  ExitOnErr(loadDataForPDB(PDB_ReaderType::Native, Path, Session));
 
-  RawSession *RS = static_cast<RawSession *>(Session.get());
+  NativeSession *RS = static_cast<NativeSession *>(Session.get());
   PDBFile &File = RS->getPDBFile();
   auto O = llvm::make_unique<YAMLOutputStyle>(File);
   O = llvm::make_unique<YAMLOutputStyle>(File);
@@ -380,9 +414,9 @@ static void pdb2Yaml(StringRef Path) {
 
 static void dumpRaw(StringRef Path) {
   std::unique_ptr<IPDBSession> Session;
-  ExitOnErr(loadDataForPDB(PDB_ReaderType::Raw, Path, Session));
+  ExitOnErr(loadDataForPDB(PDB_ReaderType::Native, Path, Session));
 
-  RawSession *RS = static_cast<RawSession *>(Session.get());
+  NativeSession *RS = static_cast<NativeSession *>(Session.get());
   PDBFile &File = RS->getPDBFile();
   auto O = llvm::make_unique<LLVMOutputStyle>(File);
 
@@ -521,24 +555,51 @@ int main(int argc_, const char *argv_[]) {
   llvm_shutdown_obj Y; // Call llvm_shutdown() on exit.
 
   cl::ParseCommandLineOptions(argv.size(), argv.data(), "LLVM PDB Dumper\n");
+  if (!opts::raw::DumpBlockRangeOpt.empty()) {
+    llvm::Regex R("^([0-9]+)(-([0-9]+))?$");
+    llvm::SmallVector<llvm::StringRef, 2> Matches;
+    if (!R.match(opts::raw::DumpBlockRangeOpt, &Matches)) {
+      errs() << "Argument '" << opts::raw::DumpBlockRangeOpt
+             << "' invalid format.\n";
+      errs().flush();
+      exit(1);
+    }
+    opts::raw::DumpBlockRange.emplace();
+    Matches[1].getAsInteger(10, opts::raw::DumpBlockRange->Min);
+    if (!Matches[3].empty()) {
+      opts::raw::DumpBlockRange->Max.emplace();
+      Matches[3].getAsInteger(10, *opts::raw::DumpBlockRange->Max);
+    }
+  }
 
-  // These options are shared by two subcommands.
-  if ((opts::PdbToYamlSubcommand || opts::RawSubcommand) && opts::raw::RawAll) {
-    opts::raw::DumpHeaders = true;
-    opts::raw::DumpModules = true;
-    opts::raw::DumpModuleFiles = true;
-    opts::raw::DumpModuleSyms = true;
-    opts::raw::DumpPublics = true;
-    opts::raw::DumpSectionHeaders = true;
-    opts::raw::DumpStreamSummary = true;
-    opts::raw::DumpStreamBlocks = true;
-    opts::raw::DumpTpiRecords = true;
-    opts::raw::DumpTpiHash = true;
-    opts::raw::DumpIpiRecords = true;
-    opts::raw::DumpSectionMap = true;
-    opts::raw::DumpSectionContribs = true;
-    opts::raw::DumpLineInfo = true;
-    opts::raw::DumpFpo = true;
+  if (opts::RawSubcommand) {
+    if (opts::raw::RawAll) {
+      opts::raw::DumpHeaders = true;
+      opts::raw::DumpModules = true;
+      opts::raw::DumpModuleFiles = true;
+      opts::raw::DumpModuleSyms = true;
+      opts::raw::DumpGlobals = true;
+      opts::raw::DumpPublics = true;
+      opts::raw::DumpSectionHeaders = true;
+      opts::raw::DumpStreamSummary = true;
+      opts::raw::DumpPageStats = true;
+      opts::raw::DumpStreamBlocks = true;
+      opts::raw::DumpTpiRecords = true;
+      opts::raw::DumpTpiHash = true;
+      opts::raw::DumpIpiRecords = true;
+      opts::raw::DumpSectionMap = true;
+      opts::raw::DumpSectionContribs = true;
+      opts::raw::DumpLineInfo = true;
+      opts::raw::DumpFpo = true;
+      opts::raw::DumpStringTable = true;
+    }
+
+    if (opts::raw::CompactRecords &&
+        (opts::raw::DumpTpiRecordBytes || opts::raw::DumpIpiRecordBytes)) {
+      errs() << "-compact-records is incompatible with -tpi-record-bytes and "
+                "-ipi-record-bytes.\n";
+      exit(1);
+    }
   }
 
   llvm::sys::InitializeCOMRAII COM(llvm::sys::COMThreadingMode::MultiThreaded);
@@ -561,12 +622,10 @@ int main(int argc_, const char *argv_[]) {
     }
 
     // When adding filters for excluded compilands and types, we need to
-    // remember
-    // that these are regexes.  So special characters such as * and \ need to be
-    // escaped in the regex.  In the case of a literal \, this means it needs to
-    // be escaped again in the C++.  So matching a single \ in the input
-    // requires
-    // 4 \es in the C++.
+    // remember that these are regexes.  So special characters such as * and \
+    // need to be escaped in the regex.  In the case of a literal \, this means
+    // it needs to be escaped again in the C++.  So matching a single \ in the
+    // input requires 4 \es in the C++.
     if (opts::pretty::ExcludeCompilerGenerated) {
       opts::pretty::ExcludeTypes.push_back("__vc_attributes");
       opts::pretty::ExcludeCompilands.push_back("\\* Linker \\*");

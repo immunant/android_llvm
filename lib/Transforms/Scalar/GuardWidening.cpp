@@ -46,6 +46,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/PatternMatch.h"
@@ -653,12 +654,16 @@ bool GuardWideningImpl::combineRangeChecks(
 }
 
 PreservedAnalyses GuardWideningPass::run(Function &F,
-                                         AnalysisManager<Function> &AM) {
+                                         FunctionAnalysisManager &AM) {
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   auto &LI = AM.getResult<LoopAnalysis>(F);
   auto &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
-  bool Changed = GuardWideningImpl(DT, PDT, LI).run();
-  return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
+  if (!GuardWideningImpl(DT, PDT, LI).run())
+    return PreservedAnalyses::all();
+
+  PreservedAnalyses PA;
+  PA.preserveSet<CFGAnalyses>();
+  return PA;
 }
 
 StringRef GuardWideningImpl::scoreTypeToString(WideningScore WS) {

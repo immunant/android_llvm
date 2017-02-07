@@ -327,6 +327,8 @@ static Loop *separateNestedLoop(Loop *L, BasicBlock *Preheader,
     else
       NewOuter->addChildLoop(L->removeChildLoop(SubLoops.begin() + I));
 
+  SmallVector<BasicBlock *, 8> OuterLoopBlocks;
+  OuterLoopBlocks.push_back(NewBB);
   // Now that we know which blocks are in L and which need to be moved to
   // OuterLoop, move any blocks that need it.
   for (unsigned i = 0; i != L->getBlocks().size(); ++i) {
@@ -334,10 +336,38 @@ static Loop *separateNestedLoop(Loop *L, BasicBlock *Preheader,
     if (!BlocksInL.count(BB)) {
       // Move this block to the parent, updating the exit blocks sets
       L->removeBlockFromLoop(BB);
-      if ((*LI)[BB] == L)
+      if ((*LI)[BB] == L) {
         LI->changeLoopFor(BB, NewOuter);
+        OuterLoopBlocks.push_back(BB);
+      }
       --i;
     }
+  }
+
+  // Split edges to exit blocks from the inner loop, if they emerged in the
+  // process of separating the outer one.
+  SmallVector<BasicBlock *, 8> ExitBlocks;
+  L->getExitBlocks(ExitBlocks);
+  SmallSetVector<BasicBlock *, 8> ExitBlockSet(ExitBlocks.begin(),
+                                               ExitBlocks.end());
+  for (BasicBlock *ExitBlock : ExitBlockSet) {
+    if (any_of(predecessors(ExitBlock),
+               [L](BasicBlock *BB) { return !L->contains(BB); })) {
+      rewriteLoopExitBlock(L, ExitBlock, DT, LI, PreserveLCSSA);
+    }
+  }
+
+  if (PreserveLCSSA) {
+    // Fix LCSSA form for L. Some values, which previously were only used inside
+    // L, can now be used in NewOuter loop. We need to insert phi-nodes for them
+    // in corresponding exit blocks.
+    // We don't need to form LCSSA recursively, because there cannot be uses
+    // inside a newly created loop of defs from inner loops as those would
+    // already be a use of an LCSSA phi node.
+    formLCSSA(*L, *DT, LI, SE);
+
+    assert(NewOuter->isRecursivelyLCSSAForm(*DT, *LI) &&
+           "LCSSA is broken after separating nested loops!");
   }
 
   return NewOuter;
@@ -440,13 +470,21 @@ static BasicBlock *insertUniqueBackedgeBlock(Loop *L, BasicBlock *Preheader,
   }
 
   // Now that all of the PHI nodes have been inserted and adjusted, modify the
-  // backedge blocks to just to the BEBlock instead of the header.
+  // backedge blocks to jump to the BEBlock instead of the header.
+  // If one of the backedges has llvm.loop metadata attached, we remove
+  // it from the backedge and add it to BEBlock.
+  unsigned LoopMDKind = BEBlock->getContext().getMDKindID("llvm.loop");
+  MDNode *LoopMD = nullptr;
   for (unsigned i = 0, e = BackedgeBlocks.size(); i != e; ++i) {
     TerminatorInst *TI = BackedgeBlocks[i]->getTerminator();
+    if (!LoopMD)
+      LoopMD = TI->getMetadata(LoopMDKind);
+    TI->setMetadata(LoopMDKind, nullptr);
     for (unsigned Op = 0, e = TI->getNumSuccessors(); Op != e; ++Op)
       if (TI->getSuccessor(Op) == Header)
         TI->setSuccessor(Op, BEBlock);
   }
+  BEBlock->getTerminator()->setMetadata(LoopMDKind, LoopMD);
 
   //===--- Update all analyses which we must preserve now -----------------===//
 
@@ -492,7 +530,7 @@ ReprocessLoop:
 
       // Zap the dead pred's terminator and replace it with unreachable.
       TerminatorInst *TI = P->getTerminator();
-      changeToUnreachable(TI, /*UseLLVMTrap=*/false);
+      changeToUnreachable(TI, /*UseLLVMTrap=*/false, PreserveLCSSA);
       Changed = true;
     }
   }
@@ -541,17 +579,12 @@ ReprocessLoop:
   SmallSetVector<BasicBlock *, 8> ExitBlockSet(ExitBlocks.begin(),
                                                ExitBlocks.end());
   for (BasicBlock *ExitBlock : ExitBlockSet) {
-    for (pred_iterator PI = pred_begin(ExitBlock), PE = pred_end(ExitBlock);
-         PI != PE; ++PI)
-      // Must be exactly this loop: no subloops, parent loops, or non-loop preds
-      // allowed.
-      if (!L->contains(*PI)) {
-        if (rewriteLoopExitBlock(L, ExitBlock, DT, LI, PreserveLCSSA)) {
-          ++NumInserted;
-          Changed = true;
-        }
-        break;
-      }
+    if (any_of(predecessors(ExitBlock),
+               [L](BasicBlock *BB) { return !L->contains(BB); })) {
+      rewriteLoopExitBlock(L, ExitBlock, DT, LI, PreserveLCSSA);
+      ++NumInserted;
+      Changed = true;
+    }
   }
 
   // If the header has more than two predecessors at this point (from the
@@ -597,8 +630,10 @@ ReprocessLoop:
        (PN = dyn_cast<PHINode>(I++)); )
     if (Value *V = SimplifyInstruction(PN, DL, nullptr, DT, AC)) {
       if (SE) SE->forgetValue(PN);
-      PN->replaceAllUsesWith(V);
-      PN->eraseFromParent();
+      if (!PreserveLCSSA || LI->replacementPreservesLCSSAForm(PN, V)) {
+        PN->replaceAllUsesWith(V);
+        PN->eraseFromParent();
+      }
     }
 
   // If this loop has multiple exits and the exits all go to the same
@@ -700,6 +735,17 @@ bool llvm::simplifyLoop(Loop *L, DominatorTree *DT, LoopInfo *LI,
                         bool PreserveLCSSA) {
   bool Changed = false;
 
+#ifndef NDEBUG
+  // If we're asked to preserve LCSSA, the loop nest needs to start in LCSSA
+  // form.
+  if (PreserveLCSSA) {
+    assert(DT && "DT not available.");
+    assert(LI && "LI not available.");
+    assert(L->isRecursivelyLCSSAForm(*DT, *LI) &&
+           "Requested to preserve LCSSA, but it's already broken.");
+  }
+#endif
+
   // Worklist maintains our depth-first queue of loops in this nest to process.
   SmallVector<Loop *, 4> Worklist;
   Worklist.push_back(L);
@@ -779,15 +825,6 @@ bool LoopSimplify::runOnFunction(Function &F) {
       &getAnalysis<AssumptionCacheTracker>().getAssumptionCache(F);
 
   bool PreserveLCSSA = mustPreserveAnalysisID(LCSSAID);
-#ifndef NDEBUG
-  if (PreserveLCSSA) {
-    assert(DT && "DT not available.");
-    assert(LI && "LI not available.");
-    bool InLCSSA =
-        all_of(*LI, [&](Loop *L) { return L->isRecursivelyLCSSAForm(*DT); });
-    assert(InLCSSA && "Requested to preserve LCSSA, but it's already broken.");
-  }
-#endif
 
   // Simplify each loop nest in the function.
   for (LoopInfo::iterator I = LI->begin(), E = LI->end(); I != E; ++I)
@@ -795,8 +832,8 @@ bool LoopSimplify::runOnFunction(Function &F) {
 
 #ifndef NDEBUG
   if (PreserveLCSSA) {
-    bool InLCSSA =
-        all_of(*LI, [&](Loop *L) { return L->isRecursivelyLCSSAForm(*DT); });
+    bool InLCSSA = all_of(
+        *LI, [&](Loop *L) { return L->isRecursivelyLCSSAForm(*DT, *LI); });
     assert(InLCSSA && "LCSSA is broken after loop-simplify.");
   }
 #endif
@@ -804,20 +841,21 @@ bool LoopSimplify::runOnFunction(Function &F) {
 }
 
 PreservedAnalyses LoopSimplifyPass::run(Function &F,
-                                        AnalysisManager<Function> &AM) {
+                                        FunctionAnalysisManager &AM) {
   bool Changed = false;
   LoopInfo *LI = &AM.getResult<LoopAnalysis>(F);
   DominatorTree *DT = &AM.getResult<DominatorTreeAnalysis>(F);
   ScalarEvolution *SE = AM.getCachedResult<ScalarEvolutionAnalysis>(F);
   AssumptionCache *AC = &AM.getResult<AssumptionAnalysis>(F);
 
-  // FIXME: This pass should verify that the loops on which it's operating
-  // are in canonical SSA form, and that the pass itself preserves this form.
+  // Note that we don't preserve LCSSA in the new PM, if you need it run LCSSA
+  // after simplifying the loops.
   for (LoopInfo::iterator I = LI->begin(), E = LI->end(); I != E; ++I)
-    Changed |= simplifyLoop(*I, DT, LI, SE, AC, true /* PreserveLCSSA */);
+    Changed |= simplifyLoop(*I, DT, LI, SE, AC, /*PreserveLCSSA*/ false);
 
   if (!Changed)
     return PreservedAnalyses::all();
+
   PreservedAnalyses PA;
   PA.preserve<DominatorTreeAnalysis>();
   PA.preserve<LoopAnalysis>();

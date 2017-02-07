@@ -162,12 +162,12 @@ bool BranchProbabilityInfo::calcUnreachableHeuristics(const BasicBlock *BB) {
     return true;
   }
 
-  BranchProbability UnreachableProb(UR_TAKEN_WEIGHT,
-                                    (UR_TAKEN_WEIGHT + UR_NONTAKEN_WEIGHT) *
-                                        UnreachableEdges.size());
-  BranchProbability ReachableProb(UR_NONTAKEN_WEIGHT,
-                                  (UR_TAKEN_WEIGHT + UR_NONTAKEN_WEIGHT) *
-                                      ReachableEdges.size());
+  auto UnreachableProb = BranchProbability::getBranchProbability(
+      UR_TAKEN_WEIGHT, (UR_TAKEN_WEIGHT + UR_NONTAKEN_WEIGHT) *
+                           uint64_t(UnreachableEdges.size()));
+  auto ReachableProb = BranchProbability::getBranchProbability(
+      UR_NONTAKEN_WEIGHT,
+      (UR_TAKEN_WEIGHT + UR_NONTAKEN_WEIGHT) * uint64_t(ReachableEdges.size()));
 
   for (unsigned SuccIdx : UnreachableEdges)
     setEdgeProbability(BB, SuccIdx, UnreachableProb);
@@ -279,6 +279,16 @@ bool BranchProbabilityInfo::calcColdCallHeuristics(const BasicBlock *BB) {
         }
   }
 
+  if (auto *II = dyn_cast<InvokeInst>(TI)) {
+    // If the terminator is an InvokeInst, consider only the normal destination
+    // block.
+    if (PostDominatedByColdCall.count(II->getNormalDest()))
+      PostDominatedByColdCall.insert(BB);
+    // Return false here so that edge weights for InvokeInst could be decided
+    // in calcInvokeHeuristics().
+    return false;
+  }
+
   // Skip probabilities if this block has a single successor.
   if (TI->getNumSuccessors() == 1 || ColdEdges.empty())
     return false;
@@ -290,12 +300,12 @@ bool BranchProbabilityInfo::calcColdCallHeuristics(const BasicBlock *BB) {
     return true;
   }
 
-  BranchProbability ColdProb(CC_TAKEN_WEIGHT,
-                             (CC_TAKEN_WEIGHT + CC_NONTAKEN_WEIGHT) *
-                                 ColdEdges.size());
-  BranchProbability NormalProb(CC_NONTAKEN_WEIGHT,
-                               (CC_TAKEN_WEIGHT + CC_NONTAKEN_WEIGHT) *
-                                   NormalEdges.size());
+  auto ColdProb = BranchProbability::getBranchProbability(
+      CC_TAKEN_WEIGHT,
+      (CC_TAKEN_WEIGHT + CC_NONTAKEN_WEIGHT) * uint64_t(ColdEdges.size()));
+  auto NormalProb = BranchProbability::getBranchProbability(
+      CC_NONTAKEN_WEIGHT,
+      (CC_TAKEN_WEIGHT + CC_NONTAKEN_WEIGHT) * uint64_t(NormalEdges.size()));
 
   for (unsigned SuccIdx : ColdEdges)
     setEdgeProbability(BB, SuccIdx, ColdProb);
@@ -624,6 +634,7 @@ void BranchProbabilityInfo::setEdgeProbability(const BasicBlock *Src,
                                                unsigned IndexInSuccessors,
                                                BranchProbability Prob) {
   Probs[std::make_pair(Src, IndexInSuccessors)] = Prob;
+  Handles.insert(BasicBlockCallbackVH(Src, this));
   DEBUG(dbgs() << "set edge " << Src->getName() << " -> " << IndexInSuccessors
                << " successor probability to " << Prob << "\n");
 }
@@ -639,6 +650,14 @@ BranchProbabilityInfo::printEdgeProbability(raw_ostream &OS,
      << (isEdgeHot(Src, Dst) ? " [HOT edge]\n" : "\n");
 
   return OS;
+}
+
+void BranchProbabilityInfo::eraseBlock(const BasicBlock *BB) {
+  for (auto I = Probs.begin(), E = Probs.end(); I != E; ++I) {
+    auto Key = I->first;
+    if (Key.first == BB)
+      Probs.erase(Key);
+  }
 }
 
 void BranchProbabilityInfo::calculate(const Function &F, const LoopInfo &LI) {
@@ -692,16 +711,16 @@ void BranchProbabilityInfoWrapperPass::print(raw_ostream &OS,
   BPI.print(OS);
 }
 
-char BranchProbabilityAnalysis::PassID;
+AnalysisKey BranchProbabilityAnalysis::Key;
 BranchProbabilityInfo
-BranchProbabilityAnalysis::run(Function &F, AnalysisManager<Function> &AM) {
+BranchProbabilityAnalysis::run(Function &F, FunctionAnalysisManager &AM) {
   BranchProbabilityInfo BPI;
   BPI.calculate(F, AM.getResult<LoopAnalysis>(F));
   return BPI;
 }
 
 PreservedAnalyses
-BranchProbabilityPrinterPass::run(Function &F, AnalysisManager<Function> &AM) {
+BranchProbabilityPrinterPass::run(Function &F, FunctionAnalysisManager &AM) {
   OS << "Printing analysis results of BPI for function "
      << "'" << F.getName() << "':"
      << "\n";

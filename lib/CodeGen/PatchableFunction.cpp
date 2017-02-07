@@ -32,7 +32,7 @@ struct PatchableFunction : public MachineFunctionPass {
   bool runOnMachineFunction(MachineFunction &F) override;
    MachineFunctionProperties getRequiredProperties() const override {
     return MachineFunctionProperties().set(
-        MachineFunctionProperties::Property::AllVRegsAllocated);
+        MachineFunctionProperties::Property::NoVRegs);
   }
 };
 }
@@ -75,7 +75,7 @@ bool PatchableFunction::runOnMachineFunction(MachineFunction &MF) {
                  .addImm(FirstActualI->getOpcode());
 
   for (auto &MO : FirstActualI->operands())
-    MIB.addOperand(MO);
+    MIB.add(MO);
 
   FirstActualI->eraseFromParent();
   MF.ensureAlignment(4);

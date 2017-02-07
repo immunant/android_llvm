@@ -22,10 +22,10 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 using namespace llvm;
 
 #define DEBUG_TYPE "apint"
@@ -205,7 +205,7 @@ APInt& APInt::operator++() {
 
 /// This function subtracts a single "digit" (64-bit word), y, from
 /// the multi-digit integer array, x[], propagating the borrowed 1 value until
-/// no further borrowing is neeeded or it runs out of "digits" in x.  The result
+/// no further borrowing is needed or it runs out of "digits" in x.  The result
 /// is 1 if "borrowing" exhausted the digits in x, or 0 if x was not exhausted.
 /// In other words, if y > x then this function returns 1, otherwise 0.
 /// @returns the borrow out of the subtraction
@@ -260,6 +260,14 @@ APInt& APInt::operator+=(const APInt& RHS) {
   return clearUnusedBits();
 }
 
+APInt& APInt::operator+=(uint64_t RHS) {
+  if (isSingleWord())
+    VAL += RHS;
+  else
+    add_1(pVal, pVal, getNumWords(), RHS);
+  return clearUnusedBits();
+}
+
 /// Subtracts the integer array y from the integer array x
 /// @returns returns the borrow out.
 /// @brief Generalized subtraction of 64-bit integer arrays.
@@ -283,6 +291,14 @@ APInt& APInt::operator-=(const APInt& RHS) {
     VAL -= RHS.VAL;
   else
     sub(pVal, pVal, RHS.pVal, getNumWords());
+  return clearUnusedBits();
+}
+
+APInt& APInt::operator-=(uint64_t RHS) {
+  if (isSingleWord())
+    VAL -= RHS;
+  else
+    sub_1(pVal, getNumWords(), RHS);
   return clearUnusedBits();
 }
 
@@ -424,13 +440,12 @@ APInt& APInt::operator^=(const APInt& RHS) {
   assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
   if (isSingleWord()) {
     VAL ^= RHS.VAL;
-    this->clearUnusedBits();
     return *this;
   }
   unsigned numWords = getNumWords();
   for (unsigned i = 0; i < numWords; ++i)
     pVal[i] ^= RHS.pVal[i];
-  return clearUnusedBits();
+  return *this;
 }
 
 APInt APInt::AndSlowCase(const APInt& RHS) const {
@@ -455,10 +470,7 @@ APInt APInt::XorSlowCase(const APInt& RHS) const {
   for (unsigned i = 0; i < numWords; ++i)
     val[i] = pVal[i] ^ RHS.pVal[i];
 
-  APInt Result(val, getBitWidth());
-  // 0^0==1 so clear the high bits in case they got set.
-  Result.clearUnusedBits();
-  return Result;
+  return APInt(val, getBitWidth());
 }
 
 APInt APInt::operator*(const APInt& RHS) const {
@@ -467,44 +479,6 @@ APInt APInt::operator*(const APInt& RHS) const {
     return APInt(BitWidth, VAL * RHS.VAL);
   APInt Result(*this);
   Result *= RHS;
-  return Result;
-}
-
-APInt APInt::operator+(const APInt& RHS) const {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord())
-    return APInt(BitWidth, VAL + RHS.VAL);
-  APInt Result(BitWidth, 0);
-  add(Result.pVal, this->pVal, RHS.pVal, getNumWords());
-  Result.clearUnusedBits();
-  return Result;
-}
-
-APInt APInt::operator+(uint64_t RHS) const {
-  if (isSingleWord())
-    return APInt(BitWidth, VAL + RHS);
-  APInt Result(*this);
-  add_1(Result.pVal, Result.pVal, getNumWords(), RHS);
-  Result.clearUnusedBits();
-  return Result;
-}
-
-APInt APInt::operator-(const APInt& RHS) const {
-  assert(BitWidth == RHS.BitWidth && "Bit widths must be the same");
-  if (isSingleWord())
-    return APInt(BitWidth, VAL - RHS.VAL);
-  APInt Result(BitWidth, 0);
-  sub(Result.pVal, this->pVal, RHS.pVal, getNumWords());
-  Result.clearUnusedBits();
-  return Result;
-}
-
-APInt APInt::operator-(uint64_t RHS) const {
-  if (isSingleWord())
-    return APInt(BitWidth, VAL - RHS);
-  APInt Result(*this);
-  sub_1(Result.pVal, getNumWords(), RHS);
-  Result.clearUnusedBits();
   return Result;
 }
 
@@ -1064,11 +1038,7 @@ APInt APInt::ashr(unsigned shiftAmt) const {
   if (isSingleWord()) {
     if (shiftAmt == BitWidth)
       return APInt(BitWidth, 0); // undefined
-    else {
-      unsigned SignBit = APINT_BITS_PER_WORD - BitWidth;
-      return APInt(BitWidth,
-        (((int64_t(VAL) << SignBit) >> SignBit) >> shiftAmt));
-    }
+    return APInt(BitWidth, SignExtend64(VAL, BitWidth) >> shiftAmt);
   }
 
   // If all the bits were shifted out, the result is, technically, undefined.
@@ -1521,7 +1491,7 @@ static void KnuthDiv(unsigned *u, unsigned *v, unsigned *q, unsigned* r,
   assert(n>1 && "n must be > 1");
 
   // b denotes the base of the number system. In our case b is 2^32.
-  LLVM_CONSTEXPR uint64_t b = uint64_t(1) << 32;
+  const uint64_t b = uint64_t(1) << 32;
 
   DEBUG(dbgs() << "KnuthDiv: m=" << m << " n=" << n << '\n');
   DEBUG(dbgs() << "KnuthDiv: original:");
@@ -2271,7 +2241,7 @@ std::string APInt::toString(unsigned Radix = 10, bool Signed = true) const {
   return S.str();
 }
 
-
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void APInt::dump() const {
   SmallString<40> S, U;
   this->toStringUnsigned(U);
@@ -2279,6 +2249,7 @@ LLVM_DUMP_METHOD void APInt::dump() const {
   dbgs() << "APInt(" << BitWidth << "b, "
          << U << "u " << S << "s)";
 }
+#endif
 
 void APInt::print(raw_ostream &OS, bool isSigned) const {
   SmallString<40> S;

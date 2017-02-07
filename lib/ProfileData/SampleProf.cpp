@@ -24,7 +24,7 @@ namespace {
 // will be removed once this transition is complete. Clients should prefer to
 // deal with the Error value directly, rather than converting to error_code.
 class SampleProfErrorCategoryType : public std::error_category {
-  const char *name() const LLVM_NOEXCEPT override { return "llvm.sampleprof"; }
+  const char *name() const noexcept override { return "llvm.sampleprof"; }
   std::string message(int IE) const override {
     sampleprof_error E = static_cast<sampleprof_error>(IE);
     switch (E) {
@@ -74,7 +74,9 @@ raw_ostream &llvm::sampleprof::operator<<(raw_ostream &OS,
   return OS;
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void LineLocation::dump() const { print(dbgs()); }
+#endif
 
 /// \brief Print the sample record to the stream \p OS indented by \p Indent.
 void SampleRecord::print(raw_ostream &OS, unsigned Indent) const {
@@ -87,7 +89,9 @@ void SampleRecord::print(raw_ostream &OS, unsigned Indent) const {
   OS << "\n";
 }
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 LLVM_DUMP_METHOD void SampleRecord::dump() const { print(dbgs(), 0); }
+#endif
 
 raw_ostream &llvm::sampleprof::operator<<(raw_ostream &OS,
                                           const SampleRecord &Sample) {
@@ -136,4 +140,6 @@ raw_ostream &llvm::sampleprof::operator<<(raw_ostream &OS,
   return OS;
 }
 
-void FunctionSamples::dump(void) const { print(dbgs(), 0); }
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+LLVM_DUMP_METHOD void FunctionSamples::dump(void) const { print(dbgs(), 0); }
+#endif

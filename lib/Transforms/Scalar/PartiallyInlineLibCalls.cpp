@@ -98,14 +98,14 @@ static bool runPartiallyInlineLibCalls(Function &F, TargetLibraryInfo *TLI,
 
       // Skip if function either has local linkage or is not a known library
       // function.
-      LibFunc::Func LibFunc;
+      LibFunc LF;
       if (CalledFunc->hasLocalLinkage() || !CalledFunc->hasName() ||
-          !TLI->getLibFunc(CalledFunc->getName(), LibFunc))
+          !TLI->getLibFunc(CalledFunc->getName(), LF))
         continue;
 
-      switch (LibFunc) {
-      case LibFunc::sqrtf:
-      case LibFunc::sqrt:
+      switch (LF) {
+      case LibFunc_sqrtf:
+      case LibFunc_sqrt:
         if (TTI->haveFastSqrt(Call->getType()) &&
             optimizeSQRT(Call, CalledFunc, *CurrBB, BB))
           break;
@@ -123,7 +123,7 @@ static bool runPartiallyInlineLibCalls(Function &F, TargetLibraryInfo *TLI,
 }
 
 PreservedAnalyses
-PartiallyInlineLibCallsPass::run(Function &F, AnalysisManager<Function> &AM) {
+PartiallyInlineLibCallsPass::run(Function &F, FunctionAnalysisManager &AM) {
   auto &TLI = AM.getResult<TargetLibraryAnalysis>(F);
   auto &TTI = AM.getResult<TargetIRAnalysis>(F);
   if (!runPartiallyInlineLibCalls(F, &TLI, &TTI))

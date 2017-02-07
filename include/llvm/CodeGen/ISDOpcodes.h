@@ -70,7 +70,7 @@ namespace ISD {
     /// of the frame or return address to return.  An index of zero corresponds
     /// to the current function's frame or return address, an index of one to
     /// the parent's frame or return address, and so on.
-    FRAMEADDR, RETURNADDR,
+    FRAMEADDR, RETURNADDR, ADDROFRETURNADDR,
 
     /// LOCAL_RECOVER - Represents the llvm.localrecover intrinsic.
     /// Materializes the offset from the local object pointer of another
@@ -89,6 +89,11 @@ namespace ISD {
     /// first (possible) on-stack argument. This is needed for correct stack
     /// adjustment during unwind.
     FRAME_TO_ARGS_OFFSET,
+
+    /// EH_DWARF_CFA - This node represents the pointer to the DWARF Canonical
+    /// Frame Address (CFA), generally the value of the stack pointer at the
+    /// call site in the previous frame.
+    EH_DWARF_CFA,
 
     /// OUTCHAIN = EH_RETURN(INCHAIN, OFFSET, HANDLER) - This node represents
     /// 'eh_return' gcc dwarf builtin, which is used to return from
@@ -240,6 +245,12 @@ namespace ISD {
     /// Simple binary floating point operators.
     FADD, FSUB, FMUL, FDIV, FREM,
 
+    /// Constrained versions of the binary floating point operators.
+    /// These will be lowered to the simple operators before final selection.
+    /// They are used to limit optimizations while the DAG is being
+    /// optimized.
+    STRICT_FADD, STRICT_FSUB, STRICT_FMUL, STRICT_FDIV, STRICT_FREM,
+
     /// FMA - Perform a * b + c with no intermediate rounding step.
     FMA,
 
@@ -276,7 +287,8 @@ namespace ISD {
     /// EXTRACT_VECTOR_ELT(VECTOR, IDX) - Returns a single element from VECTOR
     /// identified by the (potentially variable) element number IDX.  If the
     /// return type is an integer type larger than the element type of the
-    /// vector, the result is extended to the width of the return type.
+    /// vector, the result is extended to the width of the return type. In
+    /// that case, the high bits are undefined.
     EXTRACT_VECTOR_ELT,
 
     /// CONCAT_VECTORS(VECTOR0, VECTOR1, ...) - Given a number of values of
@@ -497,19 +509,6 @@ namespace ISD {
     /// ADDRSPACECAST - This operator converts between pointers of different
     /// address spaces.
     ADDRSPACECAST,
-
-    /// CONVERT_RNDSAT - This operator is used to support various conversions
-    /// between various types (float, signed, unsigned and vectors of those
-    /// types) with rounding and saturation. NOTE: Avoid using this operator as
-    /// most target don't support it and the operator might be removed in the
-    /// future. It takes the following arguments:
-    ///   0) value
-    ///   1) dest type (type to convert to)
-    ///   2) src type (type to convert from)
-    ///   3) rounding imm
-    ///   4) saturation imm
-    ///   5) ISD::CvtCode indicating the type of conversion to do
-    CONVERT_RNDSAT,
 
     /// FP16_TO_FP, FP_TO_FP16 - These operators are used to perform promotions
     /// and truncation for half-precision (16 bit) floating numbers. These nodes
@@ -921,21 +920,6 @@ namespace ISD {
   /// identical values: ((X op1 Y) & (X op2 Y)). This function returns
   /// SETCC_INVALID if it is not possible to represent the resultant comparison.
   CondCode getSetCCAndOperation(CondCode Op1, CondCode Op2, bool isInteger);
-
-  //===--------------------------------------------------------------------===//
-  /// This enum defines the various converts CONVERT_RNDSAT supports.
-  enum CvtCode {
-    CVT_FF,     /// Float from Float
-    CVT_FS,     /// Float from Signed
-    CVT_FU,     /// Float from Unsigned
-    CVT_SF,     /// Signed from Float
-    CVT_UF,     /// Unsigned from Float
-    CVT_SS,     /// Signed from Signed
-    CVT_SU,     /// Signed from Unsigned
-    CVT_US,     /// Unsigned from Signed
-    CVT_UU,     /// Unsigned from Unsigned
-    CVT_INVALID /// Marker - Invalid opcode
-  };
 
 } // end llvm::ISD namespace
 

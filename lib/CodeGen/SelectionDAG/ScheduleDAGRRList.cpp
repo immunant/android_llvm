@@ -1339,7 +1339,7 @@ void ScheduleDAGRRList::releaseInterferences(unsigned Reg) {
     LRegsMapT::iterator LRegsPos = LRegsMap.find(SU);
     if (Reg) {
       SmallVectorImpl<unsigned> &LRegs = LRegsPos->second;
-      if (std::find(LRegs.begin(), LRegs.end(), Reg) == LRegs.end())
+      if (!is_contained(LRegs, Reg))
         continue;
     }
     SU->isPending = false;
@@ -1659,9 +1659,8 @@ public:
       RegPressure.resize(NumRC);
       std::fill(RegLimit.begin(), RegLimit.end(), 0);
       std::fill(RegPressure.begin(), RegPressure.end(), 0);
-      for (TargetRegisterInfo::regclass_iterator I = TRI->regclass_begin(),
-             E = TRI->regclass_end(); I != E; ++I)
-        RegLimit[(*I)->getID()] = tri->getRegPressureLimit(*I, MF);
+      for (const TargetRegisterClass *RC : TRI->regclasses())
+        RegLimit[RC->getID()] = tri->getRegPressureLimit(RC, MF);
     }
   }
 
@@ -1704,8 +1703,7 @@ public:
   void remove(SUnit *SU) override {
     assert(!Queue.empty() && "Queue is empty!");
     assert(SU->NodeQueueId != 0 && "Not in queue!");
-    std::vector<SUnit *>::iterator I = std::find(Queue.begin(), Queue.end(),
-                                                 SU);
+    std::vector<SUnit *>::iterator I = find(Queue, SU);
     if (I != std::prev(Queue.end()))
       std::swap(*I, Queue.back());
     Queue.pop_back();
@@ -1789,7 +1787,7 @@ public:
   }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-  void dump(ScheduleDAG *DAG) const override {
+  LLVM_DUMP_METHOD void dump(ScheduleDAG *DAG) const override {
     // Emulate pop() without clobbering NodeQueueIds.
     std::vector<SUnit*> DumpQueue = Queue;
     SF DumpPicker = Picker;
@@ -1925,19 +1923,17 @@ unsigned RegReductionPQBase::getNodePriority(const SUnit *SU) const {
 //                     Register Pressure Tracking
 //===----------------------------------------------------------------------===//
 
-void RegReductionPQBase::dumpRegPressure() const {
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-  for (TargetRegisterInfo::regclass_iterator I = TRI->regclass_begin(),
-         E = TRI->regclass_end(); I != E; ++I) {
-    const TargetRegisterClass *RC = *I;
+LLVM_DUMP_METHOD void RegReductionPQBase::dumpRegPressure() const {
+  for (const TargetRegisterClass *RC : TRI->regclasses()) {
     unsigned Id = RC->getID();
     unsigned RP = RegPressure[Id];
     if (!RP) continue;
     DEBUG(dbgs() << TRI->getRegClassName(RC) << ": " << RP << " / "
           << RegLimit[Id] << '\n');
   }
-#endif
 }
+#endif
 
 bool RegReductionPQBase::HighRegPressure(const SUnit *SU) const {
   if (!TLI)
@@ -2093,7 +2089,7 @@ void RegReductionPQBase::scheduledNode(SUnit *SU) {
       RegPressure[RCId] -= Cost;
     }
   }
-  dumpRegPressure();
+  DEBUG(dumpRegPressure());
 }
 
 void RegReductionPQBase::unscheduledNode(SUnit *SU) {
@@ -2173,7 +2169,7 @@ void RegReductionPQBase::unscheduledNode(SUnit *SU) {
     }
   }
 
-  dumpRegPressure();
+  DEBUG(dumpRegPressure());
 }
 
 //===----------------------------------------------------------------------===//

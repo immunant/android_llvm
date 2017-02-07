@@ -231,12 +231,14 @@ protected:
     DITypeRefArray ParamTypes = DBuilder.getOrCreateTypeArray(None);
     DISubroutineType *FuncType =
         DBuilder.createSubroutineType(ParamTypes);
-    auto *CU =
-        DBuilder.createCompileUnit(dwarf::DW_LANG_C99, "filename.c",
-                                   "/file/dir", "CloneFunc", false, "", 0);
+    auto *CU = DBuilder.createCompileUnit(dwarf::DW_LANG_C99,
+                                          DBuilder.createFile("filename.c",
+                                                              "/file/dir"),
+                                          "CloneFunc", false, "", 0);
 
-    auto *Subprogram = DBuilder.createFunction(
-        CU, "f", "f", File, 4, FuncType, true, true, 3, 0, false);
+    auto *Subprogram =
+        DBuilder.createFunction(CU, "f", "f", File, 4, FuncType, true, true, 3,
+                                DINode::FlagZero, false);
     OldFunc->setSubprogram(Subprogram);
 
     // Function body
@@ -252,8 +254,7 @@ protected:
     Instruction* Terminator = IBuilder.CreateRetVoid();
 
     // Create a local variable around the alloca
-    auto *IntType =
-        DBuilder.createBasicType("int", 32, 0, dwarf::DW_ATE_signed);
+    auto *IntType = DBuilder.createBasicType("int", 32, dwarf::DW_ATE_signed);
     auto *E = DBuilder.createExpression();
     auto *Variable =
         DBuilder.createAutoVariable(Subprogram, "x", File, 5, IntType, true);
@@ -268,7 +269,8 @@ protected:
     // Create another, empty, compile unit
     DIBuilder DBuilder2(*M);
     DBuilder2.createCompileUnit(dwarf::DW_LANG_C99,
-        "extra.c", "/file/dir", "CloneFunc", false, "", 0);
+                                DBuilder.createFile("extra.c", "/file/dir"),
+                                "CloneFunc", false, "", 0);
     DBuilder2.finalize();
   }
 
@@ -403,6 +405,15 @@ protected:
   void SetupModule() { OldM = new Module("", C); }
 
   void CreateOldModule() {
+    auto *CD = OldM->getOrInsertComdat("comdat");
+    CD->setSelectionKind(Comdat::ExactMatch);
+
+    auto GV = new GlobalVariable(
+        *OldM, Type::getInt32Ty(C), false, GlobalValue::ExternalLinkage,
+        ConstantInt::get(Type::getInt32Ty(C), 1), "gv");
+    GV->addMetadata(LLVMContext::MD_type, *MDNode::get(C, {}));
+    GV->setComdat(CD);
+
     DIBuilder DBuilder(*OldM);
     IRBuilder<> IBuilder(C);
 
@@ -412,17 +423,20 @@ protected:
     auto *F =
         Function::Create(FuncType, GlobalValue::PrivateLinkage, "f", OldM);
     F->setPersonalityFn(PersFn);
+    F->setComdat(CD);
 
     // Create debug info
     auto *File = DBuilder.createFile("filename.c", "/file/dir/");
     DITypeRefArray ParamTypes = DBuilder.getOrCreateTypeArray(None);
     DISubroutineType *DFuncType = DBuilder.createSubroutineType(ParamTypes);
-    auto *CU =
-        DBuilder.createCompileUnit(dwarf::DW_LANG_C99, "filename.c",
-                                   "/file/dir", "CloneModule", false, "", 0);
+    auto *CU = DBuilder.createCompileUnit(dwarf::DW_LANG_C99,
+                                          DBuilder.createFile("filename.c",
+                                                              "/file/dir"),
+                                          "CloneModule", false, "", 0);
     // Function DI
-    auto *Subprogram = DBuilder.createFunction(CU, "f", "f", File, 4, DFuncType,
-                                               true, true, 3, 0, false);
+    auto *Subprogram =
+        DBuilder.createFunction(CU, "f", "f", File, 4, DFuncType, true, true, 3,
+                                DINode::FlagZero, false);
     F->setSubprogram(Subprogram);
 
     auto *Entry = BasicBlock::Create(C, "", F);
@@ -457,5 +471,21 @@ TEST_F(CloneModule, Subprogram) {
   EXPECT_EQ(SP->getName(), "f");
   EXPECT_EQ(SP->getFile()->getFilename(), "filename.c");
   EXPECT_EQ(SP->getLine(), (unsigned)4);
+}
+
+TEST_F(CloneModule, GlobalMetadata) {
+  GlobalVariable *NewGV = NewM->getGlobalVariable("gv");
+  EXPECT_NE(nullptr, NewGV->getMetadata(LLVMContext::MD_type));
+}
+
+TEST_F(CloneModule, Comdat) {
+  GlobalVariable *NewGV = NewM->getGlobalVariable("gv");
+  auto *CD = NewGV->getComdat();
+  ASSERT_NE(nullptr, CD);
+  EXPECT_EQ("comdat", CD->getName());
+  EXPECT_EQ(Comdat::ExactMatch, CD->getSelectionKind());
+
+  Function *NewF = NewM->getFunction("f");
+  EXPECT_EQ(CD, NewF->getComdat());
 }
 }

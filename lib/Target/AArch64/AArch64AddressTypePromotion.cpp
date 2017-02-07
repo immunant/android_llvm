@@ -31,25 +31,28 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/Type.h"
+#include "llvm/IR/Use.h"
+#include "llvm/IR/User.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cassert>
 
 using namespace llvm;
 
 #define DEBUG_TYPE "aarch64-type-promotion"
 
-static cl::opt<bool>
-EnableAddressTypePromotion("aarch64-type-promotion", cl::Hidden,
-                           cl::desc("Enable the type promotion pass"),
-                           cl::init(true));
 static cl::opt<bool>
 EnableMerge("aarch64-type-promotion-merge", cl::Hidden,
             cl::desc("Enable merging of redundant sexts when one is dominating"
@@ -62,23 +65,17 @@ EnableMerge("aarch64-type-promotion-merge", cl::Hidden,
 //                       AArch64AddressTypePromotion
 //===----------------------------------------------------------------------===//
 
-namespace llvm {
-void initializeAArch64AddressTypePromotionPass(PassRegistry &);
-}
-
 namespace {
-class AArch64AddressTypePromotion : public FunctionPass {
 
+class AArch64AddressTypePromotion : public FunctionPass {
 public:
   static char ID;
-  AArch64AddressTypePromotion()
-      : FunctionPass(ID), Func(nullptr), ConsideredSExtType(nullptr) {
+
+  AArch64AddressTypePromotion() : FunctionPass(ID) {
     initializeAArch64AddressTypePromotionPass(*PassRegistry::getPassRegistry());
   }
 
-  const char *getPassName() const override {
-    return AARCH64_TYPE_PROMO_NAME;
-  }
+  StringRef getPassName() const override { return AARCH64_TYPE_PROMO_NAME; }
 
   /// Iterate over the functions and promote the computation of interesting
   // sext instructions.
@@ -86,10 +83,11 @@ public:
 
 private:
   /// The current function.
-  Function *Func;
+  Function *Func = nullptr;
+
   /// Filter out all sexts that does not have this type.
   /// Currently initialized with Int64Ty.
-  Type *ConsideredSExtType;
+  Type *ConsideredSExtType = nullptr;
 
   // This transformation requires dominator info.
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -139,7 +137,8 @@ private:
   void mergeSExts(ValueToInsts &ValToSExtendedUses,
                   SetOfInstructions &ToRemove);
 };
-} // end anonymous namespace.
+
+} // end anonymous namespace
 
 char AArch64AddressTypePromotion::ID = 0;
 
@@ -481,7 +480,7 @@ bool AArch64AddressTypePromotion::runOnFunction(Function &F) {
   if (skipFunction(F))
     return false;
 
-  if (!EnableAddressTypePromotion || F.isDeclaration())
+  if (F.isDeclaration())
     return false;
   Func = &F;
   ConsideredSExtType = Type::getInt64Ty(Func->getContext());

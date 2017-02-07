@@ -20,7 +20,7 @@
 // One of TLI_DEFINE_ENUM/STRING are defined.
 
 #if defined(TLI_DEFINE_ENUM)
-#define TLI_DEFINE_ENUM_INTERNAL(enum_variant) enum_variant,
+#define TLI_DEFINE_ENUM_INTERNAL(enum_variant) LibFunc_##enum_variant,
 #define TLI_DEFINE_STRING_INTERNAL(string_repr)
 #else
 #define TLI_DEFINE_ENUM_INTERNAL(enum_variant)
@@ -734,6 +734,9 @@ TLI_DEFINE_STRING_INTERNAL("memcpy")
 /// void *memmove(void *s1, const void *s2, size_t n);
 TLI_DEFINE_ENUM_INTERNAL(memmove)
 TLI_DEFINE_STRING_INTERNAL("memmove")
+/// void *mempcpy(void *s1, const void *s2, size_t n);
+TLI_DEFINE_ENUM_INTERNAL(mempcpy)
+TLI_DEFINE_STRING_INTERNAL("mempcpy")
 // void *memrchr(const void *s, int c, size_t n);
 TLI_DEFINE_ENUM_INTERNAL(memrchr)
 TLI_DEFINE_STRING_INTERNAL("memrchr")

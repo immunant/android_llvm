@@ -212,6 +212,7 @@ bool ELFAsmParser::ParseDirectiveSize(StringRef, SMLoc) {
 
   if (getLexer().isNot(AsmToken::EndOfStatement))
     return TokError("unexpected token in directive");
+  Lex();
 
   getStreamer().emitELFSize(Sym, Expr);
   return false;
@@ -263,6 +264,10 @@ bool ELFAsmParser::ParseSectionName(StringRef &SectionName) {
 static unsigned parseSectionFlags(StringRef flagsStr, bool *UseLastGroup) {
   unsigned flags = 0;
 
+  // If a valid numerical value is set for the section flag, use it verbatim
+  if (!flagsStr.getAsInteger(0, flags))
+    return flags;
+
   for (char i : flagsStr) {
     switch (i) {
     case 'a':
@@ -291,6 +296,9 @@ static unsigned parseSectionFlags(StringRef flagsStr, bool *UseLastGroup) {
       break;
     case 'd':
       flags |= ELF::XCORE_SHF_DP_SECTION;
+      break;
+    case 'y':
+      flags |= ELF::SHF_ARM_PURECODE;
       break;
     case 'G':
       flags |= ELF::SHF_GROUP;
@@ -478,6 +486,7 @@ bool ELFAsmParser::ParseSectionArguments(bool IsPush, SMLoc loc) {
 EndStmt:
   if (getLexer().isNot(AsmToken::EndOfStatement))
     return TokError("unexpected token in directive");
+  Lex();
 
   unsigned Type = ELF::SHT_PROGBITS;
 
@@ -629,6 +638,10 @@ bool ELFAsmParser::ParseDirectiveIdent(StringRef, SMLoc) {
 
   Lex();
 
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    return TokError("unexpected token in '.ident' directive");
+  Lex();
+
   getStreamer().EmitIdent(Data);
   return false;
 }
@@ -726,6 +739,8 @@ bool ELFAsmParser::ParseDirectiveSubsection(StringRef, SMLoc) {
 
   if (getLexer().isNot(AsmToken::EndOfStatement))
     return TokError("unexpected token in directive");
+
+  Lex();
 
   getStreamer().SubSection(Subsection);
   return false;

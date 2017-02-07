@@ -17,13 +17,26 @@
 
 #include "PPC.h"
 #include "PPCInstrInfo.h"
-#include "PPCRegisterInfo.h"
 #include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGen/ValueTypes.h"
+#include "llvm/IR/Attributes.h"
+#include "llvm/IR/CallingConv.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/Metadata.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Target/TargetLowering.h"
+#include <utility>
 
 namespace llvm {
+
   namespace PPCISD {
+
     enum NodeType : unsigned {
       // Start the numbering where the builtin ops and target ops leave off.
       FIRST_NUMBER = ISD::BUILTIN_OP_END,
@@ -47,8 +60,12 @@ namespace llvm {
       FCTIDZ, FCTIWZ,
 
       /// Newer FCTI[D,W]UZ floating-point-to-integer conversion instructions for
-      /// unsigned integers.
+      /// unsigned integers with round toward zero.
       FCTIDUZ, FCTIWUZ,
+
+      /// VEXTS, ByteWidth - takes an input in VSFRC and produces an output in
+      /// VSFRC that is sign-extended from ByteWidth to a 64-byte integer.
+      VEXTS,
 
       /// Reciprocal estimate instructions (unary FP ops).
       FRE, FRSQRTE,
@@ -365,6 +382,16 @@ namespace llvm {
       /// destination 64-bit register.
       LFIWZX,
 
+      /// GPRC, CHAIN = LXSIZX, CHAIN, Ptr, ByteWidth - This is a load of an
+      /// integer smaller than 64 bits into a VSR. The integer is zero-extended.
+      /// This can be used for converting loaded integers to floating point.
+      LXSIZX,
+
+      /// STXSIX - The STXSI[bh]X instruction. The first operand is an input
+      /// chain, then an f64 value to store, then an address to store it to,
+      /// followed by a byte-width for the store.
+      STXSIX,
+
       /// VSRC, CHAIN = LXVD2X_LE CHAIN, Ptr - Occurs only for little endian.
       /// Maps directly to an lxvd2x instruction that will be followed by
       /// an xxswapd.
@@ -384,10 +411,12 @@ namespace llvm {
       /// the last operand.
       TOC_ENTRY
     };
-  }
+
+  } // end namespace PPCISD
 
   /// Define some predicates that are used for node matching.
   namespace PPC {
+
     /// isVPKUHUMShuffleMask - Return true if this is the shuffle mask for a
     /// VPKUHUM instruction.
     bool isVPKUHUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
@@ -451,7 +480,8 @@ namespace llvm {
     /// If this is a qvaligni shuffle mask, return the shift
     /// amount, otherwise return -1.
     int isQVALIGNIShuffleMask(SDNode *N);
-  }
+
+  } // end namespace PPC
 
   class PPCTargetLowering : public TargetLowering {
     const PPCSubtarget &Subtarget;
@@ -474,10 +504,11 @@ namespace llvm {
     /// then the VPERM for the shuffle. All in all a very slow sequence.
     TargetLoweringBase::LegalizeTypeAction getPreferredVectorAction(EVT VT)
       const override {
-      if (VT.getVectorElementType().getSizeInBits() % 8 == 0)
+      if (VT.getScalarSizeInBits() % 8 == 0)
         return TypeWidenVector;
       return TargetLoweringBase::getPreferredVectorAction(VT);
     }
+
     bool useSoftFloat() const override;
 
     MVT getScalarShiftAmountTy(const DataLayout &, EVT) const override {
@@ -489,6 +520,14 @@ namespace llvm {
     }
 
     bool isCheapToSpeculateCtlz() const override {
+      return true;
+    }
+
+    bool isCtlzFast() const override {
+      return true;
+    }
+
+    bool hasAndNotCompare(SDValue) const override {
       return true;
     }
 
@@ -585,11 +624,15 @@ namespace llvm {
     MachineBasicBlock *EmitAtomicBinary(MachineInstr &MI,
                                         MachineBasicBlock *MBB,
                                         unsigned AtomicSize,
-                                        unsigned BinOpcode) const;
+                                        unsigned BinOpcode,
+                                        unsigned CmpOpcode = 0,
+                                        unsigned CmpPred = 0) const;
     MachineBasicBlock *EmitPartwordAtomicBinary(MachineInstr &MI,
                                                 MachineBasicBlock *MBB,
                                                 bool is8bit,
-                                                unsigned Opcode) const;
+                                                unsigned Opcode,
+                                                unsigned CmpOpcode = 0,
+                                                unsigned CmpPred = 0) const;
 
     MachineBasicBlock *emitEHSjLjSetJmp(MachineInstr &MI,
                                         MachineBasicBlock *MBB) const;
@@ -743,18 +786,38 @@ namespace llvm {
     bool useLoadStackGuardNode() const override;
     void insertSSPDeclarations(Module &M) const override;
 
+    bool isFPImmLegal(const APFloat &Imm, EVT VT) const override;
+
+    unsigned getJumpTableEncoding() const override;
+    bool isJumpTableRelative() const override;
+    SDValue getPICJumpTableRelocBase(SDValue Table,
+                                     SelectionDAG &DAG) const override;
+    const MCExpr *getPICJumpTableRelocBaseExpr(const MachineFunction *MF,
+                                               unsigned JTI,
+                                               MCContext &Ctx) const override;
+
   private:
     struct ReuseLoadInfo {
       SDValue Ptr;
       SDValue Chain;
       SDValue ResChain;
       MachinePointerInfo MPI;
-      bool IsInvariant;
-      unsigned Alignment;
+      bool IsDereferenceable = false;
+      bool IsInvariant = false;
+      unsigned Alignment = 0;
       AAMDNodes AAInfo;
-      const MDNode *Ranges;
+      const MDNode *Ranges = nullptr;
 
-      ReuseLoadInfo() : IsInvariant(false), Alignment(0), Ranges(nullptr) {}
+      ReuseLoadInfo() = default;
+
+      MachineMemOperand::Flags MMOFlags() const {
+        MachineMemOperand::Flags F = MachineMemOperand::MONone;
+        if (IsDereferenceable)
+          F |= MachineMemOperand::MODereferenceable;
+        if (IsInvariant)
+          F |= MachineMemOperand::MOInvariant;
+        return F;
+      }
     };
 
     bool canReuseLoadAddress(SDValue Op, EVT MemVT, ReuseLoadInfo &RLI,
@@ -767,6 +830,8 @@ namespace llvm {
                                 SelectionDAG &DAG, const SDLoc &dl) const;
     SDValue LowerFP_TO_INTDirectMove(SDValue Op, SelectionDAG &DAG,
                                      const SDLoc &dl) const;
+
+    bool directMoveIsProfitable(const SDValue &Op) const;
     SDValue LowerINT_TO_FPDirectMove(SDValue Op, SelectionDAG &DAG,
                                      const SDLoc &dl) const;
 
@@ -811,6 +876,7 @@ namespace llvm {
     SDValue LowerSTACKRESTORE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGET_DYNAMIC_AREA_OFFSET(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerEH_DWARF_CFA(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerTRUNCATE(SDValue Op, SelectionDAG &DAG) const;
@@ -824,6 +890,7 @@ namespace llvm {
     SDValue LowerSRA_PARTS(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const;
@@ -854,15 +921,13 @@ namespace llvm {
                          const SDLoc &dl, SelectionDAG &DAG,
                          SmallVectorImpl<SDValue> &InVals) const override;
 
-    SDValue
-      LowerCall(TargetLowering::CallLoweringInfo &CLI,
-                SmallVectorImpl<SDValue> &InVals) const override;
+    SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                      SmallVectorImpl<SDValue> &InVals) const override;
 
-    bool
-      CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
-                   bool isVarArg,
-                   const SmallVectorImpl<ISD::OutputArg> &Outs,
-                   LLVMContext &Context) const override;
+    bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
+                        bool isVarArg,
+                        const SmallVectorImpl<ISD::OutputArg> &Outs,
+                        LLVMContext &Context) const override;
 
     SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
                         const SmallVectorImpl<ISD::OutputArg> &Outs,
@@ -927,20 +992,31 @@ namespace llvm {
     SDValue DAGCombineTruncBoolExt(SDNode *N, DAGCombinerInfo &DCI) const;
     SDValue combineFPToIntToFP(SDNode *N, DAGCombinerInfo &DCI) const;
 
-    SDValue getRsqrtEstimate(SDValue Operand, DAGCombinerInfo &DCI,
-                             unsigned &RefinementSteps,
-                             bool &UseOneConstNR) const override;
-    SDValue getRecipEstimate(SDValue Operand, DAGCombinerInfo &DCI,
-                             unsigned &RefinementSteps) const override;
+    /// ConvertSETCCToSubtract - looks at SETCC that compares ints. It replaces
+    /// SETCC with integer subtraction when (1) there is a legal way of doing it
+    /// (2) keeping the result of comparison in GPR has performance benefit.
+    SDValue ConvertSETCCToSubtract(SDNode *N, DAGCombinerInfo &DCI) const;
+
+    SDValue getSqrtEstimate(SDValue Operand, SelectionDAG &DAG, int Enabled,
+                            int &RefinementSteps, bool &UseOneConstNR,
+                            bool Reciprocal) const override;
+    SDValue getRecipEstimate(SDValue Operand, SelectionDAG &DAG, int Enabled,
+                             int &RefinementSteps) const override;
     unsigned combineRepeatedFPDivisors() const override;
 
     CCAssignFn *useFastISelCCs(unsigned Flag) const;
+
+    SDValue
+    combineElementTruncationToVectorTruncation(SDNode *N,
+                                               DAGCombinerInfo &DCI) const;
   };
 
   namespace PPC {
+
     FastISel *createFastISel(FunctionLoweringInfo &FuncInfo,
                              const TargetLibraryInfo *LibInfo);
-  }
+
+  } // end namespace PPC
 
   bool CC_PPC32_SVR4_Custom_Dummy(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
                                   CCValAssign::LocInfo &LocInfo,
@@ -953,11 +1029,19 @@ namespace llvm {
                                          ISD::ArgFlagsTy &ArgFlags,
                                          CCState &State);
 
+  bool 
+  CC_PPC32_SVR4_Custom_SkipLastArgRegsPPCF128(unsigned &ValNo, MVT &ValVT,
+                                                 MVT &LocVT,
+                                                 CCValAssign::LocInfo &LocInfo,
+                                                 ISD::ArgFlagsTy &ArgFlags,
+                                                 CCState &State);
+
   bool CC_PPC32_SVR4_Custom_AlignFPArgRegs(unsigned &ValNo, MVT &ValVT,
                                            MVT &LocVT,
                                            CCValAssign::LocInfo &LocInfo,
                                            ISD::ArgFlagsTy &ArgFlags,
                                            CCState &State);
-}
 
-#endif   // LLVM_TARGET_POWERPC_PPC32ISELLOWERING_H
+} // end namespace llvm
+
+#endif // LLVM_TARGET_POWERPC_PPC32ISELLOWERING_H

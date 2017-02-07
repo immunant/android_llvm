@@ -99,11 +99,3 @@ LLVM_DUMP_METHOD void MCSection::dump() {
   OS << "]>";
 }
 #endif
-
-MCSection::iterator MCSection::begin() { return Fragments.begin(); }
-
-MCSection::iterator MCSection::end() { return Fragments.end(); }
-
-MCSection::reverse_iterator MCSection::rbegin() { return Fragments.rbegin(); }
-
-MCSection::reverse_iterator MCSection::rend() { return Fragments.rend(); }

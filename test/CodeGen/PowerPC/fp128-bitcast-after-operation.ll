@@ -1,8 +1,8 @@
-; RUN: llc -mtriple=powerpc64le-unknown-linux-gnu -mcpu=pwr8 < %s | FileCheck %s -check-prefix=PPC64-P8
-; RUN: llc -mtriple=powerpc64le-unknown-linux-gnu -mcpu=pwr7 < %s | FileCheck %s -check-prefix=PPC64
-; RUN: llc -mtriple=powerpc64-unknown-linux-gnu -mcpu=pwr8 < %s | FileCheck %s -check-prefix=PPC64-P8
-; RUN: llc -mtriple=powerpc64-unknown-linux-gnu -mcpu=pwr7 < %s | FileCheck %s -check-prefix=PPC64
-; RUN: llc -mtriple=powerpc-unknown-linux-gnu < %s | FileCheck %s -check-prefix=PPC32
+; RUN: llc -verify-machineinstrs -mtriple=powerpc64le-unknown-linux-gnu -mcpu=pwr8 < %s | FileCheck %s -check-prefix=PPC64-P8
+; RUN: llc -verify-machineinstrs -mtriple=powerpc64le-unknown-linux-gnu -mcpu=pwr7 < %s | FileCheck %s -check-prefix=PPC64
+; RUN: llc -verify-machineinstrs -mtriple=powerpc64-unknown-linux-gnu -mcpu=pwr8 < %s | FileCheck %s -check-prefix=PPC64-P8
+; RUN: llc -verify-machineinstrs -mtriple=powerpc64-unknown-linux-gnu -mcpu=pwr7 < %s | FileCheck %s -check-prefix=PPC64
+; RUN: llc -verify-machineinstrs -mtriple=powerpc-unknown-linux-gnu < %s | FileCheck %s -check-prefix=PPC32
 
 define i128 @test_abs(ppc_fp128 %x) nounwind  {
 entry:
@@ -128,7 +128,7 @@ entry:
 ; PPC32-DAG: oris {{[0-9]+}}, [[FLIP_BIT]], 16399
 ; PPC32-DAG: xoris {{[0-9]+}}, [[FLIP_BIT]], 48304
 ; PPC32: blr
-	%0 = tail call ppc_fp128 @llvm.copysign.ppcf128(ppc_fp128 0xMBCB0000000000000400F000000000000, ppc_fp128 %x)
+	%0 = tail call ppc_fp128 @llvm.copysign.ppcf128(ppc_fp128 0xM400F000000000000BCB0000000000000, ppc_fp128 %x)
 	%1 = bitcast ppc_fp128 %0 to i128
 	ret i128 %1
 }

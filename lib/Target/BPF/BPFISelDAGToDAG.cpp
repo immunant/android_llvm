@@ -38,7 +38,7 @@ class BPFDAGToDAGISel : public SelectionDAGISel {
 public:
   explicit BPFDAGToDAGISel(BPFTargetMachine &TM) : SelectionDAGISel(TM) {}
 
-  const char *getPassName() const override {
+  StringRef getPassName() const override {
     return "BPF DAG->DAG Pattern Instruction Selection";
   }
 
@@ -138,7 +138,7 @@ void BPFDAGToDAGISel::Select(SDNode *Node) {
     else
       errs() << "Error: ";
     errs() << "Unsupport signed division for DAG: ";
-    Node->dump(CurDAG);
+    Node->print(errs(), CurDAG);
     errs() << "Please convert to unsigned div/mod.\n";
     break;
   }

@@ -164,24 +164,18 @@ ErrorOr<space_info> disk_space(const Twine &Path) {
   return SpaceInfo;
 }
 
-TimeValue file_status::getLastAccessedTime() const {
-  ULARGE_INTEGER UI;
-  UI.LowPart = LastAccessedTimeLow;
-  UI.HighPart = LastAccessedTimeHigh;
-
-  TimeValue Ret;
-  Ret.fromWin32Time(UI.QuadPart);
-  return Ret;
+TimePoint<> file_status::getLastAccessedTime() const {
+  FILETIME Time;
+  Time.dwLowDateTime = LastAccessedTimeLow;
+  Time.dwHighDateTime = LastAccessedTimeHigh;
+  return toTimePoint(Time);
 }
 
-TimeValue file_status::getLastModificationTime() const {
-  ULARGE_INTEGER UI;
-  UI.LowPart = LastWriteTimeLow;
-  UI.HighPart = LastWriteTimeHigh;
-
-  TimeValue Ret;
-  Ret.fromWin32Time(UI.QuadPart);
-  return Ret;
+TimePoint<> file_status::getLastModificationTime() const {
+  FILETIME Time;
+  Time.dwLowDateTime = LastWriteTimeLow;
+  Time.dwHighDateTime = LastWriteTimeHigh;
+  return toTimePoint(Time);
 }
 
 std::error_code current_path(SmallVectorImpl<char> &result) {
@@ -204,6 +198,18 @@ std::error_code current_path(SmallVectorImpl<char> &result) {
   // including the null-terminator.
   cur_path.set_size(len);
   return UTF16ToUTF8(cur_path.begin(), cur_path.size(), result);
+}
+
+std::error_code set_current_path(const Twine &path) {
+  // Convert to utf-16.
+  SmallVector<wchar_t, 128> wide_path;
+  if (std::error_code ec = widenPath(path, wide_path))
+    return ec;
+
+  if (!::SetCurrentDirectoryW(wide_path.begin()))
+    return mapWindowsError(::GetLastError());
+
+  return std::error_code();
 }
 
 std::error_code create_directory(const Twine &path, bool IgnoreExisting,
@@ -236,6 +242,10 @@ std::error_code create_link(const Twine &to, const Twine &from) {
     return mapWindowsError(::GetLastError());
 
   return std::error_code();
+}
+
+std::error_code create_hard_link(const Twine &to, const Twine &from) {
+	return create_link(to, from);
 }
 
 std::error_code remove(const Twine &path, bool IgnoreNonExisting) {
@@ -513,12 +523,8 @@ std::error_code status(int FD, file_status &Result) {
   return getStatus(FileHandle, Result);
 }
 
-std::error_code setLastModificationAndAccessTime(int FD, TimeValue Time) {
-  ULARGE_INTEGER UI;
-  UI.QuadPart = Time.toWin32Time();
-  FILETIME FT;
-  FT.dwLowDateTime = UI.LowPart;
-  FT.dwHighDateTime = UI.HighPart;
+std::error_code setLastModificationAndAccessTime(int FD, TimePoint<> Time) {
+  FILETIME FT = toFILETIME(Time);
   HANDLE FileHandle = reinterpret_cast<HANDLE>(_get_osfhandle(FD));
   if (!SetFileTime(FileHandle, NULL, &FT, &FT))
     return mapWindowsError(::GetLastError());

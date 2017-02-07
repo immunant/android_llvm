@@ -73,7 +73,8 @@ public:
 
   void setSelection(int Selection) const;
 
-  void PrintSwitchToSection(const MCAsmInfo &MAI, raw_ostream &OS,
+  void PrintSwitchToSection(const MCAsmInfo &MAI, const Triple &T,
+                            raw_ostream &OS,
                             const MCExpr *Subsection) const override;
   bool UseCodeAlign() const override;
   bool isVirtualSection() const override;
@@ -82,6 +83,10 @@ public:
     if (WinCFISectionID == ~0U)
       WinCFISectionID = (*NextID)++;
     return WinCFISectionID;
+  }
+
+  static bool isImplicitlyDiscardable(StringRef Name) {
+    return Name.startswith(".debug");
   }
 
   static bool classof(const MCSection *S) { return S->getVariant() == SV_COFF; }

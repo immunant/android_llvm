@@ -30,10 +30,10 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeCallGraphPrinterLegacyPassPass(Registry);
   initializeCallGraphViewerPass(Registry);
   initializeCostModelAnalysisPass(Registry);
-  initializeCFGViewerPass(Registry);
-  initializeCFGPrinterPass(Registry);
-  initializeCFGOnlyViewerPass(Registry);
-  initializeCFGOnlyPrinterPass(Registry);
+  initializeCFGViewerLegacyPassPass(Registry);
+  initializeCFGPrinterLegacyPassPass(Registry);
+  initializeCFGOnlyViewerLegacyPassPass(Registry);
+  initializeCFGOnlyPrinterLegacyPassPass(Registry);
   initializeCFLAndersAAWrapperPassPass(Registry);
   initializeCFLSteensAAWrapperPassPass(Registry);
   initializeDependenceAnalysisWrapperPassPass(Registry);
@@ -51,9 +51,10 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializePostDomOnlyPrinterPass(Registry);
   initializeAAResultsWrapperPassPass(Registry);
   initializeGlobalsAAWrapperPassPass(Registry);
-  initializeIVUsersPass(Registry);
+  initializeIVUsersWrapperPassPass(Registry);
   initializeInstCountPass(Registry);
   initializeIntervalPartitionPass(Registry);
+  initializeLazyBranchProbabilityInfoPassPass(Registry);
   initializeLazyBlockFrequencyInfoPassPass(Registry);
   initializeLazyValueInfoWrapperPassPass(Registry);
   initializeLintPass(Registry);
@@ -64,6 +65,7 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeModuleDebugInfoPrinterPass(Registry);
   initializeModuleSummaryIndexWrapperPassPass(Registry);
   initializeObjCARCAAWrapperPassPass(Registry);
+  initializeOptimizationRemarkEmitterWrapperPassPass(Registry);
   initializePostDominatorTreeWrapperPassPass(Registry);
   initializeRegionInfoPassPass(Registry);
   initializeRegionViewerPass(Registry);
@@ -75,6 +77,7 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeTargetTransformInfoWrapperPassPass(Registry);
   initializeTypeBasedAAWrapperPassPass(Registry);
   initializeScopedNoAliasAAWrapperPassPass(Registry);
+  initializeLCSSAVerificationPassPass(Registry);
 }
 
 void LLVMInitializeAnalysis(LLVMPassRegistryRef R) {

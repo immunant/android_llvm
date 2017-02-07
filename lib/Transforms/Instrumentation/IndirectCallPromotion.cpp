@@ -13,29 +13,38 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/Triple.h"
-#include "llvm/Analysis/CFG.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Analysis/IndirectCallPromotionAnalysis.h"
 #include "llvm/Analysis/IndirectCallSiteVisitor.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CallSite.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/InstIterator.h"
-#include "llvm/IR/InstVisitor.h"
+#include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
-#include "llvm/IR/Module.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
-#include "llvm/ProfileData/InstrProfReader.h"
+#include "llvm/PassRegistry.h"
+#include "llvm/PassSupport.h"
+#include "llvm/ProfileData/InstrProf.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/PGOInstrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include <string>
-#include <utility>
+#include <cassert>
+#include <cstdint>
 #include <vector>
 
 using namespace llvm;
@@ -102,9 +111,7 @@ public:
         *PassRegistry::getPassRegistry());
   }
 
-  const char *getPassName() const override {
-    return "PGOIndirectCallPromotion";
-  }
+  StringRef getPassName() const override { return "PGOIndirectCallPromotion"; }
 
 private:
   bool runOnModule(Module &M) override;
@@ -137,17 +144,9 @@ private:
   // defines.
   InstrProfSymtab *Symtab;
 
-  enum TargetStatus {
-    OK,                   // Should be able to promote.
-    NotAvailableInModule, // Cannot find the target in current module.
-    ReturnTypeMismatch,   // Return type mismatch b/w target and indirect-call.
-    NumArgsMismatch,      // Number of arguments does not match.
-    ArgTypeMismatch       // Type mismatch in the arguments (cannot bitcast).
-  };
-
   // Test if we can legally promote this direct-call of Target.
-  TargetStatus isPromotionLegal(Instruction *Inst, uint64_t Target,
-                                Function *&F);
+  bool isPromotionLegal(Instruction *Inst, uint64_t Target, Function *&F,
+                        const char **Reason = nullptr);
 
   // A struct that records the direct target and it's call count.
   struct PromotionCandidate {
@@ -165,40 +164,11 @@ private:
       Instruction *Inst, const ArrayRef<InstrProfValueData> &ValueDataRef,
       uint64_t TotalCount, uint32_t NumCandidates);
 
-  // Main function that transforms Inst (either a indirect-call instruction, or
-  // an invoke instruction , to a conditional call to F. This is like:
-  //     if (Inst.CalledValue == F)
-  //        F(...);
-  //     else
-  //        Inst(...);
-  //     end
-  // TotalCount is the profile count value that the instruction executes.
-  // Count is the profile count value that F is the target function.
-  // These two values are being used to update the branch weight.
-  void promote(Instruction *Inst, Function *F, uint64_t Count,
-               uint64_t TotalCount);
-
   // Promote a list of targets for one indirect-call callsite. Return
   // the number of promotions.
   uint32_t tryToPromote(Instruction *Inst,
                         const std::vector<PromotionCandidate> &Candidates,
                         uint64_t &TotalCount);
-
-  static const char *StatusToString(const TargetStatus S) {
-    switch (S) {
-    case OK:
-      return "OK to promote";
-    case NotAvailableInModule:
-      return "Cannot find the target";
-    case ReturnTypeMismatch:
-      return "Return type mismatch";
-    case NumArgsMismatch:
-      return "The number of arguments mismatch";
-    case ArgTypeMismatch:
-      return "Argument Type mismatch";
-    }
-    llvm_unreachable("Should not reach here");
-  }
 
   // Noncopyable
   ICallPromotionFunc(const ICallPromotionFunc &other) = delete;
@@ -208,47 +178,63 @@ public:
   ICallPromotionFunc(Function &Func, Module *Modu, InstrProfSymtab *Symtab)
       : F(Func), M(Modu), Symtab(Symtab) {
   }
+
   bool processFunction();
 };
 } // end anonymous namespace
 
-ICallPromotionFunc::TargetStatus
-ICallPromotionFunc::isPromotionLegal(Instruction *Inst, uint64_t Target,
-                                     Function *&TargetFunction) {
-  Function *DirectCallee = Symtab->getFunction(Target);
-  if (DirectCallee == nullptr)
-    return NotAvailableInModule;
+bool llvm::isLegalToPromote(Instruction *Inst, Function *F,
+                            const char **Reason) {
   // Check the return type.
   Type *CallRetType = Inst->getType();
   if (!CallRetType->isVoidTy()) {
-    Type *FuncRetType = DirectCallee->getReturnType();
+    Type *FuncRetType = F->getReturnType();
     if (FuncRetType != CallRetType &&
-        !CastInst::isBitCastable(FuncRetType, CallRetType))
-      return ReturnTypeMismatch;
+        !CastInst::isBitCastable(FuncRetType, CallRetType)) {
+      if (Reason)
+        *Reason = "Return type mismatch";
+      return false;
+    }
   }
 
   // Check if the arguments are compatible with the parameters
-  FunctionType *DirectCalleeType = DirectCallee->getFunctionType();
+  FunctionType *DirectCalleeType = F->getFunctionType();
   unsigned ParamNum = DirectCalleeType->getFunctionNumParams();
   CallSite CS(Inst);
   unsigned ArgNum = CS.arg_size();
 
-  if (ParamNum != ArgNum && !DirectCalleeType->isVarArg())
-    return NumArgsMismatch;
+  if (ParamNum != ArgNum && !DirectCalleeType->isVarArg()) {
+    if (Reason)
+      *Reason = "The number of arguments mismatch";
+    return false;
+  }
 
   for (unsigned I = 0; I < ParamNum; ++I) {
     Type *PTy = DirectCalleeType->getFunctionParamType(I);
     Type *ATy = CS.getArgument(I)->getType();
     if (PTy == ATy)
       continue;
-    if (!CastInst::castIsValid(Instruction::BitCast, CS.getArgument(I), PTy))
-      return ArgTypeMismatch;
+    if (!CastInst::castIsValid(Instruction::BitCast, CS.getArgument(I), PTy)) {
+      if (Reason)
+        *Reason = "Argument type mismatch";
+      return false;
+    }
   }
 
   DEBUG(dbgs() << " #" << NumOfPGOICallPromotion << " Promote the icall to "
-               << Symtab->getFuncName(Target) << "\n");
-  TargetFunction = DirectCallee;
-  return OK;
+               << F->getName() << "\n");
+  return true;
+}
+
+bool ICallPromotionFunc::isPromotionLegal(Instruction *Inst, uint64_t Target,
+                                          Function *&TargetFunction,
+                                          const char **Reason) {
+  TargetFunction = Symtab->getFunction(Target);
+  if (TargetFunction == nullptr) {
+    *Reason = "Cannot find the target";
+    return false;
+  }
+  return isLegalToPromote(Inst, TargetFunction, Reason);
 }
 
 // Indirect-call promotion heuristic. The direct targets are sorted based on
@@ -288,10 +274,9 @@ ICallPromotionFunc::getPromotionCandidatesForCallSite(
       break;
     }
     Function *TargetFunction = nullptr;
-    TargetStatus Status = isPromotionLegal(Inst, Target, TargetFunction);
-    if (Status != OK) {
+    const char *Reason = nullptr;
+    if (!isPromotionLegal(Inst, Target, TargetFunction, &Reason)) {
       StringRef TargetFuncName = Symtab->getFuncName(Target);
-      const char *Reason = StatusToString(Status);
       DEBUG(dbgs() << " Not promote: " << Reason << "\n");
       emitOptimizationRemarkMissed(
           F.getContext(), "pgo-icall-prom", F, Inst->getDebugLoc(),
@@ -474,7 +459,7 @@ static Instruction *createDirectCallInst(const Instruction *Inst,
                                      NewInst);
 
   // Clear the value profile data.
-  NewInst->setMetadata(LLVMContext::MD_prof, 0);
+  NewInst->setMetadata(LLVMContext::MD_prof, nullptr);
   CallSite NewCS(NewInst);
   FunctionType *DirectCalleeType = DirectCallee->getFunctionType();
   unsigned ParamNum = DirectCalleeType->getFunctionNumParams();
@@ -524,8 +509,10 @@ static void insertCallRetPHI(Instruction *Inst, Instruction *CallResult,
 //     Ret = phi(Ret1, Ret2);
 // It adds type casts for the args do not match the parameters and the return
 // value. Branch weights metadata also updated.
-void ICallPromotionFunc::promote(Instruction *Inst, Function *DirectCallee,
-                                 uint64_t Count, uint64_t TotalCount) {
+// Returns the promoted direct call instruction.
+Instruction *llvm::promoteIndirectCall(Instruction *Inst,
+                                       Function *DirectCallee, uint64_t Count,
+                                       uint64_t TotalCount) {
   assert(DirectCallee != nullptr);
   BasicBlock *BB = Inst->getParent();
   // Just to suppress the non-debug build warning.
@@ -568,9 +555,10 @@ void ICallPromotionFunc::promote(Instruction *Inst, Function *DirectCallee,
   DEBUG(dbgs() << *BB << *DirectCallBB << *IndirectCallBB << *MergeBB << "\n");
 
   emitOptimizationRemark(
-      F.getContext(), "pgo-icall-prom", F, Inst->getDebugLoc(),
+      BB->getContext(), "pgo-icall-prom", *BB->getParent(), Inst->getDebugLoc(),
       Twine("Promote indirect call to ") + DirectCallee->getName() +
           " with count " + Twine(Count) + " out of " + Twine(TotalCount));
+  return NewInst;
 }
 
 // Promote indirect-call to conditional direct-call for one callsite.
@@ -581,7 +569,7 @@ uint32_t ICallPromotionFunc::tryToPromote(
 
   for (auto &C : Candidates) {
     uint64_t Count = C.Count;
-    promote(Inst, C.TargetFunction, Count, TotalCount);
+    promoteIndirectCall(Inst, C.TargetFunction, Count, TotalCount);
     assert(TotalCount >= Count);
     TotalCount -= Count;
     NumOfPGOICallPromotion++;
@@ -610,7 +598,7 @@ bool ICallPromotionFunc::processFunction() {
 
     Changed = true;
     // Adjust the MD.prof metadata. First delete the old one.
-    I->setMetadata(LLVMContext::MD_prof, 0);
+    I->setMetadata(LLVMContext::MD_prof, nullptr);
     // If all promoted, we don't need the MD.prof metadata.
     if (TotalCount == 0 || NumPromoted == NumVals)
       continue;
@@ -653,7 +641,7 @@ bool PGOIndirectCallPromotionLegacyPass::runOnModule(Module &M) {
   return promoteIndirectCalls(M, InLTO | ICPLTOMode);
 }
 
-PreservedAnalyses PGOIndirectCallPromotion::run(Module &M, AnalysisManager<Module> &AM) {
+PreservedAnalyses PGOIndirectCallPromotion::run(Module &M, ModuleAnalysisManager &AM) {
   if (!promoteIndirectCalls(M, InLTO | ICPLTOMode))
     return PreservedAnalyses::all();
 

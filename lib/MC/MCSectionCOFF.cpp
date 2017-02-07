@@ -37,7 +37,7 @@ void MCSectionCOFF::setSelection(int Selection) const {
   Characteristics |= COFF::IMAGE_SCN_LNK_COMDAT;
 }
 
-void MCSectionCOFF::PrintSwitchToSection(const MCAsmInfo &MAI,
+void MCSectionCOFF::PrintSwitchToSection(const MCAsmInfo &MAI, const Triple &T,
                                          raw_ostream &OS,
                                          const MCExpr *Subsection) const {
 
@@ -64,6 +64,9 @@ void MCSectionCOFF::PrintSwitchToSection(const MCAsmInfo &MAI,
     OS << 'n';
   if (getCharacteristics() & COFF::IMAGE_SCN_MEM_SHARED)
     OS << 's';
+  if ((getCharacteristics() & COFF::IMAGE_SCN_MEM_DISCARDABLE) &&
+      !isImplicitlyDiscardable(SectionName))
+    OS << 'D';
   OS << '"';
 
   if (getCharacteristics() & COFF::IMAGE_SCN_LNK_COMDAT) {

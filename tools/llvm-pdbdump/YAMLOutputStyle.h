@@ -13,7 +13,7 @@
 #include "OutputStyle.h"
 #include "PdbYaml.h"
 
-#include "llvm/DebugInfo/CodeView/TypeDumper.h"
+#include "llvm/DebugInfo/CodeView/CVTypeDumper.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/YAMLTraits.h"
 
@@ -26,11 +26,14 @@ public:
   Error dump() override;
 
 private:
+  Error dumpStringTable();
   Error dumpFileHeaders();
   Error dumpStreamMetadata();
   Error dumpStreamDirectory();
   Error dumpPDBStream();
   Error dumpDbiStream();
+  Error dumpTpiStream();
+  Error dumpIpiStream();
 
   void flush();
 

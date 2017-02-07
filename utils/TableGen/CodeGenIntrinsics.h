@@ -62,15 +62,23 @@ struct CodeGenIntrinsic {
   /// accesses that may be performed by the intrinsics. Analogous to
   /// \c FunctionModRefBehaviour.
   enum ModRefBits {
+    /// The intrinsic may access memory that is otherwise inaccessible via
+    /// LLVM IR.
+    MR_InaccessibleMem = 1,
+
+    /// The intrinsic may access memory through pointer arguments.
+    /// LLVM IR.
+    MR_ArgMem = 2,
+
     /// The intrinsic may access memory anywhere, i.e. it is not restricted
     /// to access through pointer arguments.
-    MR_Anywhere = 1,
+    MR_Anywhere = 4 | MR_ArgMem | MR_InaccessibleMem,
 
     /// The intrinsic may read memory.
-    MR_Ref = 2,
+    MR_Ref = 8,
 
     /// The intrinsic may write memory.
-    MR_Mod = 4,
+    MR_Mod = 16,
 
     /// The intrinsic may both read and write memory.
     MR_ModRef = MR_Ref | MR_Mod,
@@ -80,11 +88,18 @@ struct CodeGenIntrinsic {
   /// properties (IntrReadMem, IntrArgMemOnly, etc.).
   enum ModRefBehavior {
     NoMem = 0,
-    ReadArgMem = MR_Ref,
+    ReadArgMem = MR_Ref | MR_ArgMem,
+    ReadInaccessibleMem = MR_Ref | MR_InaccessibleMem,
+    ReadInaccessibleMemOrArgMem = MR_Ref | MR_ArgMem | MR_InaccessibleMem,
     ReadMem = MR_Ref | MR_Anywhere,
-    WriteArgMem = MR_Mod,
+    WriteArgMem = MR_Mod | MR_ArgMem,
+    WriteInaccessibleMem = MR_Mod | MR_InaccessibleMem,
+    WriteInaccessibleMemOrArgMem = MR_Mod | MR_ArgMem | MR_InaccessibleMem,
     WriteMem = MR_Mod | MR_Anywhere,
-    ReadWriteArgMem = MR_ModRef,
+    ReadWriteArgMem = MR_ModRef | MR_ArgMem,
+    ReadWriteInaccessibleMem = MR_ModRef | MR_InaccessibleMem,
+    ReadWriteInaccessibleMemOrArgMem = MR_ModRef | MR_ArgMem |
+                                       MR_InaccessibleMem,
     ReadWriteMem = MR_ModRef | MR_Anywhere,
   };
   ModRefBehavior ModRef;
@@ -114,9 +129,27 @@ struct CodeGenIntrinsic {
   CodeGenIntrinsic(Record *R);
 };
 
-/// Read all of the intrinsics defined in the specified .td file.
-std::vector<CodeGenIntrinsic> LoadIntrinsics(const RecordKeeper &RC,
-                                             bool TargetOnly);
+class CodeGenIntrinsicTable {
+  std::vector<CodeGenIntrinsic> Intrinsics;
+
+public:
+  struct TargetSet {
+    std::string Name;
+    size_t Offset;
+    size_t Count;
+  };
+  std::vector<TargetSet> Targets;
+
+  explicit CodeGenIntrinsicTable(const RecordKeeper &RC, bool TargetOnly);
+  CodeGenIntrinsicTable() = default;
+
+  bool empty() const { return Intrinsics.empty(); }
+  size_t size() const { return Intrinsics.size(); }
+  CodeGenIntrinsic &operator[](size_t Pos) { return Intrinsics[Pos]; }
+  const CodeGenIntrinsic &operator[](size_t Pos) const {
+    return Intrinsics[Pos];
+  }
+};
 }
 
 #endif

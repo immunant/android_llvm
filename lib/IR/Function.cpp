@@ -26,10 +26,6 @@
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/RWMutex.h"
-#include "llvm/Support/StringPool.h"
-#include "llvm/Support/Threading.h"
 using namespace llvm;
 
 // Explicit instantiations of SymbolTableListTraits since some of the methods
@@ -262,7 +258,10 @@ Function::Function(FunctionType *Ty, LinkageTypes Linkage, const Twine &name,
   assert(FunctionType::isValidReturnType(getReturnType()) &&
          "invalid return type");
   setGlobalObjectSubClassData(0);
-  SymTab = new ValueSymbolTable();
+
+  // We only need a symbol table for a function if the context keeps value names
+  if (!getContext().shouldDiscardValueNames())
+    SymTab = make_unique<ValueSymbolTable>();
 
   // If the function has arguments, mark them as lazily built.
   if (Ty->getNumParams())
@@ -271,6 +270,7 @@ Function::Function(FunctionType *Ty, LinkageTypes Linkage, const Twine &name,
   if (ParentModule)
     ParentModule->getFunctionList().push_back(this);
 
+  HasLLVMReservedName = getName().startswith("llvm.");
   // Ensure intrinsics have the right parameter attributes.
   // Note, the IntID field will have been set in Value::setName if this function
   // name is a valid intrinsic ID.
@@ -283,7 +283,6 @@ Function::~Function() {
 
   // Delete all of the method arguments and unlink from symbol table...
   ArgumentList.clear();
-  delete SymTab;
 
   // Remove the function from the on-the-side GC table.
   clearGC();
@@ -330,10 +329,6 @@ size_t Function::arg_size() const {
 }
 bool Function::arg_empty() const {
   return getFunctionType()->getNumParams() == 0;
-}
-
-void Function::setParent(Module *parent) {
-  Parent = parent;
 }
 
 // dropAllReferences() - This function causes all the subinstructions to "let
@@ -461,17 +456,43 @@ static const char * const IntrinsicNameTable[] = {
 #undef GET_INTRINSIC_NAME_TABLE
 };
 
+/// Table of per-target intrinsic name tables.
+#define GET_INTRINSIC_TARGET_DATA
+#include "llvm/IR/Intrinsics.gen"
+#undef GET_INTRINSIC_TARGET_DATA
+
+/// Find the segment of \c IntrinsicNameTable for intrinsics with the same
+/// target as \c Name, or the generic table if \c Name is not target specific.
+///
+/// Returns the relevant slice of \c IntrinsicNameTable
+static ArrayRef<const char *> findTargetSubtable(StringRef Name) {
+  assert(Name.startswith("llvm."));
+
+  ArrayRef<IntrinsicTargetInfo> Targets(TargetInfos);
+  // Drop "llvm." and take the first dotted component. That will be the target
+  // if this is target specific.
+  StringRef Target = Name.drop_front(5).split('.').first;
+  auto It = std::lower_bound(Targets.begin(), Targets.end(), Target,
+                             [](const IntrinsicTargetInfo &TI,
+                                StringRef Target) { return TI.Name < Target; });
+  // We've either found the target or just fall back to the generic set, which
+  // is always first.
+  const auto &TI = It != Targets.end() && It->Name == Target ? *It : Targets[0];
+  return makeArrayRef(&IntrinsicNameTable[1] + TI.Offset, TI.Count);
+}
+
 /// \brief This does the actual lookup of an intrinsic ID which
 /// matches the given function name.
-static Intrinsic::ID lookupIntrinsicID(const ValueName *ValName) {
-  StringRef Name = ValName->getKey();
-
-  ArrayRef<const char *> NameTable(&IntrinsicNameTable[1],
-                                   std::end(IntrinsicNameTable));
+Intrinsic::ID Function::lookupIntrinsicID(StringRef Name) {
+  ArrayRef<const char *> NameTable = findTargetSubtable(Name);
   int Idx = Intrinsic::lookupLLVMIntrinsicByName(NameTable, Name);
-  Intrinsic::ID ID = static_cast<Intrinsic::ID>(Idx + 1);
-  if (ID == Intrinsic::not_intrinsic)
-    return ID;
+  if (Idx == -1)
+    return Intrinsic::not_intrinsic;
+
+  // Intrinsic IDs correspond to the location in IntrinsicNameTable, but we have
+  // an index into a sub-table.
+  int Adjust = NameTable.data() - IntrinsicNameTable;
+  Intrinsic::ID ID = static_cast<Intrinsic::ID>(Idx + Adjust);
 
   // If the intrinsic is not overloaded, require an exact match. If it is
   // overloaded, require a prefix match.
@@ -480,12 +501,14 @@ static Intrinsic::ID lookupIntrinsicID(const ValueName *ValName) {
 }
 
 void Function::recalculateIntrinsicID() {
-  const ValueName *ValName = this->getValueName();
-  if (!ValName || !isIntrinsic()) {
+  StringRef Name = getName();
+  if (!Name.startswith("llvm.")) {
+    HasLLVMReservedName = false;
     IntID = Intrinsic::not_intrinsic;
     return;
   }
-  IntID = lookupIntrinsicID(ValName);
+  HasLLVMReservedName = true;
+  IntID = lookupIntrinsicID(Name);
 }
 
 /// Returns a stable mangling for the type specified for use in the name
@@ -527,6 +550,13 @@ static std::string getMangledTypeStr(Type* Ty) {
   else if (Ty)
     Result += EVT::getEVT(Ty).getEVTString();
   return Result;
+}
+
+StringRef Intrinsic::getName(ID id) {
+  assert(id < num_intrinsics && "Invalid intrinsic ID!");
+  assert(!isOverloaded(id) &&
+         "This version of getName does not support overloading");
+  return IntrinsicNameTable[id];
 }
 
 std::string Intrinsic::getName(ID id, ArrayRef<Type*> Tys) {
@@ -580,10 +610,11 @@ enum IIT_Info {
   IIT_HALF_VEC_ARG = 30,
   IIT_SAME_VEC_WIDTH_ARG = 31,
   IIT_PTR_TO_ARG = 32,
-  IIT_VEC_OF_PTRS_TO_ELT = 33,
-  IIT_I128 = 34,
-  IIT_V512 = 35,
-  IIT_V1024 = 36
+  IIT_PTR_TO_ELT = 33,
+  IIT_VEC_OF_PTRS_TO_ELT = 34,
+  IIT_I128 = 35,
+  IIT_V512 = 36,
+  IIT_V1024 = 37
 };
 
 
@@ -717,6 +748,11 @@ static void DecodeIITType(unsigned &NextElt, ArrayRef<unsigned char> Infos,
                                              ArgInfo));
     return;
   }
+  case IIT_PTR_TO_ELT: {
+    unsigned ArgInfo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
+    OutputTable.push_back(IITDescriptor::get(IITDescriptor::PtrToElt, ArgInfo));
+    return;
+  }
   case IIT_VEC_OF_PTRS_TO_ELT: {
     unsigned ArgInfo = (NextElt == Infos.size() ? 0 : Infos[NextElt++]);
     OutputTable.push_back(IITDescriptor::get(IITDescriptor::VecOfPtrsToElt,
@@ -726,9 +762,9 @@ static void DecodeIITType(unsigned &NextElt, ArrayRef<unsigned char> Infos,
   case IIT_EMPTYSTRUCT:
     OutputTable.push_back(IITDescriptor::get(IITDescriptor::Struct, 0));
     return;
-  case IIT_STRUCT5: ++StructElts; // FALL THROUGH.
-  case IIT_STRUCT4: ++StructElts; // FALL THROUGH.
-  case IIT_STRUCT3: ++StructElts; // FALL THROUGH.
+  case IIT_STRUCT5: ++StructElts; LLVM_FALLTHROUGH;
+  case IIT_STRUCT4: ++StructElts; LLVM_FALLTHROUGH;
+  case IIT_STRUCT3: ++StructElts; LLVM_FALLTHROUGH;
   case IIT_STRUCT2: {
     OutputTable.push_back(IITDescriptor::get(IITDescriptor::Struct,StructElts));
 
@@ -842,6 +878,14 @@ static Type *DecodeFixedType(ArrayRef<Intrinsic::IITDescriptor> &Infos,
   case IITDescriptor::PtrToArgument: {
     Type *Ty = Tys[D.getArgumentNumber()];
     return PointerType::getUnqual(Ty);
+  }
+  case IITDescriptor::PtrToElt: {
+    Type *Ty = Tys[D.getArgumentNumber()];
+    VectorType *VTy = dyn_cast<VectorType>(Ty);
+    if (!VTy)
+      llvm_unreachable("Expected an argument of Vector Type");
+    Type *EltTy = VTy->getVectorElementType();
+    return PointerType::getUnqual(EltTy);
   }
   case IITDescriptor::VecOfPtrsToElt: {
     Type *Ty = Tys[D.getArgumentNumber()];
@@ -1021,7 +1065,7 @@ bool Intrinsic::matchIntrinsicType(Type *Ty, ArrayRef<Intrinsic::IITDescriptor> 
       if (D.getArgumentNumber() >= ArgTys.size())
         return true;
       VectorType * ReferenceType =
-              dyn_cast<VectorType>(ArgTys[D.getArgumentNumber()]);
+        dyn_cast<VectorType>(ArgTys[D.getArgumentNumber()]);
       VectorType *ThisArgType = dyn_cast<VectorType>(Ty);
       if (!ThisArgType || !ReferenceType ||
           (ReferenceType->getVectorNumElements() !=
@@ -1036,6 +1080,16 @@ bool Intrinsic::matchIntrinsicType(Type *Ty, ArrayRef<Intrinsic::IITDescriptor> 
       Type * ReferenceType = ArgTys[D.getArgumentNumber()];
       PointerType *ThisArgType = dyn_cast<PointerType>(Ty);
       return (!ThisArgType || ThisArgType->getElementType() != ReferenceType);
+    }
+    case IITDescriptor::PtrToElt: {
+      if (D.getArgumentNumber() >= ArgTys.size())
+        return true;
+      VectorType * ReferenceType =
+        dyn_cast<VectorType> (ArgTys[D.getArgumentNumber()]);
+      PointerType *ThisArgType = dyn_cast<PointerType>(Ty);
+
+      return (!ThisArgType || !ReferenceType ||
+              ThisArgType->getElementType() != ReferenceType->getElementType());
     }
     case IITDescriptor::VecOfPtrsToElt: {
       if (D.getArgumentNumber() >= ArgTys.size())
@@ -1236,7 +1290,27 @@ Optional<uint64_t> Function::getEntryCount() const {
     if (MDString *MDS = dyn_cast<MDString>(MD->getOperand(0)))
       if (MDS->getString().equals("function_entry_count")) {
         ConstantInt *CI = mdconst::extract<ConstantInt>(MD->getOperand(1));
-        return CI->getValue().getZExtValue();
+        uint64_t Count = CI->getValue().getZExtValue();
+        if (Count == 0)
+          return None;
+        return Count;
       }
+  return None;
+}
+
+void Function::setSectionPrefix(StringRef Prefix) {
+  MDBuilder MDB(getContext());
+  setMetadata(LLVMContext::MD_section_prefix,
+              MDB.createFunctionSectionPrefix(Prefix));
+}
+
+Optional<StringRef> Function::getSectionPrefix() const {
+  if (MDNode *MD = getMetadata(LLVMContext::MD_section_prefix)) {
+    assert(dyn_cast<MDString>(MD->getOperand(0))
+               ->getString()
+               .equals("function_section_prefix") &&
+           "Metadata not match");
+    return dyn_cast<MDString>(MD->getOperand(1))->getString();
+  }
   return None;
 }

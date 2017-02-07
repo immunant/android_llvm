@@ -80,7 +80,7 @@ unsigned AMDGPUTTIImpl::getRegisterBitWidth(bool Vector) {
   return Vector ? 0 : 32;
 }
 
-unsigned AMDGPUTTIImpl::getLoadStoreVecRegBitWidth(unsigned AddrSpace) {
+unsigned AMDGPUTTIImpl::getLoadStoreVecRegBitWidth(unsigned AddrSpace) const {
   switch (AddrSpace) {
   case AMDGPUAS::GLOBAL_ADDRESS:
   case AMDGPUAS::CONSTANT_ADDRESS:
@@ -110,7 +110,7 @@ unsigned AMDGPUTTIImpl::getMaxInterleaveFactor(unsigned VF) {
 int AMDGPUTTIImpl::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, TTI::OperandValueKind Opd1Info,
     TTI::OperandValueKind Opd2Info, TTI::OperandValueProperties Opd1PropInfo,
-    TTI::OperandValueProperties Opd2PropInfo) {
+    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args ) {
 
   EVT OrigTy = TLI->getValueType(DL, Ty);
   if (!OrigTy.isSimple()) {
@@ -241,6 +241,7 @@ static bool isIntrinsicSourceOfDivergence(const TargetIntrinsicInfo *TII,
   case Intrinsic::amdgcn_workitem_id_x:
   case Intrinsic::amdgcn_workitem_id_y:
   case Intrinsic::amdgcn_workitem_id_z:
+  case Intrinsic::amdgcn_interp_mov:
   case Intrinsic::amdgcn_interp_p1:
   case Intrinsic::amdgcn_interp_p2:
   case Intrinsic::amdgcn_mbcnt_hi:
@@ -248,6 +249,8 @@ static bool isIntrinsicSourceOfDivergence(const TargetIntrinsicInfo *TII,
   case Intrinsic::r600_read_tidig_x:
   case Intrinsic::r600_read_tidig_y:
   case Intrinsic::r600_read_tidig_z:
+  case Intrinsic::amdgcn_atomic_inc:
+  case Intrinsic::amdgcn_atomic_dec:
   case Intrinsic::amdgcn_image_atomic_swap:
   case Intrinsic::amdgcn_image_atomic_add:
   case Intrinsic::amdgcn_image_atomic_sub:
@@ -273,6 +276,7 @@ static bool isIntrinsicSourceOfDivergence(const TargetIntrinsicInfo *TII,
   case Intrinsic::amdgcn_buffer_atomic_xor:
   case Intrinsic::amdgcn_buffer_atomic_cmpswap:
   case Intrinsic::amdgcn_ps_live:
+  case Intrinsic::amdgcn_ds_swizzle:
     return true;
   }
 

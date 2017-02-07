@@ -139,8 +139,9 @@ LLVM_DUMP_METHOD void MCExpr::dump() const {
 /* *** */
 
 const MCBinaryExpr *MCBinaryExpr::create(Opcode Opc, const MCExpr *LHS,
-                                         const MCExpr *RHS, MCContext &Ctx) {
-  return new (Ctx) MCBinaryExpr(Opc, LHS, RHS);
+                                         const MCExpr *RHS, MCContext &Ctx,
+                                         SMLoc Loc) {
+  return new (Ctx) MCBinaryExpr(Opc, LHS, RHS, Loc);
 }
 
 const MCUnaryExpr *MCUnaryExpr::create(Opcode Opc, const MCExpr *Expr,
@@ -155,8 +156,8 @@ const MCConstantExpr *MCConstantExpr::create(int64_t Value, MCContext &Ctx) {
 /* *** */
 
 MCSymbolRefExpr::MCSymbolRefExpr(const MCSymbol *Symbol, VariantKind Kind,
-                                 const MCAsmInfo *MAI)
-    : MCExpr(MCExpr::SymbolRef), Kind(Kind),
+                                 const MCAsmInfo *MAI, SMLoc Loc)
+    : MCExpr(MCExpr::SymbolRef, Loc), Kind(Kind),
       UseParensForSymbolVariant(MAI->useParensForSymbolVariant()),
       HasSubsectionsViaSymbols(MAI->hasSubsectionsViaSymbols()),
       Symbol(Symbol) {
@@ -165,8 +166,8 @@ MCSymbolRefExpr::MCSymbolRefExpr(const MCSymbol *Symbol, VariantKind Kind,
 
 const MCSymbolRefExpr *MCSymbolRefExpr::create(const MCSymbol *Sym,
                                                VariantKind Kind,
-                                               MCContext &Ctx) {
-  return new (Ctx) MCSymbolRefExpr(Sym, Kind, Ctx.getAsmInfo());
+                                               MCContext &Ctx, SMLoc Loc) {
+  return new (Ctx) MCSymbolRefExpr(Sym, Kind, Ctx.getAsmInfo(), Loc);
 }
 
 const MCSymbolRefExpr *MCSymbolRefExpr::create(StringRef Name, VariantKind Kind,
@@ -277,6 +278,10 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_Hexagon_IE: return "IE";
   case VK_Hexagon_IE_GOT: return "IEGOT";
   case VK_WebAssembly_FUNCTION: return "FUNCTION";
+  case VK_AMDGPU_GOTPCREL32_LO: return "gotpcrel32@lo";
+  case VK_AMDGPU_GOTPCREL32_HI: return "gotpcrel32@hi";
+  case VK_AMDGPU_REL32_LO: return "rel32@lo";
+  case VK_AMDGPU_REL32_HI: return "rel32@hi";
   }
   llvm_unreachable("Invalid variant kind");
 }
@@ -374,6 +379,10 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("prel31", VK_ARM_PREL31)
     .Case("sbrel", VK_ARM_SBREL)
     .Case("tlsldo", VK_ARM_TLSLDO)
+    .Case("gotpcrel32@lo", VK_AMDGPU_GOTPCREL32_LO)
+    .Case("gotpcrel32@hi", VK_AMDGPU_GOTPCREL32_HI)
+    .Case("rel32@lo", VK_AMDGPU_REL32_LO)
+    .Case("rel32@hi", VK_AMDGPU_REL32_HI)
     .Default(VK_Invalid);
 }
 

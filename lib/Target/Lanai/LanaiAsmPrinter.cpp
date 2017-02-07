@@ -45,10 +45,9 @@ public:
                            std::unique_ptr<MCStreamer> Streamer)
       : AsmPrinter(TM, std::move(Streamer)) {}
 
-  const char *getPassName() const override { return "Lanai Assembly Printer"; }
+  StringRef getPassName() const override { return "Lanai Assembly Printer"; }
 
-  void printOperand(const MachineInstr *MI, int OpNum, raw_ostream &O,
-                    const char *Modifier = 0);
+  void printOperand(const MachineInstr *MI, int OpNum, raw_ostream &O);
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        unsigned AsmVariant, const char *ExtraCode,
                        raw_ostream &O) override;
@@ -63,7 +62,7 @@ private:
 } // end of anonymous namespace
 
 void LanaiAsmPrinter::printOperand(const MachineInstr *MI, int OpNum,
-                                   raw_ostream &O, const char *Modifier) {
+                                   raw_ostream &O) {
   const MachineOperand &MO = MI->getOperand(OpNum);
 
   switch (MO.getType()) {
@@ -110,7 +109,7 @@ void LanaiAsmPrinter::printOperand(const MachineInstr *MI, int OpNum,
 
 // PrintAsmOperand - Print out an operand for an inline asm expression.
 bool LanaiAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-                                      unsigned AsmVariant,
+                                      unsigned /*AsmVariant*/,
                                       const char *ExtraCode, raw_ostream &O) {
   // Does this asm operand have a single letter operand modifier?
   if (ExtraCode && ExtraCode[0]) {
@@ -152,7 +151,7 @@ void LanaiAsmPrinter::emitCallInstruction(const MachineInstr *MI) {
   assert((MI->getOpcode() == Lanai::CALL || MI->getOpcode() == Lanai::CALLR) &&
          "Unsupported call function");
 
-  LanaiMCInstLower MCInstLowering(OutContext, *Mang, *this);
+  LanaiMCInstLower MCInstLowering(OutContext, *this);
   MCSubtargetInfo STI = getSubtargetInfo();
   // Insert save rca instruction immediately before the call.
   // TODO: We should generate a pc-relative mov instruction here instead
@@ -189,7 +188,7 @@ void LanaiAsmPrinter::emitCallInstruction(const MachineInstr *MI) {
 }
 
 void LanaiAsmPrinter::customEmitInstruction(const MachineInstr *MI) {
-  LanaiMCInstLower MCInstLowering(OutContext, *Mang, *this);
+  LanaiMCInstLower MCInstLowering(OutContext, *this);
   MCSubtargetInfo STI = getSubtargetInfo();
   MCInst TmpInst;
   MCInstLowering.Lower(MI, TmpInst);
@@ -240,5 +239,5 @@ bool LanaiAsmPrinter::isBlockOnlyReachableByFallthrough(
 
 // Force static initialization.
 extern "C" void LLVMInitializeLanaiAsmPrinter() {
-  RegisterAsmPrinter<LanaiAsmPrinter> X(TheLanaiTarget);
+  RegisterAsmPrinter<LanaiAsmPrinter> X(getTheLanaiTarget());
 }

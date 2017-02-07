@@ -33,8 +33,6 @@ class X86TTIImpl : public BasicTTIImplBase<X86TTIImpl> {
   const X86Subtarget *ST;
   const X86TargetLowering *TLI;
 
-  int getScalarizationOverhead(Type *Ty, bool Insert, bool Extract);
-
   const X86Subtarget *getST() const { return ST; }
   const X86TargetLowering *getTLI() const { return TLI; }
 
@@ -42,13 +40,6 @@ public:
   explicit X86TTIImpl(const X86TargetMachine *TM, const Function &F)
       : BaseT(TM, F.getParent()->getDataLayout()), ST(TM->getSubtargetImpl(F)),
         TLI(ST->getTargetLowering()) {}
-
-  // Provide value semantics. MSVC requires that we spell all of these out.
-  X86TTIImpl(const X86TTIImpl &Arg)
-      : BaseT(static_cast<const BaseT &>(Arg)), ST(Arg.ST), TLI(Arg.TLI) {}
-  X86TTIImpl(X86TTIImpl &&Arg)
-      : BaseT(std::move(static_cast<BaseT &>(Arg))), ST(std::move(Arg.ST)),
-        TLI(std::move(Arg.TLI)) {}
 
   /// \name Scalar TTI Implementations
   /// @{
@@ -67,7 +58,8 @@ public:
       TTI::OperandValueKind Opd1Info = TTI::OK_AnyValue,
       TTI::OperandValueKind Opd2Info = TTI::OK_AnyValue,
       TTI::OperandValueProperties Opd1PropInfo = TTI::OP_None,
-      TTI::OperandValueProperties Opd2PropInfo = TTI::OP_None);
+      TTI::OperandValueProperties Opd2PropInfo = TTI::OP_None,
+      ArrayRef<const Value *> Args = ArrayRef<const Value *>());
   int getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index, Type *SubTp);
   int getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src);
   int getCmpSelInstrCost(unsigned Opcode, Type *ValTy, Type *CondTy);
@@ -78,7 +70,8 @@ public:
                             unsigned AddressSpace);
   int getGatherScatterOpCost(unsigned Opcode, Type *DataTy, Value *Ptr,
                              bool VariableMask, unsigned Alignment);
-  int getAddressComputationCost(Type *PtrTy, bool IsComplex);
+  int getAddressComputationCost(Type *PtrTy, ScalarEvolution *SE,
+                                const SCEV *Ptr);
 
   int getIntrinsicInstrCost(Intrinsic::ID IID, Type *RetTy,
                             ArrayRef<Type *> Tys, FastMathFlags FMF);
@@ -86,6 +79,13 @@ public:
                             ArrayRef<Value *> Args, FastMathFlags FMF);
 
   int getReductionCost(unsigned Opcode, Type *Ty, bool IsPairwiseForm);
+
+  int getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy,
+                                 unsigned Factor, ArrayRef<unsigned> Indices,
+                                 unsigned Alignment, unsigned AddressSpace);
+  int getInterleavedMemoryOpCostAVX512(unsigned Opcode, Type *VecTy,
+                                 unsigned Factor, ArrayRef<unsigned> Indices,
+                                 unsigned Alignment, unsigned AddressSpace);
 
   int getIntImmCost(int64_t);
 
@@ -100,6 +100,8 @@ public:
   bool isLegalMaskedScatter(Type *DataType);
   bool areInlineCompatible(const Function *Caller,
                            const Function *Callee) const;
+
+  bool enableInterleavedAccessVectorization();
 private:
   int getGSScalarCost(unsigned Opcode, Type *DataTy, bool VariableMask,
                       unsigned Alignment, unsigned AddressSpace);

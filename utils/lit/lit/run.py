@@ -152,6 +152,21 @@ def run_one_tester(run, provider, display):
 
 ###
 
+class _Display(object):
+    def __init__(self, display, provider, maxFailures):
+        self.display = display
+        self.provider = provider
+        self.maxFailures = maxFailures or object()
+        self.failedCount = 0
+    def update(self, test):
+        self.display.update(test)
+        self.failedCount += (test.result.code == lit.Test.FAIL)
+        if self.failedCount == self.maxFailures:
+            self.provider.cancel()
+
+def handleFailures(provider, consumer, maxFailures):
+    consumer.display = _Display(consumer.display, provider, maxFailures)
+
 class Run(object):
     """
     This class represents a concrete, configured testing run.
@@ -162,9 +177,15 @@ class Run(object):
         self.tests = tests
 
     def execute_test(self, test):
+        pg = test.config.parallelism_group
+        if callable(pg): pg = pg(test)
+
         result = None
-        start_time = time.time()
+        semaphore = None
         try:
+            if pg: semaphore = self.parallelism_semaphores[pg]
+            if semaphore: semaphore.acquire()
+            start_time = time.time()
             result = test.config.test_format.execute(test, self.lit_config)
 
             # Support deprecated result from execute() which returned the result
@@ -174,6 +195,8 @@ class Run(object):
                 result = lit.Test.Result(code, output)
             elif not isinstance(result, lit.Test.Result):
                 raise ValueError("unexpected result from test execution")
+
+            result.elapsed = time.time() - start_time
         except KeyboardInterrupt:
             raise
         except:
@@ -183,7 +206,8 @@ class Run(object):
             output += traceback.format_exc()
             output += '\n'
             result = lit.Test.Result(lit.Test.UNRESOLVED, output)
-        result.elapsed = time.time() - start_time
+        finally:
+            if semaphore: semaphore.release()
 
         test.setResult(result)
 
@@ -216,6 +240,7 @@ class Run(object):
             try:
                 task_impl = multiprocessing.Process
                 queue_impl = multiprocessing.Queue
+                sem_impl = multiprocessing.Semaphore
                 canceled_flag =  multiprocessing.Value('i', 0)
                 consumer = MultiprocessResultsConsumer(self, display, jobs)
             except:
@@ -227,11 +252,16 @@ class Run(object):
         if not consumer:
             task_impl = threading.Thread
             queue_impl = queue.Queue
+            sem_impl = threading.Semaphore
             canceled_flag = LockedValue(0)
             consumer = ThreadResultsConsumer(display)
 
+        self.parallelism_semaphores = {k: sem_impl(v)
+            for k, v in self.lit_config.parallelism_groups.items()}
+
         # Create the test provider.
         provider = TestProvider(queue_impl, canceled_flag)
+        handleFailures(provider, consumer, self.lit_config.maxFailures)
 
         # Queue the tests outside the main thread because we can't guarantee
         # that we can put() all the tests without blocking:

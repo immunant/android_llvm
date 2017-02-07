@@ -194,7 +194,9 @@ ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(IO &IO,
   ECase(EM_78KOR)
   ECase(EM_56800EX)
   ECase(EM_AMDGPU)
+  ECase(EM_RISCV)
   ECase(EM_LANAI)
+  ECase(EM_BPF)
 #undef ECase
 }
 
@@ -421,6 +423,9 @@ void ScalarBitSetTraits<ELFYAML::ELF_SHF>::bitset(IO &IO,
   BCase(SHF_GROUP)
   BCase(SHF_TLS)
   switch(Object->Header.Machine) {
+  case ELF::EM_ARM:
+    BCase(SHF_ARM_PURECODE)
+    break;
   case ELF::EM_AMDGPU:
     BCase(SHF_AMDGPU_HSA_GLOBAL)
     BCase(SHF_AMDGPU_HSA_READONLY)
@@ -528,11 +533,17 @@ void ScalarEnumerationTraits<ELFYAML::ELF_REL>::enumeration(
   case ELF::EM_ARM:
 #include "llvm/Support/ELFRelocs/ARM.def"
     break;
+  case ELF::EM_RISCV:
+#include "llvm/Support/ELFRelocs/RISCV.def"
+    break;
   case ELF::EM_LANAI:
 #include "llvm/Support/ELFRelocs/Lanai.def"
     break;
   case ELF::EM_AMDGPU:
 #include "llvm/Support/ELFRelocs/AMDGPU.def"
+    break;
+  case ELF::EM_BPF:
+#include "llvm/Support/ELFRelocs/BPF.def"
     break;
   default:
     llvm_unreachable("Unsupported architecture");

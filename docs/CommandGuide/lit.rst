@@ -152,6 +152,23 @@ SELECTION OPTIONS
 
  Run the tests in a random order.
 
+.. option:: --num-shards=M
+
+ Divide the set of selected tests into ``M`` equal-sized subsets or
+ "shards", and run only one of them.  Must be used with the
+ ``--run-shard=N`` option, which selects the shard to run. The environment
+ variable ``LIT_NUM_SHARDS`` can also be used in place of this
+ option. These two options provide a coarse mechanism for paritioning large
+ testsuites, for parallel execution on separate machines (say in a large
+ testing farm).
+
+.. option:: --run-shard=N
+
+ Select which shard to run, assuming the ``--num-shards=M`` option was
+ provided. The two options must be used together, and the value of ``N``
+ must be in the range ``1..M``. The environment variable
+ ``LIT_RUN_SHARD`` can also be used in place of this option.
+
 ADDITIONAL OPTIONS
 ------------------
 
@@ -323,6 +340,9 @@ executed, two important global variables are predefined:
  **pipefail** Normally a test using a shell pipe fails if any of the commands
  on the pipe fail. If this is not desired, setting this variable to false
  makes the test fail only if the last command in the pipe fails.
+
+ **available_features** A set of features that can be used in `XFAIL`,
+ `REQUIRES`, and `UNSUPPORTED` directives.
 
 TEST DISCOVERY
 ~~~~~~~~~~~~~~
