@@ -26,7 +26,15 @@ import subprocess
 import sys
 
 #import version
+# TODO(pirama): Automatically detect clang version
+def clang_version():
+    return '5.0.0'
 
+def ndk_path():
+    # TODO Switch to r13 from the toolchain/prebuilts/ndk/r13 branch
+    ndk_version = 'r10'
+    platform_level = 'android-23'
+    return android_path('prebuilts/ndk', ndk_version, 'platforms', platform_level)
 
 THIS_DIR = os.path.realpath(os.path.dirname(__file__))
 ORIG_ENV = dict(os.environ)
@@ -90,73 +98,78 @@ def build_crts(base_cmake_defines, stage2_install):
     llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
 
     crt_configs = [
-        ('arm', 'arm', 'arm/arm-linux-androideabi-4.9/arm-linux-androideabi', 'arm-linux-androideabi', ''),
-        ('arm64', 'aarch64', 'aarch64/aarch64-linux-android-4.9/aarch64-linux-android', 'aarch64-linux-android', ''),
-        # Disable x86 due to http://b/29371418.
-        #('x86', 'i686', 'x86/x86_64-linux-android-4.9/x86_64-linux-android', 'i686-linux-android', '-m32'),
-        #('x86_64', 'x86_64', 'x86/x86_64-linux-android-4.9/x86_64-linux-android', 'x86_64-linux-android', '-m64'),
-        # Disable mips32 because it doesn't even build.
-        #('mips', 'mipsel', 'mips/mips64el-linux-android-4.9/mips64el-linux-android', 'mipsel-linux-android', '-m32'),
-        ('mips64', 'mips64el', 'mips/mips64el-linux-android-4.9', 'mips64el-linux-android', '-m64')]
+        # Bug: http://b/35404115: Use armv7 triple - some assembly sources in
+        # builtins fail to build with arm
+        ('arm', 'arm',
+            'arm/arm-linux-androideabi-4.9/arm-linux-androideabi',
+            'armv7-linux-android', ''),
+        ('aarch64', 'arm64',
+            'aarch64/aarch64-linux-android-4.9/aarch64-linux-android',
+            'aarch64-linux-android', ''),
+        ('x86_64', 'x86_64',
+            'x86/x86_64-linux-android-4.9/x86_64-linux-android',
+            'x86_64-linux-android', ''),
+        ('x86', 'x86',
+            'x86/x86_64-linux-android-4.9/x86_64-linux-android',
+            'i686-linux-android', '-m32'),
+        # Disable mips32 and mips64 because they don't build.
+        # ('mips', 'mips',
+        #     'mips/mips64el-linux-android-4.9/mips64el-linux-android',
+        #     'mipsel-linux-android', '-m32'),
+        # ('mips64', 'mips64',
+        #     'mips/mips64el-linux-android-4.9/mips64el-linux-android',
+        #     'mips64el-linux-android', '-m64'),
+        ]
 
     # Now build compiler-rt for each arch
-    for (target_arch, llvm_arch, toolchain_name, triple, extra_flags) in crt_configs:
-        print "Building compiler-rt for %s" % target_arch
-        crt_path = android_path('out', 'clangrt-' + target_arch)
-        crt_install = stage2_install
+    for (arch, ndk_arch, toolchain_path, llvm_triple, extra_flags) in crt_configs:
+        print "Building compiler-rt for %s" % arch
+        crt_path = android_path('out', 'clangrt-' + arch)
+        crt_install = os.path.join(stage2_install, 'lib', 'clang', clang_version())
 
-        toolchain_dir = android_path('prebuilts/gcc/linux-x86/' + toolchain_name)
-        toolchain_bin = os.path.join(toolchain_dir, 'bin')
-        toolchain_usr = os.path.join(toolchain_dir, 'usr')
-        toolchain_usr_lib = os.path.join(toolchain_dir, 'usr', 'lib')
-        toolchain_lib = os.path.join(toolchain_dir, 'lib')
-        toolchain_lib_triple = os.path.join(toolchain_dir, 'lib', triple)
-        toolchain_usr_lib_triple = os.path.join(toolchain_dir, 'usr', 'lib', triple)
-        sysroot = android_path('prebuilts/ndk/current/platforms/android-24/arch-' +
-                target_arch)
+        toolchain_root = android_path('prebuilts/gcc/linux-x86')
+        toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
+        sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
 
-        cflags = ['-target %s' % triple,
+        # Bug: http://b/35402623: Manually include the directory with libgcc.a.
+        # For some reason, it is not found automatically
+        toolchain_builtins = os.path.join(toolchain_root, toolchain_path, '..',
+                                          'lib', 'gcc',
+                                          os.path.basename(toolchain_path),
+                                          '4.9.x')
+        # The 32-bit libgcc.a is in a separate subdir
+        if arch == 'x86':
+            toolchain_builtins = os.path.join(toolchain_builtins, '32')
+
+
+        cflags = ['--target=%s' % llvm_triple,
                   '--sysroot=%s' % sysroot,
-                  '-B%s' % toolchain_dir,
+                  '-B%s' % toolchain_bin,
+                  '-L%s' % toolchain_builtins,
                   extra_flags,
                  ]
-        cxxflags = []
-        ldflags = ['-L%s' % toolchain_usr_lib,
-                   '-L%s' % toolchain_lib,
-                   '-L%s' % toolchain_lib_triple,
-                   '-L%s' % toolchain_usr_lib_triple,
-                   extra_flags,
-                  ]
+        cxxflags = cflags[:]
 
         crt_defines = base_cmake_defines.copy()
-        crt_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
-        crt_defines['COMPILER_RT_DEFAULT_TARGET_ARCH'] = llvm_arch
-        crt_defines['LLVM_TARGET_ARCH'] = llvm_arch
-        crt_defines['LLVM_TARGETS_TO_BUILD'] = llvm_arch
+        crt_defines['ANDROID'] = '1'
         crt_defines['LLVM_CONFIG_PATH'] = llvm_config
-        crt_defines['CMAKE_INSTALL_PREFIX'] = crt_install
+        crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'ON'
+        # Bug: http://b/35402623: Enable COMPILER_RT_ENABLE_WERROR
+        # crt_defines['COMPILER_RT_ENABLE_WERROR'] = 'ON'
         crt_defines['CMAKE_C_COMPILER'] = cc
         crt_defines['CMAKE_CXX_COMPILER'] = cxx
         crt_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+        crt_defines['CMAKE_ASM_FLAGS'] = ' '.join(cflags)
         crt_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
-        crt_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
-        crt_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
-        crt_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
-        crt_defines['CMAKE_CROSSCOMPILING'] = 'TRUE'
-        crt_defines['CMAKE_LIBRARY_PATH'] = toolchain_usr
-        crt_defines['CMAKE_LIBRARY_ARCHITECTURE'] = triple
-        crt_defines['CMAKE_C_COMPILER_WORKS'] = 'ON'
-        crt_defines['CMAKE_CXX_COMPILER_WORKS'] = 'ON'
-        crt_defines['COMPILER_RT_STANDALONE_BUILD'] = 'ON'
-        crt_defines['COMPILER_RT_DEFAULT_TARGET_TRIPLE'] = triple
-
-        crt_defines['CMAKE_SYSTEM_NAME'] = 'Linux'
-        crt_defines['CMAKE_ASM_FLAGS'] = "-target %s %s" % (triple, extra_flags)
+        crt_defines['COMPILER_RT_TEST_COMPILER_CFLAGS'] = ' '.join(cflags)
+        crt_defines['COMPILER_RT_TEST_TARGET_TRIPLE'] = llvm_triple
+        crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'OFF'
+        crt_defines['CMAKE_INSTALL_PREFIX'] = crt_install
 
         crt_env = dict(ORIG_ENV)
 
         crt_cmake_path = os.path.join(android_path('llvm'), 'projects',
-                'compiler-rt', 'lib', 'builtins')
+                                      'compiler-rt')
         rm_cmake_cache(crt_path)
         build_llvm(out_path=crt_path, defines=crt_defines, env=crt_env,
                 cmake_path=crt_cmake_path)
@@ -172,9 +185,6 @@ def main():
     base_cmake_defines['CMAKE_BUILD_TYPE'] = 'Release'
     base_cmake_defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
     base_cmake_defines['LLVM_ENABLE_THREADS'] = 'OFF'
-    base_cmake_defines['LLVM_ENABLE_TIMESTAMPS'] = 'OFF'
-    base_cmake_defines['LLVM_USE_CRT_RELEASE'] = 'MT'
-    base_cmake_defines['CLANG_VENDOR'] = 'Android '
 
     # Construct the stage 1 defines
     stage1_path = android_path('out', 'stage1')
@@ -187,8 +197,8 @@ def main():
     stage1_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
     stage1_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
     stage1_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
-    stage1_defines['CMAKE_DYNAMIC_LINKER_FLAGS'] = ' '.join(ldflags)
     stage1_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
+    stage1_defines['CLANG_VENDOR'] = 'Android '
 
     stage1_env = dict(ORIG_ENV)
 
@@ -214,6 +224,9 @@ def main():
     stage2_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
     stage2_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
     stage2_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
+    stage2_defines['CLANG_VENDOR'] = 'Android '
+    # Compiler-rt builtins and sanitizer runtimes are built separately
+    stage2_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
 
     stage2_env = dict(ORIG_ENV)
 
