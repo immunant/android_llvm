@@ -25,10 +25,19 @@ import shutil
 import subprocess
 import sys
 
+THIS_DIR = os.path.realpath(os.path.dirname(__file__))
+ORIG_ENV = dict(os.environ)
+
+
+def android_path(*args):
+    return os.path.realpath(os.path.join(THIS_DIR, '../../', *args))
+
+
 #import version
 # TODO(pirama): Automatically detect clang version
 def clang_version():
     return '5.0.0'
+
 
 def ndk_path():
     # TODO Switch to r13 from the toolchain/prebuilts/ndk/r13 branch
@@ -36,11 +45,24 @@ def ndk_path():
     platform_level = 'android-23'
     return android_path('prebuilts/ndk', ndk_version, 'platforms', platform_level)
 
-THIS_DIR = os.path.realpath(os.path.dirname(__file__))
-ORIG_ENV = dict(os.environ)
 
-def android_path(*args):
-    return os.path.realpath(os.path.join(THIS_DIR, '../../', *args))
+def build_os_type():
+    if sys.platform.startswith('linux'):
+        return 'linux-x86'
+    else:
+        return 'darwin-x86'
+
+
+def cmake_prebuilt_bin_dir():
+    return android_path('prebuilts/cmake', build_os_type(), 'bin')
+
+
+def cmake_bin_path():
+    return os.path.join(cmake_prebuilt_bin_dir(), 'cmake')
+
+
+def ninja_bin_path():
+    return os.path.join(cmake_prebuilt_bin_dir(), 'ninja')
 
 
 def check_create_path(path):
@@ -67,6 +89,11 @@ def rm_cmake_cache(dir):
 
 def build_llvm(out_path, defines, env, cmake_path, target=None):
     flags = ['-G', 'Ninja']
+
+    # Specify CMAKE_PREFIX_PATH so 'cmake -G Ninja ...' can find the ninja
+    # executable.
+    flags += ['-DCMAKE_PREFIX_PATH=' + cmake_prebuilt_bin_dir()]
+
     for key in defines:
         newdef = '-D' + key + '=' + defines[key]
         flags += [newdef]
@@ -85,11 +112,11 @@ def build_llvm(out_path, defines, env, cmake_path, target=None):
 
     print subprocess.list2cmdline(flags)
     subprocess.check_call(
-        ['cmake'] + flags, cwd=out_path, env=env)
+        [cmake_bin_path()] + flags, cwd=out_path, env=env)
     subprocess.check_call(
-        ['ninja'] + ninja_target, cwd=out_path, env=env)
+        [ninja_bin_path()] + ninja_target, cwd=out_path, env=env)
     subprocess.check_call(
-        ['ninja', 'install'], cwd=out_path, env=env)
+        [ninja_bin_path(), 'install'], cwd=out_path, env=env)
 
 
 def build_crts(base_cmake_defines, stage2_install):
@@ -127,7 +154,7 @@ def build_crts(base_cmake_defines, stage2_install):
         crt_path = android_path('out', 'clangrt-' + arch)
         crt_install = os.path.join(stage2_install, 'lib', 'clang', clang_version())
 
-        toolchain_root = android_path('prebuilts/gcc/linux-x86')
+        toolchain_root = android_path('prebuilts/gcc', build_os_type())
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
         sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
 
@@ -235,7 +262,8 @@ def main():
     build_llvm(out_path=stage2_path, defines=stage2_defines, env=stage2_env,
             cmake_path=android_path('llvm'))
 
-    build_crts(base_cmake_defines, stage2_install)
+    if build_os_type() == 'linux-x86':
+        build_crts(base_cmake_defines, stage2_install)
 
     return 0
 
