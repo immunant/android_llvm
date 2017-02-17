@@ -146,6 +146,9 @@ def build_crts(base_cmake_defines, stage2_install):
                   '--sysroot=%s' % sysroot,
                   '-B%s' % toolchain_bin,
                   '-L%s' % toolchain_builtins,
+                  # Bug: http://b/35402623 Clang warns that the -L... above is
+                  # unused in compile-only invocations.
+                  '-Wno-unused-command-line-argument',
                   extra_flags,
                  ]
         cxxflags = cflags[:]
@@ -154,8 +157,7 @@ def build_crts(base_cmake_defines, stage2_install):
         crt_defines['ANDROID'] = '1'
         crt_defines['LLVM_CONFIG_PATH'] = llvm_config
         crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'ON'
-        # Bug: http://b/35402623: Enable COMPILER_RT_ENABLE_WERROR
-        # crt_defines['COMPILER_RT_ENABLE_WERROR'] = 'ON'
+        crt_defines['COMPILER_RT_ENABLE_WERROR'] = 'ON'
         crt_defines['CMAKE_C_COMPILER'] = cc
         crt_defines['CMAKE_CXX_COMPILER'] = cxx
         crt_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
