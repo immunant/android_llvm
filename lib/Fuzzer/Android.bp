@@ -17,6 +17,11 @@
 cc_library_static {
     name: "libLLVMFuzzerNoMain",
     host_supported: true,
+    cflags: [
+        "-Wall",
+        "-Wno-unused-parameter",
+        "-Werror",
+    ],
     include_dirs: ["external/compiler-rt/include"],
     srcs: ["*.cpp"],
     exclude_srcs: ["FuzzerMain.cpp"],
@@ -29,6 +34,11 @@ cc_library_static {
 cc_library_static {
     name: "libLLVMFuzzer",
     host_supported: true,
+    cflags: [
+        "-Wall",
+        "-Wno-unused-parameter",
+        "-Werror",
+    ],
     srcs: ["FuzzerMain.cpp"],
     whole_static_libs: ["libLLVMFuzzerNoMain"],
     sanitize: {
