@@ -87,7 +87,17 @@ def rm_cmake_cache(dir):
             rm_tree(os.path.join(dirpath, 'CMakeFiles'))
 
 
-def build_llvm(out_path, defines, env, cmake_path, target=None):
+# Base cmake options such as build type that are common across all invocations
+def base_cmake_defines():
+    defines = {}
+
+    defines['CMAKE_BUILD_TYPE'] = 'Release'
+    defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
+    defines['LLVM_ENABLE_THREADS'] = 'OFF'
+    return defines
+
+
+def invoke_cmake(out_path, defines, env, cmake_path, target=None):
     flags = ['-G', 'Ninja']
 
     # Specify CMAKE_PREFIX_PATH so 'cmake -G Ninja ...' can find the ninja
@@ -119,7 +129,7 @@ def build_llvm(out_path, defines, env, cmake_path, target=None):
         [ninja_bin_path(), 'install'], cwd=out_path, env=env)
 
 
-def build_crts(base_cmake_defines, stage2_install):
+def build_crts(stage2_install):
     cc = os.path.join(stage2_install, 'bin', 'clang')
     cxx = os.path.join(stage2_install, 'bin', 'clang++')
     llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
@@ -180,7 +190,7 @@ def build_crts(base_cmake_defines, stage2_install):
                  ]
         cxxflags = cflags[:]
 
-        crt_defines = base_cmake_defines.copy()
+        crt_defines = base_cmake_defines()
         crt_defines['ANDROID'] = '1'
         crt_defines['LLVM_CONFIG_PATH'] = llvm_config
         crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'ON'
@@ -200,70 +210,100 @@ def build_crts(base_cmake_defines, stage2_install):
         crt_cmake_path = os.path.join(android_path('llvm'), 'projects',
                                       'compiler-rt')
         rm_cmake_cache(crt_path)
-        build_llvm(out_path=crt_path, defines=crt_defines, env=crt_env,
+        invoke_cmake(out_path=crt_path, defines=crt_defines, env=crt_env,
                 cmake_path=crt_cmake_path)
 
 
-def main():
+def build_llvm(targets, build_dir, install_dir, extra_defines=None):
     cflags = []
     cxxflags = []
     ldflags = []
 
-    base_cmake_defines = {}
+    cmake_defines = base_cmake_defines()
+    cmake_defines['CMAKE_INSTALL_PREFIX'] = install_dir
+    cmake_defines['LLVM_TARGETS_TO_BUILD'] = targets
 
-    base_cmake_defines['CMAKE_BUILD_TYPE'] = 'Release'
-    base_cmake_defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
-    base_cmake_defines['LLVM_ENABLE_THREADS'] = 'OFF'
+    cmake_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+    cmake_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
+    cmake_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
+    cmake_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
+    cmake_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
+    cmake_defines['CLANG_VENDOR'] = 'Android '
 
-    # Construct the stage 1 defines
+    if extra_defines is not None:
+        cmake_defines.update(extra_defines)
+
+    env = dict(ORIG_ENV)
+
+    invoke_cmake(out_path=build_dir, defines=cmake_defines, env=env,
+                 cmake_path=android_path('llvm'))
+
+
+def main():
+    # Build/install the stage 1 toolchain
     stage1_path = android_path('out', 'stage1')
     stage1_install = android_path('out', 'stage1-install')
+    stage1_targets = 'X86'
 
-    stage1_defines = base_cmake_defines.copy()
-    stage1_defines['CMAKE_INSTALL_PREFIX'] = stage1_install
-    stage1_defines['LLVM_TARGETS_TO_BUILD'] = 'X86'
-    stage1_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
-    stage1_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
-    stage1_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
-    stage1_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
-    stage1_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
-    stage1_defines['CLANG_VENDOR'] = 'Android '
-
-    stage1_env = dict(ORIG_ENV)
-
-    # Build/install the stage 1 toolchain
-    build_llvm(out_path=stage1_path, defines=stage1_defines, env=stage1_env,
-            cmake_path=android_path('llvm'))
+    build_llvm(targets=stage1_targets, build_dir=stage1_path,
+               install_dir=stage1_install)
 
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
-    # Construct the stage 2 defines
-    cc = os.path.join(stage1_install, 'bin', 'clang')
-    cxx = os.path.join(stage1_install, 'bin', 'clang++')
+    # Build/install the stage2 toolchain
+    stage2_cc = os.path.join(stage1_install, 'bin', 'clang')
+    stage2_cxx = os.path.join(stage1_install, 'bin', 'clang++')
     stage2_path = android_path('out', 'stage2')
     stage2_install = android_path('out', 'stage2-install')
+    stage2_targets = 'AArch64;ARM;Mips;X86'
 
-    stage2_defines = base_cmake_defines.copy()
-    stage2_defines['CMAKE_INSTALL_PREFIX'] = stage2_install
-    stage2_defines['LLVM_TARGETS_TO_BUILD'] = 'AArch64;ARM;Mips;X86'
-    stage2_defines['CMAKE_C_COMPILER'] = cc
-    stage2_defines['CMAKE_CXX_COMPILER'] = cxx
-    stage2_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
-    stage2_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
-    stage2_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
-    stage2_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
-    stage2_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
-    stage2_defines['CLANG_VENDOR'] = 'Android '
-    # Compiler-rt builtins and sanitizer runtimes are built separately
-    stage2_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
+    stage2_extra_defines = dict()
+    stage2_extra_defines['CMAKE_C_COMPILER'] = stage2_cc
+    stage2_extra_defines['CMAKE_CXX_COMPILER'] = stage2_cxx
 
-    stage2_env = dict(ORIG_ENV)
-
-    build_llvm(out_path=stage2_path, defines=stage2_defines, env=stage2_env,
-            cmake_path=android_path('llvm'))
+    build_llvm(targets=stage2_targets, build_dir=stage2_path,
+               install_dir=stage2_install, extra_defines=stage2_extra_defines)
 
     if build_os_type() == 'linux-x86':
-        build_crts(base_cmake_defines, stage2_install)
+        build_crts(stage2_install)
+
+        # Build a single-stage clang for Windows
+        mingw_path = android_path('prebuilts', 'gcc', 'linux-x86', 'host',
+                                  'x86_64-w64-mingw32-4.8')
+        mingw_cc = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-gcc')
+        mingw_cxx = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-g++')
+
+        windows_path = android_path('out', 'windows-x86')
+        windows_install = android_path('out', 'windows-x86-install')
+        windows_targets = stage2_targets
+
+        # Write a NATIVE.cmake in windows_path that contains the compilers used
+        # to build native tools such as llvm-tblgen and llvm-config.  This is
+        # used below via the CMake variable CROSS_TOOLCHAIN_FLAGS_NATIVE.
+        check_create_path(windows_path)
+        native_cmake_file_path = os.path.join(windows_path, 'NATIVE.cmake')
+        native_cmake_text = (
+            'set(CMAKE_C_COMPILER {cc})\n'
+            'set(CMAKE_CXX_COMPILER {cxx})\n'
+        ).format(cc=stage2_cc, cxx=stage2_cxx)
+
+        with open(native_cmake_file_path, 'w') as native_cmake_file:
+            native_cmake_file.write(native_cmake_text)
+
+        # Extra cmake defines to use while building for Windows
+        windows_extra_defines = dict()
+        windows_extra_defines['CMAKE_C_COMPILER'] = mingw_cc
+        windows_extra_defines['CMAKE_CXX_COMPILER'] = mingw_cxx
+        windows_extra_defines['CMAKE_SYSTEM_NAME'] = 'Windows'
+        # Don't buld compiler-rt, libcxx etc. for Windows
+        windows_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
+
+        windows_extra_defines['CROSS_TOOLCHAIN_FLAGS_NATIVE'] = \
+            '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
+
+        build_llvm(targets=windows_targets, build_dir=windows_path,
+                   install_dir=windows_install,
+                   extra_defines=windows_extra_defines)
 
     return 0
 
