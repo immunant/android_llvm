@@ -229,6 +229,55 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None):
                  cmake_path=android_path('llvm'))
 
 
+def build_llvm_for_windows(targets, build_dir, install_dir,
+                           native_clang_install, is_32_bit=False):
+
+    mingw_path = android_path('prebuilts', 'gcc', 'linux-x86', 'host',
+                              'x86_64-w64-mingw32-4.8')
+    mingw_cc = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-gcc')
+    mingw_cxx = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-g++')
+
+    # Write a NATIVE.cmake in windows_path that contains the compilers used
+    # to build native tools such as llvm-tblgen and llvm-config.  This is
+    # used below via the CMake variable CROSS_TOOLCHAIN_FLAGS_NATIVE.
+    native_clang_cc = os.path.join(native_clang_install, 'bin', 'clang')
+    native_clang_cxx = os.path.join(native_clang_install, 'bin', 'clang++')
+    check_create_path(build_dir)
+    native_cmake_file_path = os.path.join(build_dir, 'NATIVE.cmake')
+    native_cmake_text = (
+        'set(CMAKE_C_COMPILER {cc})\n'
+        'set(CMAKE_CXX_COMPILER {cxx})\n'
+    ).format(cc=native_clang_cc, cxx=native_clang_cxx)
+
+    with open(native_cmake_file_path, 'w') as native_cmake_file:
+        native_cmake_file.write(native_cmake_text)
+
+    # Extra cmake defines to use while building for Windows
+    windows_extra_defines = dict()
+    windows_extra_defines['CMAKE_C_COMPILER'] = mingw_cc
+    windows_extra_defines['CMAKE_CXX_COMPILER'] = mingw_cxx
+    windows_extra_defines['CMAKE_SYSTEM_NAME'] = 'Windows'
+    # Don't buld compiler-rt, libcxx etc. for Windows
+    windows_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
+
+    windows_extra_defines['CROSS_TOOLCHAIN_FLAGS_NATIVE'] = \
+        '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
+
+    if is_32_bit:
+        cflags = ['-m32']
+        cxxflags = ['-m32']
+        ldflags = ['-m32']
+
+        windows_extra_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+        windows_extra_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
+        windows_extra_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
+        windows_extra_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
+        windows_extra_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
+
+    build_llvm(targets=targets, build_dir=build_dir, install_dir=install_dir,
+               extra_defines=windows_extra_defines)
+
+
 def main():
     # Build/install the stage 1 toolchain
     stage1_path = android_path('out', 'stage1')
@@ -257,43 +306,25 @@ def main():
     if build_os_type() == 'linux-x86':
         build_crts(stage2_install)
 
-        # Build a single-stage clang for Windows
-        mingw_path = android_path('prebuilts', 'gcc', 'linux-x86', 'host',
-                                  'x86_64-w64-mingw32-4.8')
-        mingw_cc = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-gcc')
-        mingw_cxx = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-g++')
-
-        windows_path = android_path('out', 'windows-x86')
-        windows_install = android_path('out', 'windows-x86-install')
+        # Build single-stage clang for Windows
         windows_targets = stage2_targets
 
-        # Write a NATIVE.cmake in windows_path that contains the compilers used
-        # to build native tools such as llvm-tblgen and llvm-config.  This is
-        # used below via the CMake variable CROSS_TOOLCHAIN_FLAGS_NATIVE.
-        check_create_path(windows_path)
-        native_cmake_file_path = os.path.join(windows_path, 'NATIVE.cmake')
-        native_cmake_text = (
-            'set(CMAKE_C_COMPILER {cc})\n'
-            'set(CMAKE_CXX_COMPILER {cxx})\n'
-        ).format(cc=stage2_cc, cxx=stage2_cxx)
+        # Build 64-bit clang for Windows
+        windows64_path  = android_path('out', 'windows-x86')
+        windows64_install = android_path('out', 'windows-x86-install')
+        build_llvm_for_windows(targets=windows_targets,
+                               build_dir=windows64_path,
+                               install_dir=windows64_install,
+                               native_clang_install=stage2_install)
 
-        with open(native_cmake_file_path, 'w') as native_cmake_file:
-            native_cmake_file.write(native_cmake_text)
-
-        # Extra cmake defines to use while building for Windows
-        windows_extra_defines = dict()
-        windows_extra_defines['CMAKE_C_COMPILER'] = mingw_cc
-        windows_extra_defines['CMAKE_CXX_COMPILER'] = mingw_cxx
-        windows_extra_defines['CMAKE_SYSTEM_NAME'] = 'Windows'
-        # Don't buld compiler-rt, libcxx etc. for Windows
-        windows_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
-
-        windows_extra_defines['CROSS_TOOLCHAIN_FLAGS_NATIVE'] = \
-            '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
-
-        build_llvm(targets=windows_targets, build_dir=windows_path,
-                   install_dir=windows_install,
-                   extra_defines=windows_extra_defines)
+        # Build 32-bit clang for Windows
+        windows32_path = android_path('out', 'windows-i386')
+        windows32_install = android_path('out', 'windows-i386')
+        build_llvm_for_windows(targets=windows_targets,
+                               build_dir=windows32_path,
+                               install_dir=windows32_install,
+                               native_clang_install=stage2_install,
+                               is_32_bit=True)
 
     return 0
 
