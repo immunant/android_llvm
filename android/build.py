@@ -259,6 +259,8 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
     windows_extra_defines['CMAKE_SYSTEM_NAME'] = 'Windows'
     # Don't buld compiler-rt, libcxx etc. for Windows
     windows_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
+    windows_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'OFF'
+    windows_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
 
     windows_extra_defines['CROSS_TOOLCHAIN_FLAGS_NATIVE'] = \
         '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
@@ -284,8 +286,11 @@ def main():
     stage1_install = android_path('out', 'stage1-install')
     stage1_targets = 'X86'
 
+    stage1_extra_defines = dict()
+    stage1_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'OFF'
+    stage1_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
     build_llvm(targets=stage1_targets, build_dir=stage1_path,
-               install_dir=stage1_install)
+               install_dir=stage1_install, extra_defines=stage1_extra_defines)
 
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
