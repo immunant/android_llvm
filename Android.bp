@@ -100,6 +100,9 @@ cc_library_headers {
         host: {
             export_include_dirs: ["host/include"],
         },
+        linux_bionic: {
+            enabled: true,
+        },
         windows: {
             enabled: true,
         },

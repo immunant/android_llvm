@@ -115,7 +115,9 @@
 #define HAVE_ERROR_T 1
 
 /* Define to 1 if you have the <execinfo.h> header file. */
+#ifndef __BIONIC__
 #define HAVE_EXECINFO_H 1
+#endif
 
 /* Define to 1 if you have the <fcntl.h> header file. */
 #define HAVE_FCNTL_H 1
@@ -309,7 +311,9 @@
 #define HAVE_OPENDIR 1
 
 /* Define to 1 if you have the `posix_spawn' function. */
+#ifndef __BIONIC__
 #define HAVE_POSIX_SPAWN 1
+#endif
 
 /* Define to 1 if you have the `powf' function. */
 #define HAVE_POWF 1
@@ -485,7 +489,9 @@
 #define HAVE_SYS_WAIT_H 1
 
 /* Define if the setupterm() function is supported this platform. */
+#ifndef __BIONIC__
 #define HAVE_TERMINFO 1
+#endif
 
 /* Define to 1 if you have the <termios.h> header file. */
 #define HAVE_TERMIOS_H 1
