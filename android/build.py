@@ -315,6 +315,9 @@ def main():
     if build_os_type() == 'linux-x86':
         build_crts(stage2_install)
 
+        # Disable windows temporarily so we can get a green build and iterate
+        # over the Windows build using TreeHugger
+        """
         # Build single-stage clang for Windows
         windows_targets = stage2_targets
 
@@ -334,6 +337,7 @@ def main():
                                install_dir=windows32_install,
                                native_clang_install=stage2_install,
                                is_32_bit=True)
+        """
 
     return 0
 
