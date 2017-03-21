@@ -287,6 +287,10 @@ def main():
     stage1_targets = 'X86'
 
     stage1_extra_defines = dict()
+    stage1_extra_defines['LLVM_BUILD_TOOLS'] = 'OFF'
+    stage1_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
+    stage1_extra_defines['CLANG_ENABLE_ARCMT'] = 'OFF'
+    stage1_extra_defines['CLANG_ENABLE_STATIC_ANALYZER'] = 'OFF'
     stage1_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'OFF'
     stage1_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
     build_llvm(targets=stage1_targets, build_dir=stage1_path,
