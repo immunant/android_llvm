@@ -441,6 +441,13 @@ public:
            AttributeSets.hasAttribute(2, Attribute::StructRet);
   }
 
+  bool isRandPage() const {
+    return hasFnAttribute(Attribute::RandPage);
+  }
+  void setRandPage() {
+    addFnAttr(Attribute::RandPage);
+  }
+
   /// @brief Determine if the parameter or return value is marked with NoAlias
   /// attribute.
   /// @param n The parameter to check. 1 is the first parameter, 0 is the return

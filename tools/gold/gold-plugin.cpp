@@ -23,6 +23,7 @@
 #include "llvm/LTO/LTO.h"
 #include "llvm/Object/Error.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ELF.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -101,6 +102,11 @@ static ld_plugin_get_symbols get_symbols = nullptr;
 static ld_plugin_add_input_file add_input_file = nullptr;
 static ld_plugin_set_extra_library_path set_extra_library_path = nullptr;
 static ld_plugin_get_view get_view = nullptr;
+static ld_plugin_get_input_section_count get_input_section_count = nullptr;
+static ld_plugin_get_input_section_type get_input_section_type = nullptr;
+static ld_plugin_get_input_section_name get_input_section_name = nullptr;
+static ld_plugin_allow_unique_segment_for_sections allow_unique_segments = nullptr;
+static ld_plugin_unique_segment_for_sections unique_segments = nullptr;
 static bool IsExecutable = false;
 static Optional<Reloc::Model> RelocationModel;
 static std::string output_name = "";
@@ -134,6 +140,7 @@ namespace options {
   static std::string extra_library_path;
   static std::string triple;
   static std::string mcpu;
+  static bool position_independent_pages = false;
   // When the thinlto plugin option is specified, only read the function
   // the information from intermediate files and write a combined
   // global index for the ThinLTO backends.
@@ -237,6 +244,8 @@ namespace options {
       DisableVerify = true;
     } else if (opt.startswith("sample-profile=")) {
       sample_profile= opt.substr(strlen("sample-profile="));
+    } else if (opt == "position-independent-pages") {
+      position_independent_pages = true;
     } else {
       // Save this option to pass to the code generator.
       // ParseCommandLineOptions() expects argv[0] to be program name. Lazily
@@ -252,6 +261,7 @@ namespace options {
 static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
                                         int *claimed);
 static ld_plugin_status all_symbols_read_hook(void);
+static ld_plugin_status new_input_hook(const ld_plugin_input_file *file);
 static ld_plugin_status cleanup_hook(void);
 
 extern "C" ld_plugin_status onload(ld_plugin_tv *tv);
@@ -356,6 +366,28 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
     case LDPT_MESSAGE:
       message = tv->tv_u.tv_message;
       break;
+    case LDPT_GET_INPUT_SECTION_COUNT:
+      get_input_section_count = tv->tv_u.tv_get_input_section_count;
+      break;
+    case LDPT_GET_INPUT_SECTION_TYPE:
+      get_input_section_type = tv->tv_u.tv_get_input_section_type;
+      break;
+    case LDPT_GET_INPUT_SECTION_NAME:
+      get_input_section_name = tv->tv_u.tv_get_input_section_name;
+      break;
+    case LDPT_ALLOW_UNIQUE_SEGMENT_FOR_SECTIONS:
+      allow_unique_segments = tv->tv_u.tv_allow_unique_segment_for_sections;
+      break;
+    case LDPT_UNIQUE_SEGMENT_FOR_SECTIONS:
+      unique_segments = tv->tv_u.tv_unique_segment_for_sections;
+      break;
+    case LDPT_REGISTER_NEW_INPUT_HOOK: {
+      ld_plugin_register_new_input callback;
+      callback = tv->tv_u.tv_register_new_input;
+
+      if (callback(new_input_hook) != LDPS_OK)
+        return LDPS_ERR;
+    } break;
     default:
       break;
     }
@@ -380,6 +412,12 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
   if (!release_input_file) {
     message(LDPL_ERROR, "release_input_file not passed to LLVMgold.");
     return LDPS_ERR;
+  }
+
+  if (options::position_independent_pages) {
+    // We need unique section->segment mapping to implement independently
+    // loadable segments
+    allow_unique_segments();
   }
 
   return LDPS_OK;
@@ -934,6 +972,40 @@ static ld_plugin_status all_symbols_read_hook(void) {
   }
 
   return Ret;
+}
+
+static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
+  if (!options::position_independent_pages)
+    return LDPS_OK;
+
+  unsigned int count;
+  if (get_input_section_count(file->handle, &count) != LDPS_OK)
+    message(LDPL_FATAL, "Failed to get input section count");
+
+  struct ld_plugin_section cur_section;
+  cur_section.handle = file->handle;
+  for (unsigned i = 0; i < count; ++i) {
+    cur_section.shndx = i;
+    unsigned int type;
+    if (get_input_section_type(cur_section, &type) != LDPS_OK)
+      message(LDPL_FATAL, "Failed to get input section type");
+    if (type != ELF::SHT_PROGBITS)
+      continue;
+
+    char *name;
+    if (get_input_section_name(cur_section, &name) != LDPS_OK)
+      message(LDPL_FATAL, "Failed to get input section type");
+
+    if (StringRef(name).startswith(".text.page")) {
+      unique_segments(name, /* segment_name */
+                      ELF::PF_R | ELF::PF_X | ELF::PF_RAND_ADDR, /* p_flags */
+                      4096, /* aligment */
+                      &cur_section, /* section_list */
+                      1); /* num_sections */
+    }
+  }
+
+  return LDPS_OK;
 }
 
 static ld_plugin_status cleanup_hook(void) {

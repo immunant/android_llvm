@@ -27,6 +27,7 @@ namespace llvm {
 class GlobalValue;
 class MachineModuleInfo;
 class Mangler;
+class MachineFunction;
 class MCContext;
 class MCExpr;
 class MCSection;
@@ -91,15 +92,19 @@ public:
   /// variable or function definition. This should not be passed external (or
   /// available externally) globals.
   MCSection *SectionForGlobal(const GlobalObject *GO, SectionKind Kind,
-                              const TargetMachine &TM) const;
+                              const TargetMachine &TM, MachineModuleInfo *MMI = 0) const;
 
   /// This method computes the appropriate section to emit the specified global
   /// variable or function definition. This should not be passed external (or
   /// available externally) globals.
   MCSection *SectionForGlobal(const GlobalObject *GO,
-                              const TargetMachine &TM) const {
-    return SectionForGlobal(GO, getKindForGlobal(GO, TM), TM);
+                              const TargetMachine &TM,
+                              MachineModuleInfo *MMI = 0) const {
+    return SectionForGlobal(GO, getKindForGlobal(GO, TM), TM, MMI);
   }
+
+  virtual MCSection *getSectionForFunction(const MachineFunction *MF, Mangler &Mang,
+                                           const TargetMachine &TM, MachineModuleInfo *MMI) const;
 
   virtual void getNameWithPrefix(SmallVectorImpl<char> &OutName,
                                  const GlobalValue *GV,
@@ -187,7 +192,8 @@ public:
 protected:
   virtual MCSection *SelectSectionForGlobal(const GlobalObject *GO,
                                             SectionKind Kind,
-                                            const TargetMachine &TM) const = 0;
+                                            const TargetMachine &TM,
+                                            MachineModuleInfo *MMI = 0) const = 0;
 };
 
 } // end namespace llvm

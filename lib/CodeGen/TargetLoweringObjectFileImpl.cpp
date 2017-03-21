@@ -17,6 +17,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -210,6 +211,12 @@ static unsigned getELFSectionFlags(SectionKind K) {
   if (K.isMergeableCString())
     Flags |= ELF::SHF_STRINGS;
 
+  if (K.isTextRand())
+    Flags |= ELF::SHF_IMM_RANDADDR;
+
+  if (K.isTextRandWrapper())
+    Flags |= ELF::SHF_IMM_RANDWRAPPER;
+
   return Flags;
 }
 
@@ -293,7 +300,8 @@ static StringRef getSectionPrefixForGlobal(SectionKind Kind) {
 static MCSectionELF *selectELFSectionForGlobal(
     MCContext &Ctx, const GlobalObject *GO, SectionKind Kind, Mangler &Mang,
     const TargetMachine &TM, bool EmitUniqueSection, unsigned Flags,
-    unsigned *NextUniqueID, const MCSymbolELF *AssociatedSymbol) {
+    unsigned *NextUniqueID, const MCSymbolELF *AssociatedSymbol,
+    unsigned Bin = 0) {
   unsigned EntrySize = 0;
   if (Kind.isMergeableCString()) {
     if (Kind.isMergeable2ByteCString()) {
@@ -341,6 +349,12 @@ static MCSectionELF *selectELFSectionForGlobal(
     Name = getSectionPrefixForGlobal(Kind);
   }
 
+  // TODO: Consider using set/getSectionPrefix
+  if (Kind.isTextRand()) {
+    Name += ".page";
+    Name += utostr(Bin);
+  }
+
   if (const auto *F = dyn_cast<Function>(GO)) {
     const auto &OptionalPrefix = F->getSectionPrefix();
     if (OptionalPrefix)
@@ -364,7 +378,8 @@ static MCSectionELF *selectELFSectionForGlobal(
 }
 
 MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
+    MachineModuleInfo *MMI) const {
   unsigned Flags = getELFSectionFlags(Kind);
 
   // If we have -ffunction-section or -fdata-section then we should emit the
@@ -382,6 +397,22 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   if (AssociatedSymbol) {
     EmitUniqueSection = true;
     Flags |= ELF::SHF_LINK_ORDER;
+  }
+
+  if (Kind.isTextRand()) {
+    unsigned Bin = 0;
+    // FIXME: Not sure what to do with comdat sections. Shouldn't really have any
+    // with LTO?
+    const Function *F = cast<Function>(GO);
+    Bin = MMI->getBin(F);
+
+    auto *Sec = selectELFSectionForGlobal(getContext(), GO, Kind, getMangler(), TM,
+                                          EmitUniqueSection, Flags, &NextUniqueID,
+                                          AssociatedSymbol, Bin);
+
+    getContext().setBinSymbol(Bin, Sec->getBeginSymbol());
+
+    return Sec;
   }
 
   MCSectionELF *Section = selectELFSectionForGlobal(
@@ -408,6 +439,11 @@ MCSection *TargetLoweringObjectFileELF::getSectionForJumpTable(
 
 bool TargetLoweringObjectFileELF::shouldPutJumpTableInFunctionSection(
     bool UsesLabelDifference, const Function &F) const {
+  // If we place the function in a randomly page, it's faster to have a local
+  // jump table, since a global one would need dynamic relocation.
+  if (F.isRandPage())
+    return true;
+
   // We can always create relative relocations, so use another section
   // that can be marked non-executable.
   return false;
@@ -669,7 +705,8 @@ MCSection *TargetLoweringObjectFileMachO::getExplicitSectionGlobal(
 }
 
 MCSection *TargetLoweringObjectFileMachO::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
+    MachineModuleInfo *MMI) const {
   checkMachOComdat(GO);
 
   // Handle thread local data.
@@ -1010,7 +1047,8 @@ static const char *getCOFFSectionNameForUniqueGlobal(SectionKind Kind) {
 }
 
 MCSection *TargetLoweringObjectFileCOFF::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
+    MachineModuleInfo *MMI) const {
   // If we have -ffunction-sections then we should emit the global value to a
   // uniqued section specifically for it.
   bool EmitUniquedSection;
@@ -1230,7 +1268,8 @@ selectWasmSectionForGlobal(MCContext &Ctx, const GlobalObject *GO,
 }
 
 MCSection *TargetLoweringObjectFileWasm::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
+    MachineModuleInfo *MMI) const {
 
   if (Kind.isCommon())
     report_fatal_error("mergable sections not supported yet on wasm");

@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Target/TargetLoweringObjectFile.h"
+#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -141,8 +142,16 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
 
   // Early exit - functions should be always in text sections.
   const auto *GVar = dyn_cast<GlobalVariable>(GO);
-  if (!GVar)
+  if (!GVar) {
+    const Function *F = dyn_cast<Function>(GO);
+    if (F) {
+      if (F->hasFnAttribute(Attribute::RandPage))
+        return SectionKind::getTextRand();
+      else if (F->hasFnAttribute(Attribute::RandWrapper))
+        return SectionKind::getTextRandWrapper();
+    }
     return SectionKind::getText();
+  }
 
   // Handle thread-local data first.
   if (GVar->isThreadLocal()) {
@@ -235,13 +244,23 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
 /// variable or function definition.  This should not be passed external (or
 /// available externally) globals.
 MCSection *TargetLoweringObjectFile::SectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
+    MachineModuleInfo *MMI) const {
   // Select section name.
   if (GO->hasSection())
     return getExplicitSectionGlobal(GO, Kind, TM);
 
   // Use default section depending on the 'type' of global
-  return SelectSectionForGlobal(GO, Kind, TM);
+  return SelectSectionForGlobal(GO, Kind, TM, MMI);
+}
+
+MCSection *TargetLoweringObjectFile::getSectionForFunction(
+    const MachineFunction *MF, Mangler &Mang, const TargetMachine &TM,
+    MachineModuleInfo *MMI) const {
+  const Function *F = MF->getFunction();
+  SectionKind Kind = getKindForGlobal(F, TM);
+
+  return SelectSectionForGlobal(F, Kind, TM, MMI);
 }
 
 MCSection *TargetLoweringObjectFile::getSectionForJumpTable(
@@ -264,7 +283,15 @@ bool TargetLoweringObjectFile::shouldPutJumpTableInFunctionSection(
   // in discardable section
   // FIXME: this isn't the right predicate, should be based on the MCSection
   // for the function.
-  return F.isWeakForLinker();
+  if (F.isWeakForLinker())
+    return true;
+
+  // If we place the function in a randomly located page, it's faster to have a
+  // local jump table, since a global one would require extra indirection.
+  if (F.isRandPage())
+    return true;
+
+  return false;
 }
 
 /// Given a mergable constant with the specified size and relocation

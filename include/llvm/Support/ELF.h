@@ -756,6 +756,9 @@ enum : unsigned {
 
   SHF_MASKOS = 0x0ff00000,
 
+  SHF_IMM_RANDADDR = 0x00100000,
+  SHF_IMM_RANDWRAPPER = 0x00200000,
+
   // Bits indicating processor-specific flags.
   SHF_MASKPROC = 0xf0000000,
 
@@ -1065,6 +1068,7 @@ enum : unsigned {
   PF_X = 1,                // Execute
   PF_W = 2,                // Write
   PF_R = 4,                // Read
+  PF_RAND_ADDR = 0x00100000, // Random segment base address
   PF_MASKOS = 0x0ff00000,  // Bits for operating system-specific semantics.
   PF_MASKPROC = 0xf0000000 // Bits for processor-specific semantics.
 };

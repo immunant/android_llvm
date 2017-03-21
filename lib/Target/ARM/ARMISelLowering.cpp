@@ -1023,6 +1023,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   // We want to custom lower some of our intrinsics.
   setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
+  setOperationAction(ISD::INTRINSIC_VOID, MVT::Other, Custom);
   setOperationAction(ISD::EH_SJLJ_SETJMP, MVT::i32, Custom);
   setOperationAction(ISD::EH_SJLJ_LONGJMP, MVT::Other, Custom);
   setOperationAction(ISD::EH_SJLJ_SETUP_DISPATCH, MVT::Other, Custom);
@@ -1139,6 +1140,9 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FMINNAN, MVT::v4f32, Legal);
     setOperationAction(ISD::FMAXNAN, MVT::v4f32, Legal);
   }
+
+  if (TM.Options.PositionIndependentPages)
+    setPGLTBaseRegister(ARM::R9);
 
   // We have target-specific dag combine patterns for the following nodes:
   // ARMISD::VMOVRRD  - No need to call setTargetDAGCombine
@@ -3346,6 +3350,52 @@ ARMTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG,
       ? ISD::FMINNAN : ISD::FMAXNAN;
     return DAG.getNode(NewOpc, SDLoc(Op), Op.getValueType(),
                        Op.getOperand(1), Op.getOperand(2));
+  }
+  }
+}
+
+SDValue
+ARMTargetLowering::LowerINTRINSIC_VOID(SDValue Op, SelectionDAG &DAG,
+                                       const ARMSubtarget *Subtarget) const {
+  SDValue Chain = Op.getOperand(0);
+  unsigned IntNo = cast<ConstantSDNode>(Op.getOperand(1))->getZExtValue();
+  SDLoc dl(Op);
+  switch (IntNo) {
+  default: return SDValue();    // Don't custom lower most intrinsics.
+  case Intrinsic::set_pglt_base: {
+    const GlobalValue *GV = cast<GlobalAddressSDNode>(Op.getOperand(2))->getGlobal();
+    EVT PtrVT = getPointerTy(DAG.getDataLayout());
+
+    // Copied from LowerGlobalAddressELF to use GOTOFF
+    ARMConstantPoolValue *CPV =
+      ARMConstantPoolConstant::Create(GV, ARMCP::GOTOFF);
+    SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
+    CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
+    SDValue Result = DAG.getLoad(
+        PtrVT, dl, DAG.getEntryNode(), CPAddr,
+        MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+    Chain = Result.getValue(1);
+
+    // GOT load
+    MachineFunction &MF = DAG.getMachineFunction();
+    ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
+    unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
+    unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
+    ARMConstantPoolValue *GOT_CPV =
+      ARMConstantPoolSymbol::Create(*DAG.getContext(), "_GLOBAL_OFFSET_TABLE_",
+                                    ARMPCLabelIndex, PCAdj);
+    SDValue GOT_CPAddr = DAG.getTargetConstantPool(GOT_CPV, PtrVT, 4);
+    GOT_CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, GOT_CPAddr);
+    SDValue GOT_Result = DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), GOT_CPAddr,
+                                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+    SDValue PICLabel = DAG.getConstant(ARMPCLabelIndex, dl, MVT::i32);
+    SDValue GOT = DAG.getNode(ARMISD::PIC_ADD, dl, PtrVT, GOT_Result, PICLabel);
+
+    Result = DAG.getNode(ISD::ADD, dl, PtrVT, Result, GOT);
+
+    unsigned Reg = getPGLTBaseRegister();
+    assert(Reg && "cannot get a PGLT base register on this platform");
+    return DAG.getCopyToReg(Chain, dl, Reg, Result);
   }
   }
 }
@@ -7656,6 +7706,8 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   case ISD::EH_SJLJ_SETUP_DISPATCH: return LowerEH_SJLJ_SETUP_DISPATCH(Op, DAG);
   case ISD::INTRINSIC_WO_CHAIN: return LowerINTRINSIC_WO_CHAIN(Op, DAG,
                                                                Subtarget);
+  case ISD::INTRINSIC_VOID: return LowerINTRINSIC_VOID(Op, DAG,
+                                                       Subtarget);
   case ISD::BITCAST:       return ExpandBITCAST(Op.getNode(), DAG);
   case ISD::SHL:
   case ISD::SRL:

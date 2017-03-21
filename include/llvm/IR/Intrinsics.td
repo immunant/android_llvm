@@ -786,6 +786,11 @@ def int_memcpy_element_atomic  : Intrinsic<[],
 
 def int_ssa_copy : Intrinsic<[llvm_any_ty], [LLVMMatchType<0>],
                              [IntrNoMem, Returned<0>]>;
+
+//===-------------------------- PGLT Intrinsics ---------------------------===//
+//
+def int_set_pglt_base : Intrinsic<[], [llvm_ptr_ty], [], "llvm.set_pglt_base">;
+
 //===----------------------------------------------------------------------===//
 // Target-specific intrinsics
 //===----------------------------------------------------------------------===//

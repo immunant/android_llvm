@@ -36,6 +36,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/DebugLoc.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSymbol.h"
@@ -142,6 +143,9 @@ class MachineModuleInfo : public ImmutablePass {
   const Function *LastRequest = nullptr; ///< Used for shortcut/cache.
   MachineFunction *LastResult = nullptr; ///< Used for shortcut/cache.
 
+  typedef DenseMap<const Function *, unsigned> FuncBinMap;
+  FuncBinMap Bins;
+
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -242,6 +246,13 @@ public:
     return Personalities;
   }
   /// \}
+
+  unsigned getBin(const Function *F) {
+    return Bins[F];
+  }
+  void setBin(const Function *F, unsigned Bin) {
+    Bins[F] = Bin;
+  }
 }; // End class MachineModuleInfo
 
 //===- MMI building helpers -----------------------------------------------===//

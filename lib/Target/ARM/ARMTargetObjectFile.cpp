@@ -86,10 +86,11 @@ ARMElfTargetObjectFile::getExplicitSectionGlobal(const GlobalObject *GO,
 
 MCSection *
 ARMElfTargetObjectFile::SelectSectionForGlobal(const GlobalObject *GO,
-                                               SectionKind SK, const TargetMachine &TM) const {
+                                               SectionKind SK, const TargetMachine &TM,
+                                               MachineModuleInfo *MMI) const {
   // Place the global in the execute-only text section
   if (genExecuteOnly && SK.isText())
     SK = SectionKind::getExecuteOnly();
 
-  return TargetLoweringObjectFileELF::SelectSectionForGlobal(GO, SK, TM);
+  return TargetLoweringObjectFileELF::SelectSectionForGlobal(GO, SK, TM, MMI);
 }

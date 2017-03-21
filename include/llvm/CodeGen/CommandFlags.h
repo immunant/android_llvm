@@ -300,6 +300,7 @@ static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
   Options.UniqueSectionNames = UniqueSectionNames;
   Options.EmulatedTLS = EmulatedTLS;
   Options.ExceptionModel = ExceptionModel;
+  // PositionIndependentPages is set only by the Gold LTO plugin
 
   Options.MCOptions = InitMCTargetOptionsFromFlags();
 

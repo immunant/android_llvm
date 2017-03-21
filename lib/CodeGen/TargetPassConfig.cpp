@@ -684,6 +684,8 @@ void TargetPassConfig::addMachinePasses() {
   if (EnableMachineOutliner)
     PM->add(createMachineOutlinerPass());
 
+  addPass(&PagerandoBinningID, false);
+
   AddingMachinePasses = false;
 }
 

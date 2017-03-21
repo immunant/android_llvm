@@ -138,6 +138,7 @@ namespace {
       (void) llvm::createObjCARCContractPass();
       (void) llvm::createObjCARCOptPass();
       (void) llvm::createPAEvalPass();
+      (void) llvm::createPGLTEntryWrappersPass();
       (void) llvm::createPromoteMemoryToRegisterPass();
       (void) llvm::createDemoteRegisterToMemoryPass();
       (void) llvm::createPruneEHPass();

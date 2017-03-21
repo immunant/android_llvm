@@ -38,6 +38,7 @@ public:
   enum PSVKind {
     Stack,
     GOT,
+    PGLT,
     JumpTable,
     ConstantPool,
     FixedStack,
@@ -66,6 +67,7 @@ public:
 
   bool isStack() const { return Kind == Stack; }
   bool isGOT() const { return Kind == GOT; }
+  bool isPGLT() const { return Kind == PGLT; }
   bool isConstantPool() const { return Kind == ConstantPool; }
   bool isJumpTable() const { return Kind == JumpTable; }
   unsigned getTargetCustom() const {
@@ -149,7 +151,7 @@ public:
 
 /// Manages creation of pseudo source values.
 class PseudoSourceValueManager {
-  const PseudoSourceValue StackPSV, GOTPSV, JumpTablePSV, ConstantPoolPSV;
+  const PseudoSourceValue StackPSV, GOTPSV, PGLTPSV, JumpTablePSV, ConstantPoolPSV;
   std::map<int, std::unique_ptr<FixedStackPseudoSourceValue>> FSValues;
   StringMap<std::unique_ptr<const ExternalSymbolPseudoSourceValue>>
       ExternalCallEntries;
@@ -167,6 +169,9 @@ public:
   /// Return a pseudo source value referencing the global offset table
   /// (or something the like).
   const PseudoSourceValue *getGOT();
+
+  /// Return a pseudo source value referencing the PGLT.
+  const PseudoSourceValue *getPGLT();
 
   /// Return a pseudo source value referencing the constant pool. Since constant
   /// pools are constant, this doesn't need to identify a specific constant

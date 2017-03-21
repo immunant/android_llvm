@@ -630,7 +630,7 @@ void AsmPrinter::EmitFunctionHeader() {
   // Print the 'header' of function.
   const Function *F = MF->getFunction();
 
-  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, TM));
+  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, TM, MMI));
   EmitVisibility(CurrentFnSym, F->getVisibility());
 
   EmitLinkage(F, CurrentFnSym);
@@ -1635,6 +1635,9 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
       GV->hasAvailableExternallyLinkage())
     return true;
 
+  if (GV->getName() == "llvm.pglt")
+    EmitPGLT(GV);
+
   if (!GV->hasAppendingLinkage()) return false;
 
   assert(GV->hasInitializer() && "Not a special LLVM global!");
@@ -1654,6 +1657,50 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
   }
 
   report_fatal_error("unknown special variable");
+}
+
+void AsmPrinter::EmitPGLT(const GlobalVariable *GV) {
+  // FIXME: This duplicates a lot of code from EmitGlobalVariable. Might be
+  // better to create the global variable earlier somehow and emit it normally.
+  MCSymbol *PGLTSym = OutContext.getOrCreateSymbol(StringRef("_PGLT_"));
+  EmitVisibility(PGLTSym, GV->getVisibility(), !GV->isDeclaration());
+
+  // uint64_t Size = DL->getTypeAllocSize(GV->getType()->getElementType());
+
+  unsigned AlignLog = getGVAlignmentLog2(GV, getDataLayout());
+  unsigned Align = 1 << AlignLog;
+
+  // for (const HandlerInfo &HI : Handlers) {
+  //   NamedRegionTimer T(HI.TimerName, HI.TimerGroupName, TimePassesIsEnabled);
+  //   HI.Handler->setSymbolSize(PGLTSym, Size);
+  // }
+
+  MCSection *TheSection =
+    getObjFileLowering().getSectionForConstant(getDataLayout(),
+                                               SectionKind::getReadOnlyWithRel(),
+                                               /*C=*/nullptr, Align);
+
+  OutStreamer->SwitchSection(TheSection);
+
+  EmitLinkage(GV, PGLTSym);
+  EmitAlignment(AlignLog, GV);
+
+  OutStreamer->EmitLabel(PGLTSym);
+
+  unsigned PtrSize = getDataLayout().getPointerSize(0);
+
+  MCSymbol *GOTSymbol = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
+  OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSymbol, OutContext), PtrSize);
+
+  for (const MCSymbol *Sym : OutContext.getBinSymbols())
+    OutStreamer->EmitValue(MCSymbolRefExpr::create(Sym, OutContext), PtrSize);
+
+  MCSymbol *PGLTEndSym = OutContext.getOrCreateSymbol(StringRef("_PGLT_END_"));
+  OutStreamer->EmitSymbolAttribute(PGLTEndSym, MCSA_Global);
+  OutStreamer->EmitSymbolAttribute(PGLTEndSym, MAI->getProtectedVisibilityAttr());
+  OutStreamer->EmitLabel(PGLTEndSym);
+
+  OutStreamer->AddBlankLine();
 }
 
 /// EmitLLVMUsedList - For targets that define a MAI::UsedDirective, mark each

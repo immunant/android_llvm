@@ -98,6 +98,8 @@ namespace llvm {
     /// We have three labels represented by the pairs (1, 0), (2, 0) and (1, 1)
     DenseMap<std::pair<unsigned, unsigned>, MCSymbol *> LocalSymbols;
 
+    std::vector<const MCSymbol *> BinSymbols;
+
     /// Keeps tracks of names that were used both for used declared and
     /// artificial symbols. The value is "true" if the name has been used for a
     /// non-section symbol (there can be at most one of those, plus an unlimited
@@ -346,6 +348,18 @@ namespace llvm {
     /// APIs.
     const SymbolTable &getSymbols() const { return Symbols; }
 
+    void setBinSymbol(unsigned BinNumber, const MCSymbol *Sym) {
+      if (BinSymbols.size() <= BinNumber-1)
+        BinSymbols.resize(BinNumber);
+      BinSymbols[BinNumber-1] = Sym;
+    }
+    const MCSymbol* getBinSymbol(unsigned BinNumber) {
+      assert(BinSymbols.size() > BinNumber-1);
+      return BinSymbols[BinNumber-1];
+    }
+    ArrayRef<const MCSymbol *> getBinSymbols() {
+      return BinSymbols;
+    }
     /// @}
 
     /// \name Section Management

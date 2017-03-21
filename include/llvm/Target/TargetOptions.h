@@ -108,7 +108,8 @@ namespace llvm {
           DisableIntegratedAS(false), CompressDebugSections(false),
           RelaxELFRelocations(false), FunctionSections(false),
           DataSections(false), UniqueSectionNames(true), TrapUnreachable(false),
-          EmulatedTLS(false), EnableIPRA(false) {}
+          EmulatedTLS(false), EnableIPRA(false),
+          PositionIndependentPages(false) {}
 
     /// PrintMachineCode - This flag is enabled when the -print-machineinstrs
     /// option is specified on the command line, and should enable debugging
@@ -215,6 +216,11 @@ namespace llvm {
 
     /// This flag enables InterProcedural Register Allocation (IPRA).
     unsigned EnableIPRA : 1;
+
+    /// PositionIndependentPages- This flag indicates that PC-relative
+    /// references outside the current function are invalid and all global and
+    /// inter-function references must go through the Page Linking Table (PGLT)
+    unsigned PositionIndependentPages : 1;
 
     /// FloatABIType - This setting is set by -float-abi=xxx option is specfied
     /// on the command line. This setting may either be Default, Soft, or Hard.

@@ -48,6 +48,8 @@ namespace ARMCP {
     TPOFF,       /// Thread Pointer Offset
     SECREL,      /// Section Relative (Windows TLS)
     SBREL,       /// Static Base Relative (RWPI)
+    GOTOFF,      /// Global Offset Table offset (TODO: Figure out if adding this
+                 /// is ok)
   };
 
 } // end namespace ARMCP
