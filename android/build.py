@@ -263,6 +263,7 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
     windows_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
 
     windows_extra_defines['CROSS_TOOLCHAIN_FLAGS_NATIVE'] = \
+        '-DCMAKE_PREFIX_PATH=' + cmake_prebuilt_bin_dir() + ';' + \
         '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
 
     if is_32_bit:
@@ -315,9 +316,6 @@ def main():
     if build_os_type() == 'linux-x86':
         build_crts(stage2_install)
 
-        # Disable windows temporarily so we can get a green build and iterate
-        # over the Windows build using TreeHugger
-        """
         # Build single-stage clang for Windows
         windows_targets = stage2_targets
 
@@ -337,7 +335,6 @@ def main():
                                install_dir=windows32_install,
                                native_clang_install=stage2_install,
                                is_32_bit=True)
-        """
 
     return 0
 
