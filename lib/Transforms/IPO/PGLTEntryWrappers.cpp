@@ -9,6 +9,7 @@
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/CallSite.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Intrinsics.h"
@@ -306,6 +307,14 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
       VMap[I] = DestI++;        // Add mapping to VMap
     }
 
+  if (DISubprogram *SP = F.getSubprogram()) {
+    // If we have debug info, add mapping for the metadata nodes that should not
+    // be cloned by CloneFunctionInfo.
+    auto &MD = VMap.MD();
+    MD[SP->getUnit()].reset(SP->getUnit());
+    MD[SP->getType()].reset(SP->getType());
+    MD[SP->getFile()].reset(SP->getFile());
+  }
   CloneFunctionInto(DestFn, &F, VMap, true, Returns);
 
   // return the new wrapper alloca to our caller so it can pass it in the built
