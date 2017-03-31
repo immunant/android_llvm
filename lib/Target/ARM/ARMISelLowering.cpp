@@ -3135,7 +3135,7 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     if (SDValue V = promoteToConstantPool(GV, DAG, PtrVT, dl))
       return V;
 
-  if (isPositionIndependent()) {
+  if (isPositionIndependent() && !Subtarget->isPIP()) {
     bool UseGOT_PREL = !TM.shouldAssumeDSOLocal(*GV->getParent(), GV);
 
     MachineFunction &MF = DAG.getMachineFunction();
@@ -3185,6 +3185,24 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     SDValue SB = DAG.getCopyFromReg(DAG.getEntryNode(), dl, ARM::R9, PtrVT);
     SDValue Result = DAG.getNode(ISD::ADD, dl, PtrVT, SB, RelAddr);
     return Result;
+  } else if (Subtarget->isPIP()) {
+    // Position-independent pages, access GOT through the PGLT
+    SDValue RelAddr;
+    // TODO: Add support for MOVT/W
+    ARMConstantPoolValue *CPV =
+      ARMConstantPoolConstant::Create(GV, ARMCP::GOTOFF);
+    SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
+    CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
+    RelAddr = DAG.getLoad(
+        PtrVT, dl, DAG.getEntryNode(), CPAddr,
+        MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+
+    SDValue PGLTReg = DAG.getRegister(getPGLTBaseRegister(), MVT::i32);
+    SDValue GOT = DAG.getLoad(
+        PtrVT, dl, DAG.getEntryNode(), PGLTReg,
+        MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
+    SDValue Result = DAG.getNode(ISD::ADD, dl, PtrVT, GOT, RelAddr);
+    return Result;
   }
 
   // If we have T2 ops, we can materialize the address directly via movt/movw
@@ -3208,6 +3226,8 @@ SDValue ARMTargetLowering::LowerGlobalAddressDarwin(SDValue Op,
                                                     SelectionDAG &DAG) const {
   assert(!Subtarget->isROPI() && !Subtarget->isRWPI() &&
          "ROPI/RWPI not currently supported for Darwin");
+  assert(!Subtarget->isPIP() &&
+         "PIP not currently supported for Darwin");
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   SDLoc dl(Op);
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
@@ -3236,6 +3256,8 @@ SDValue ARMTargetLowering::LowerGlobalAddressWindows(SDValue Op,
          "Windows on ARM expects to use movw/movt");
   assert(!Subtarget->isROPI() && !Subtarget->isRWPI() &&
          "ROPI/RWPI not currently supported for Windows");
+  assert(!Subtarget->isPIP() &&
+         "PIP not currently supported for Windows");
 
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   const ARMII::TOF TargetFlags =
