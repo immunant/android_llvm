@@ -244,8 +244,8 @@ namespace options {
       DisableVerify = true;
     } else if (opt.startswith("sample-profile=")) {
       sample_profile= opt.substr(strlen("sample-profile="));
-    } else if (opt == "position-independent-pages") {
-      position_independent_pages = true;
+    } else if (opt == "pip") {
+      RelocationModel = Reloc::PIP;
     } else {
       // Save this option to pass to the code generator.
       // ParseCommandLineOptions() expects argv[0] to be program name. Lazily
@@ -294,15 +294,15 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
       case LDPO_REL: // .o
       case LDPO_DYN: // .so
         IsExecutable = false;
-        RelocationModel = Reloc::PIC_;
+        RelocationModel = RelocationModel ? RelocationModel : Reloc::PIC_;
         break;
       case LDPO_PIE: // position independent executable
         IsExecutable = true;
-        RelocationModel = Reloc::PIC_;
+        RelocationModel = RelocationModel ? RelocationModel : Reloc::PIC_;
         break;
       case LDPO_EXEC: // .exe
         IsExecutable = true;
-        RelocationModel = Reloc::Static;
+        RelocationModel = RelocationModel ? RelocationModel : Reloc::Static;
         break;
       default:
         message(LDPL_ERROR, "Unknown output file type %d", tv->tv_u.tv_val);

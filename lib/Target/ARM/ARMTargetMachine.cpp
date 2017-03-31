@@ -226,6 +226,10 @@ static Reloc::Model getEffectiveRelocModel(const Triple &TT,
     assert(TT.isOSBinFormatELF() &&
            "ROPI/RWPI currently only supported for ELF");
 
+  if (*RM == Reloc::PIP)
+    assert(TT.isOSBinFormatELF() &&
+           "PIP currently only supported for ELF");
+
   // DynamicNoPIC is only used on darwin.
   if (*RM == Reloc::DynamicNoPIC && !TT.isOSDarwin())
     return Reloc::Static;

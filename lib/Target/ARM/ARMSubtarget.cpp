@@ -237,7 +237,7 @@ void ARMSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
       (Options.UnsafeFPMath || isTargetDarwin()))
     UseNEONForSinglePrecisionFP = true;
 
-  if (isRWPI() || Options.PositionIndependentPages)
+  if (isRWPI() || isPIP())
     ReserveR9 = true;
 
   // FIXME: Teach TableGen to deal with these instead of doing it manually here.
@@ -312,12 +312,12 @@ bool ARMSubtarget::isRWPI() const {
   return TM.getRelocationModel() == Reloc::RWPI ||
          TM.getRelocationModel() == Reloc::ROPI_RWPI;
 }
+bool ARMSubtarget::isPIP() const {
+  return TM.getRelocationModel() == Reloc::PIP;
+}
 
 bool ARMSubtarget::isGVIndirectSymbol(const GlobalValue *GV) const {
   if (!TM.shouldAssumeDSOLocal(*GV->getParent(), GV))
-    return true;
-
-  if (Options.PositionIndependentPages)
     return true;
 
   // 32 bit macho has no relocation for a-b if a is undefined, even if b is in

@@ -245,6 +245,8 @@ static void runOldPMPasses(Config &Conf, Module &Mod, TargetMachine *TM,
     PMB.populateThinLTOPassManager(passes);
   else
     PMB.populateLTOPassManager(passes);
+  if (TM->getRelocationModel() == Reloc::PIP)
+    passes.add(createPGLTEntryWrappersPass());
   passes.run(Mod);
 }
 

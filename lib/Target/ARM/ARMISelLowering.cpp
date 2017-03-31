@@ -1141,7 +1141,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FMAXNAN, MVT::v4f32, Legal);
   }
 
-  if (TM.Options.PositionIndependentPages)
+  if (Subtarget->isPIP())
     setPGLTBaseRegister(ARM::R9);
 
   // We have target-specific dag combine patterns for the following nodes:

@@ -625,6 +625,7 @@ public:
 
   bool isROPI() const;
   bool isRWPI() const;
+  bool isPIP() const;
 
   bool useSoftFloat() const { return UseSoftFloat; }
   bool isThumb() const { return InThumbMode; }
