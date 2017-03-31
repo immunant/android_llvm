@@ -530,7 +530,7 @@ unsigned ARMFastISel::ARMMaterializeInt(const Constant *C, MVT VT) {
 }
 
 bool ARMFastISel::isPositionIndependent() const {
-  return TLI.isPositionIndependent();
+  return TLI.isPositionIndependent() || Subtarget->isPIP();
 }
 
 unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, MVT VT) {
@@ -539,6 +539,10 @@ unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, MVT VT) {
 
   // ROPI/RWPI not currently supported.
   if (Subtarget->isROPI() || Subtarget->isRWPI())
+    return 0;
+
+  // PIP only supported for ELF
+  if (!Subtarget->isTargetELF() && Subtarget->isPIP())
     return 0;
 
   bool IsIndirect = Subtarget->isGVIndirectSymbol(GV);
@@ -2394,7 +2398,7 @@ bool ARMFastISel::SelectCall(const Instruction *I,
 
   bool UseReg = false;
   const GlobalValue *GV = dyn_cast<GlobalValue>(Callee);
-  if (!GV || Subtarget->genLongCalls()) UseReg = true;
+  if (!GV || Subtarget->genLongCalls() || Subtarget->isPIP()) UseReg = true;
 
   unsigned CalleeReg = 0;
   if (UseReg) {
@@ -2959,11 +2963,16 @@ unsigned ARMFastISel::ARMLowerPICELF(const GlobalValue *GV,
 
   LLVMContext *Context = &MF->getFunction()->getContext();
   unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
-  unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
-  ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
-      GV, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
-      UseGOT_PREL ? ARMCP::GOT_PREL : ARMCP::no_modifier,
-      /*AddCurrentAddress=*/UseGOT_PREL);
+  ARMConstantPoolValue *CPV;
+  if (Subtarget->isPIP()) {
+    CPV = ARMConstantPoolConstant::Create(GV, ARMCP::GOTOFF);
+  } else {
+    unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
+    CPV = ARMConstantPoolConstant::Create(
+        GV, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
+        UseGOT_PREL ? ARMCP::GOT_PREL : ARMCP::no_modifier,
+        /*AddCurrentAddress=*/UseGOT_PREL);
+  }
 
   unsigned ConstAlign =
       MF->getDataLayout().getPrefTypeAlignment(Type::getInt32PtrTy(*Context));
@@ -2978,25 +2987,46 @@ unsigned ARMFastISel::ARMLowerPICELF(const GlobalValue *GV,
     MIB.addImm(0);
   MIB.add(predOps(ARMCC::AL));
 
-  // Fix the address by adding pc.
   unsigned DestReg = createResultReg(TLI.getRegClassFor(VT));
-  Opc = Subtarget->isThumb() ? ARM::tPICADD : UseGOT_PREL ? ARM::PICLDR
-                                                          : ARM::PICADD;
-  DestReg = constrainOperandRegClass(TII.get(Opc), DestReg, 0);
-  MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc), DestReg)
-            .addReg(TempReg)
-            .addImm(ARMPCLabelIndex);
-  if (!Subtarget->isThumb())
-    MIB.add(predOps(ARMCC::AL));
+  if (Subtarget->isPIP()) {
+    // Add PGLT[0] (GOT address)
+    unsigned PGLTReg = MF->addLiveIn(TLI.getPGLTBaseRegister(), &ARM::rGPRRegClass);
 
-  if (UseGOT_PREL && Subtarget->isThumb()) {
-    unsigned NewDestReg = createResultReg(TLI.getRegClassFor(VT));
-    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
-                  TII.get(ARM::t2LDRi12), NewDestReg)
-              .addReg(DestReg)
-              .addImm(0);
-    DestReg = NewDestReg;
-    AddOptionalDefs(MIB);
+    Address GOTAddr;
+    GOTAddr.BaseType = Address::RegBase;
+    GOTAddr.Base.Reg = PGLTReg;
+    GOTAddr.Offset = 0;
+    unsigned GOTReg;
+    bool RV = ARMEmitLoad(TLI.getPointerTy(DL), GOTReg, GOTAddr);
+    assert(RV && "Should be able to handle this load.");
+    (void)RV;
+
+    Opc = isThumb2 ? ARM::t2ADDrr : ARM::ADDrr;
+    GOTReg = constrainOperandRegClass(TII.get(Opc), GOTReg, 0);
+    DestReg = constrainOperandRegClass(TII.get(Opc), DestReg, 0);
+    AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+                            TII.get(Opc), DestReg)
+                    .addReg(GOTReg).addReg(TempReg));
+  } else {
+    // Fix the address by adding pc.
+    Opc = Subtarget->isThumb() ? ARM::tPICADD : UseGOT_PREL ? ARM::PICLDR
+      : ARM::PICADD;
+    DestReg = constrainOperandRegClass(TII.get(Opc), DestReg, 0);
+    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(Opc), DestReg)
+      .addReg(TempReg)
+      .addImm(ARMPCLabelIndex);
+    if (!Subtarget->isThumb())
+      MIB.add(predOps(ARMCC::AL));
+
+    if (UseGOT_PREL && Subtarget->isThumb()) {
+      unsigned NewDestReg = createResultReg(TLI.getRegClassFor(VT));
+      MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+                    TII.get(ARM::t2LDRi12), NewDestReg)
+        .addReg(DestReg)
+        .addImm(0);
+      DestReg = NewDestReg;
+      AddOptionalDefs(MIB);
+    }
   }
   return DestReg;
 }
