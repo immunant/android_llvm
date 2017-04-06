@@ -50,6 +50,9 @@ namespace ARMCP {
     SBREL,       /// Static Base Relative (RWPI)
     GOTOFF,      /// Global Offset Table offset (TODO: Figure out if adding this
                  /// is ok)
+    PGLTOFF,     /// Offset in PGLT (TODO: Figure out if this should instead be a CPKind)
+    BINOFF,      /// Offset from start of bin (segment) (TODO: Figure out if
+                 /// this should instead be a CPKind)
   };
 
 } // end namespace ARMCP

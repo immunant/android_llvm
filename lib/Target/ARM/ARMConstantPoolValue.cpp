@@ -70,6 +70,10 @@ StringRef ARMConstantPoolValue::getModifierText() const {
     return "secrel32";
   case ARMCP::GOTOFF:
     return "gotoff";
+  case ARMCP::PGLTOFF:
+    return "pgltoff";
+  case ARMCP::BINOFF:
+    return "binoff";
   }
   llvm_unreachable("Unknown modifier!");
 }
