@@ -406,6 +406,11 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
     const Function *F = cast<Function>(GO);
     Bin = MMI->getBin(F);
 
+    // Unique sections aren't important during the backend stage of LTO
+    // compilation, which is used for position-independent pages.
+    if (Bin)
+      EmitUniqueSection = false;
+
     auto *Sec = selectELFSectionForGlobal(getContext(), GO, Kind, getMangler(), TM,
                                           EmitUniqueSection, Flags, &NextUniqueID,
                                           AssociatedSymbol, Bin);
