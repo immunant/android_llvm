@@ -140,7 +140,6 @@ namespace options {
   static std::string extra_library_path;
   static std::string triple;
   static std::string mcpu;
-  static bool position_independent_pages = false;
   // When the thinlto plugin option is specified, only read the function
   // the information from intermediate files and write a combined
   // global index for the ThinLTO backends.
@@ -414,7 +413,7 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
     return LDPS_ERR;
   }
 
-  if (options::position_independent_pages) {
+  if (RelocationModel == Reloc::PIP) {
     // We need unique section->segment mapping to implement independently
     // loadable segments
     allow_unique_segments();
@@ -975,7 +974,7 @@ static ld_plugin_status all_symbols_read_hook(void) {
 }
 
 static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
-  if (!options::position_independent_pages)
+  if (RelocationModel != Reloc::PIP)
     return LDPS_OK;
 
   unsigned int count;
