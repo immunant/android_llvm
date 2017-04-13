@@ -172,10 +172,17 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   // is, the section flags will be combined with other function in the section
   // (RandPage functions, potentially), and the wrapper will get marked
   // RAND_ADDR
-  WrapperFn->setSection("");
+
+  // TODO: Verify the above. This should not be the case unless functions are not
+  // WrapperFn->setSection("");
 
   if (F.hasComdat()) {
     WrapperFn->setComdat(F.getComdat());
+  }
+
+  if (F.hasSection()) {
+    WrapperFn->setSection(F.getSection());
+    F.setSection("");
   }
 
   // We can't put the wrapper function in an explicitely named section becuase
