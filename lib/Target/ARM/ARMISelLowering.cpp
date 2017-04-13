@@ -1023,7 +1023,6 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   // We want to custom lower some of our intrinsics.
   setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
-  setOperationAction(ISD::INTRINSIC_VOID, MVT::Other, Custom);
   setOperationAction(ISD::EH_SJLJ_SETJMP, MVT::i32, Custom);
   setOperationAction(ISD::EH_SJLJ_LONGJMP, MVT::Other, Custom);
   setOperationAction(ISD::EH_SJLJ_SETUP_DISPATCH, MVT::Other, Custom);
@@ -1998,7 +1997,36 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   auto PtrVt = getPointerTy(DAG.getDataLayout());
 
-  if (Subtarget->genLongCalls()) {
+  auto F = dyn_cast_or_null<Function>(GV);
+  bool UsePIPAddressing = MF.getFunction()->isRandPage() ||
+                          (F && F->isRandPage());
+  if (UsePIPAddressing) {
+    if (GV) {
+      Callee = LowerGlobalAddressELF(Callee, DAG);
+    } else if (ExternalSymbolSDNode *S=dyn_cast<ExternalSymbolSDNode>(Callee)) {
+      const char *Sym = S->getSymbol();
+
+      SDValue ZeroVal = DAG.getConstant(0, dl, MVT::i32);
+      SDValue GOTAddr = DAG.getLoad(
+          PtrVt, dl, DAG.getEntryNode(), ZeroVal,
+          MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
+
+      ARMConstantPoolValue *CPV =
+        ARMConstantPoolSymbol::Create(*DAG.getContext(), Sym,
+                                      ARMCP::GOT_BREL);
+      // Get the address of the callee into a register
+      SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVt, 4);
+      CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
+      SDValue Offset = DAG.getLoad(
+          PtrVt, dl, DAG.getEntryNode(), CPAddr,
+          MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+
+      Callee = DAG.getNode(ISD::ADD, dl, PtrVt, GOTAddr, Offset);
+      Callee =
+        DAG.getLoad(PtrVt, dl, DAG.getEntryNode(), Callee,
+                    MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    }
+  } else if (Subtarget->genLongCalls()) {
     assert((!isPositionIndependent() || Subtarget->isTargetWindows()) &&
            "long-calls codegen is not position independent!");
     // Handle a global address or an external symbol. If it's not one of
@@ -2007,8 +2035,11 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     if (isa<GlobalAddressSDNode>(Callee)) {
       // Create a constant pool entry for the callee address
       unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
-      ARMConstantPoolValue *CPV =
-        ARMConstantPoolConstant::Create(GV, ARMPCLabelIndex, ARMCP::CPValue, 0);
+      ARMConstantPoolValue *CPV;
+      if (Subtarget->isPIP())
+        CPV = ARMConstantPoolConstant::Create(GV, ARMCP::GOTOFF);
+      else
+        CPV = ARMConstantPoolConstant::Create(GV, ARMPCLabelIndex, ARMCP::CPValue, 0);
 
       // Get the address of the callee into a register
       SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVt, 4);
@@ -3129,16 +3160,62 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   const TargetMachine &TM = getTargetMachine();
   bool IsRO = isReadOnly(GV);
+  bool UseGOT = !TM.shouldAssumeDSOLocal(*GV->getParent(), GV);
 
   // promoteToConstantPool only if not generating XO text section
-  if (TM.shouldAssumeDSOLocal(*GV->getParent(), GV) && !Subtarget->genExecuteOnly())
+  if (!UseGOT && !Subtarget->genExecuteOnly())
     if (SDValue V = promoteToConstantPool(GV, DAG, PtrVT, dl))
       return V;
 
-  if (isPositionIndependent() && !Subtarget->isPIP()) {
-    bool UseGOT_PREL = !TM.shouldAssumeDSOLocal(*GV->getParent(), GV);
+  MachineFunction &MF = DAG.getMachineFunction();
+  if (MF.getFunction()->isRandPage()) {
+    // Position-independent pages, access through the PGLT
+    // TODO: Add support for MOVT/W
 
-    MachineFunction &MF = DAG.getMachineFunction();
+    SDValue BaseAddr;
+    ARMConstantPoolValue *OffsetCPV;
+    SDValue PGLTReg = DAG.getCopyFromReg(
+        DAG.getEntryNode(), dl,
+        DAG.getTargetLoweringInfo().getPGLTBaseRegister(), PtrVT);
+    auto F = dyn_cast<Function>(GV);
+    if (F && F->isRandPage()) {
+      ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
+          GV, ARMCP::PGLTOFF);
+      SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
+      CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
+      SDValue PGLTOffset = DAG.getLoad(
+          PtrVT, dl, DAG.getEntryNode(), CPAddr,
+          MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+
+      SDValue PGLTAddr = DAG.getNode(ISD::ADD, dl, PtrVT, PGLTReg, PGLTOffset);
+      BaseAddr = DAG.getLoad(
+          PtrVT, dl, DAG.getEntryNode(), PGLTAddr,
+          MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
+
+      OffsetCPV =
+        ARMConstantPoolConstant::Create(GV, ARMCP::BINOFF);
+    } else {
+      BaseAddr = DAG.getLoad(
+          PtrVT, dl, DAG.getEntryNode(), PGLTReg,
+          MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
+
+      OffsetCPV =
+        ARMConstantPoolConstant::Create(GV, UseGOT ? ARMCP::GOT_BREL : ARMCP::GOTOFF);
+    }
+      
+    SDValue OffsetCPAddr = DAG.getTargetConstantPool(OffsetCPV, PtrVT, 4);
+    OffsetCPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, OffsetCPAddr);
+    SDValue Offset = DAG.getLoad(
+        PtrVT, dl, DAG.getEntryNode(), OffsetCPAddr,
+        MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+
+    SDValue Result = DAG.getNode(ISD::ADD, dl, PtrVT, BaseAddr, Offset);
+    if (UseGOT)
+      Result =
+          DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), Result,
+                      MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    return Result;
+  } else if (isPositionIndependent() || Subtarget->isPIP()) {
     ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
     unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
     EVT PtrVT = getPointerTy(DAG.getDataLayout());
@@ -3146,8 +3223,8 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
     ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
         GV, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
-        UseGOT_PREL ? ARMCP::GOT_PREL : ARMCP::no_modifier,
-        /*AddCurrentAddress=*/UseGOT_PREL);
+        UseGOT ? ARMCP::GOT_PREL : ARMCP::no_modifier,
+        /*AddCurrentAddress=*/UseGOT);
     SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
     CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
     SDValue Result = DAG.getLoad(
@@ -3156,7 +3233,7 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     SDValue Chain = Result.getValue(1);
     SDValue PICLabel = DAG.getConstant(ARMPCLabelIndex, dl, MVT::i32);
     Result = DAG.getNode(ARMISD::PIC_ADD, dl, PtrVT, Result, PICLabel);
-    if (UseGOT_PREL)
+    if (UseGOT)
       Result =
           DAG.getLoad(PtrVT, dl, Chain, Result,
                       MachinePointerInfo::getGOT(DAG.getMachineFunction()));
@@ -3184,24 +3261,6 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     }
     SDValue SB = DAG.getCopyFromReg(DAG.getEntryNode(), dl, ARM::R9, PtrVT);
     SDValue Result = DAG.getNode(ISD::ADD, dl, PtrVT, SB, RelAddr);
-    return Result;
-  } else if (Subtarget->isPIP()) {
-    // Position-independent pages, access GOT through the PGLT
-    SDValue RelAddr;
-    // TODO: Add support for MOVT/W
-    ARMConstantPoolValue *CPV =
-      ARMConstantPoolConstant::Create(GV, ARMCP::GOTOFF);
-    SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
-    CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
-    RelAddr = DAG.getLoad(
-        PtrVT, dl, DAG.getEntryNode(), CPAddr,
-        MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
-
-    SDValue PGLTReg = DAG.getRegister(getPGLTBaseRegister(), MVT::i32);
-    SDValue GOT = DAG.getLoad(
-        PtrVT, dl, DAG.getEntryNode(), PGLTReg,
-        MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
-    SDValue Result = DAG.getNode(ISD::ADD, dl, PtrVT, GOT, RelAddr);
     return Result;
   }
 
@@ -3372,52 +3431,6 @@ ARMTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG,
       ? ISD::FMINNAN : ISD::FMAXNAN;
     return DAG.getNode(NewOpc, SDLoc(Op), Op.getValueType(),
                        Op.getOperand(1), Op.getOperand(2));
-  }
-  }
-}
-
-SDValue
-ARMTargetLowering::LowerINTRINSIC_VOID(SDValue Op, SelectionDAG &DAG,
-                                       const ARMSubtarget *Subtarget) const {
-  SDValue Chain = Op.getOperand(0);
-  unsigned IntNo = cast<ConstantSDNode>(Op.getOperand(1))->getZExtValue();
-  SDLoc dl(Op);
-  switch (IntNo) {
-  default: return SDValue();    // Don't custom lower most intrinsics.
-  case Intrinsic::set_pglt_base: {
-    const GlobalValue *GV = cast<GlobalAddressSDNode>(Op.getOperand(2))->getGlobal();
-    EVT PtrVT = getPointerTy(DAG.getDataLayout());
-
-    // Copied from LowerGlobalAddressELF to use GOTOFF
-    ARMConstantPoolValue *CPV =
-      ARMConstantPoolConstant::Create(GV, ARMCP::GOTOFF);
-    SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
-    CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
-    SDValue Result = DAG.getLoad(
-        PtrVT, dl, DAG.getEntryNode(), CPAddr,
-        MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
-    Chain = Result.getValue(1);
-
-    // GOT load
-    MachineFunction &MF = DAG.getMachineFunction();
-    ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
-    unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
-    unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
-    ARMConstantPoolValue *GOT_CPV =
-      ARMConstantPoolSymbol::Create(*DAG.getContext(), "_GLOBAL_OFFSET_TABLE_",
-                                    ARMPCLabelIndex, PCAdj);
-    SDValue GOT_CPAddr = DAG.getTargetConstantPool(GOT_CPV, PtrVT, 4);
-    GOT_CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, GOT_CPAddr);
-    SDValue GOT_Result = DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), GOT_CPAddr,
-                                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
-    SDValue PICLabel = DAG.getConstant(ARMPCLabelIndex, dl, MVT::i32);
-    SDValue GOT = DAG.getNode(ARMISD::PIC_ADD, dl, PtrVT, GOT_Result, PICLabel);
-
-    Result = DAG.getNode(ISD::ADD, dl, PtrVT, Result, GOT);
-
-    unsigned Reg = getPGLTBaseRegister();
-    assert(Reg && "cannot get a PGLT base register on this platform");
-    return DAG.getCopyToReg(Chain, dl, Reg, Result);
   }
   }
 }
@@ -7728,8 +7741,6 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   case ISD::EH_SJLJ_SETUP_DISPATCH: return LowerEH_SJLJ_SETUP_DISPATCH(Op, DAG);
   case ISD::INTRINSIC_WO_CHAIN: return LowerINTRINSIC_WO_CHAIN(Op, DAG,
                                                                Subtarget);
-  case ISD::INTRINSIC_VOID: return LowerINTRINSIC_VOID(Op, DAG,
-                                                       Subtarget);
   case ISD::BITCAST:       return ExpandBITCAST(Op.getNode(), DAG);
   case ISD::SHL:
   case ISD::SRL:

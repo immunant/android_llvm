@@ -973,6 +973,8 @@ getModifierVariantKind(ARMCP::ARMCPModifier Modifier) {
     return MCSymbolRefExpr::VK_SECREL;
   case ARMCP::GOTOFF:
     return MCSymbolRefExpr::VK_GOTOFF;
+  case ARMCP::GOT_BREL:
+    return MCSymbolRefExpr::VK_GOT;
   case ARMCP::PGLTOFF:
     // Unreachable, handled in EmitMachineConstantPoolValue
     break;

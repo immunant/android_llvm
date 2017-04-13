@@ -50,6 +50,8 @@ namespace ARMCP {
     SBREL,       /// Static Base Relative (RWPI)
     GOTOFF,      /// Global Offset Table offset (TODO: Figure out if adding this
                  /// is ok)
+    GOT_BREL,    /// Global Offset Table offset, generate a GOT entry (TODO:
+                 /// Figure out if adding this is ok)
     PGLTOFF,     /// Offset in PGLT (TODO: Figure out if this should instead be a CPKind)
     BINOFF,      /// Offset from start of bin (segment) (TODO: Figure out if
                  /// this should instead be a CPKind)
@@ -219,6 +221,9 @@ class ARMConstantPoolSymbol : public ARMConstantPoolValue {
 public:
   static ARMConstantPoolSymbol *Create(LLVMContext &C, StringRef s, unsigned ID,
                                        unsigned char PCAdj);
+
+  static ARMConstantPoolSymbol *Create(LLVMContext &C, StringRef s,
+                                       ARMCP::ARMCPModifier Modifier);
 
   StringRef getSymbol() const { return S; }
 
