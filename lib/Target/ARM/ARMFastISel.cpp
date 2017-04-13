@@ -538,11 +538,7 @@ unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, MVT VT) {
   if (VT != MVT::i32 || GV->isThreadLocal()) return 0;
 
   // ROPI/RWPI not currently supported.
-  if (Subtarget->isROPI() || Subtarget->isRWPI())
-    return 0;
-
-  // PIP only supported for ELF
-  if (!Subtarget->isTargetELF() && Subtarget->isPIP())
+  if (Subtarget->isROPI() || Subtarget->isRWPI() || Subtarget->isPIP())
     return 0;
 
   bool IsIndirect = Subtarget->isGVIndirectSymbol(GV);
@@ -2398,7 +2394,7 @@ bool ARMFastISel::SelectCall(const Instruction *I,
 
   bool UseReg = false;
   const GlobalValue *GV = dyn_cast<GlobalValue>(Callee);
-  if (!GV || Subtarget->genLongCalls() || Subtarget->isPIP()) UseReg = true;
+  if (!GV || Subtarget->genLongCalls()) UseReg = true;
 
   unsigned CalleeReg = 0;
   if (UseReg) {
