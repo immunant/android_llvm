@@ -217,7 +217,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   // Set the PGLT base address
   auto PGLTAddress = M->getGlobalVariable("_PGLT_");
   if (!PGLTAddress) {
-    PGLTAddress = new GlobalVariable(*M, Builder.getInt8PtrTy(), true,
+    PGLTAddress = new GlobalVariable(*M, Builder.getInt8Ty(), true,
                                      GlobalValue::ExternalLinkage,
                                      nullptr, "_PGLT_");
     PGLTAddress->setVisibility(GlobalValue::ProtectedVisibility);
@@ -225,7 +225,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
 
   Builder.CreateCall(
       Intrinsic::getDeclaration(M, Intrinsic::set_pglt_base),
-      Builder.CreateLoad(PGLTAddress));
+      PGLTAddress);
 
   SmallVector<Value *, 16> Args;
   Args.reserve(FFTy->getNumParams());
