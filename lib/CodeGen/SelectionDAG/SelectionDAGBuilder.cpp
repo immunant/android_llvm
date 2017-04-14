@@ -5730,13 +5730,6 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   case Intrinsic::experimental_deoptimize:
     LowerDeoptimizeCall(&I);
     return nullptr;
-
-  case Intrinsic::set_pglt_base: {
-    SDValue Chain = getRoot();
-    DAG.setRoot(DAG.getCopyToReg(Chain, sdl, TLI.getPGLTBaseRegister(),
-                                 getValue(I.getArgOperand(0))));
-    return nullptr;
-  }
   }
 }
 

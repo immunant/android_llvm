@@ -223,10 +223,6 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
     PGLTAddress->setVisibility(GlobalValue::ProtectedVisibility);
   }
 
-  Builder.CreateCall(
-      Intrinsic::getDeclaration(M, Intrinsic::set_pglt_base),
-      PGLTAddress);
-
   SmallVector<Value *, 16> Args;
   Args.reserve(FFTy->getNumParams());
 
