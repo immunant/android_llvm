@@ -206,34 +206,6 @@ struct ByteArrayInfo {
   Constant *Mask;
 };
 
-/// A POD-like structure that we use to store a global reference together with
-/// its metadata types. In this pass we frequently need to query the set of
-/// metadata types referenced by a global, which at the IR level is an expensive
-/// operation involving a map lookup; this data structure helps to reduce the
-/// number of times we need to do this lookup.
-class GlobalTypeMember {
-  GlobalObject *GO;
-  size_t NTypes;
-  MDNode *Types[1]; // We treat this as a flexible array member.
-
-public:
-  static GlobalTypeMember *create(BumpPtrAllocator &Alloc, GlobalObject *GO,
-                                  ArrayRef<MDNode *> Types) {
-    auto GTM = Alloc.Allocate<GlobalTypeMember>(
-        sizeof(GlobalTypeMember) + (Types.size() - 1) * sizeof(MDNode *));
-    GTM->GO = GO;
-    GTM->NTypes = Types.size();
-    std::copy(Types.begin(), Types.end(), GTM->Types);
-    return GTM;
-  }
-  GlobalObject *getGlobal() const {
-    return GO;
-  }
-  ArrayRef<MDNode *> types() const {
-    return {&Types[0], &Types[NTypes]};
-  }
-};
-
 class LowerTypeTestsModule {
   Module &M;
 
@@ -261,20 +233,20 @@ class LowerTypeTestsModule {
 
   BitSetInfo
   buildBitSet(Metadata *TypeId,
-              const DenseMap<GlobalTypeMember *, uint64_t> &GlobalLayout);
+              const DenseMap<GlobalObject *, uint64_t> &GlobalLayout);
   ByteArrayInfo *createByteArray(BitSetInfo &BSI);
   void allocateByteArrays();
   Value *createBitSetTest(IRBuilder<> &B, BitSetInfo &BSI, ByteArrayInfo *&BAI,
                           Value *BitOffset);
-  void lowerTypeTestCalls(
-      ArrayRef<Metadata *> TypeIds, Constant *CombinedGlobalAddr,
-      const DenseMap<GlobalTypeMember *, uint64_t> &GlobalLayout);
+  void
+  lowerTypeTestCalls(ArrayRef<Metadata *> TypeIds, Constant *CombinedGlobalAddr,
+                     const DenseMap<GlobalObject *, uint64_t> &GlobalLayout);
   Value *
   lowerBitSetCall(CallInst *CI, BitSetInfo &BSI, ByteArrayInfo *&BAI,
                   Constant *CombinedGlobal,
                   const DenseMap<GlobalObject *, uint64_t> &GlobalLayout);
   void buildBitSetsFromGlobalVariables(ArrayRef<Metadata *> TypeIds,
-                                       ArrayRef<GlobalTypeMember *> Globals);
+                                       ArrayRef<GlobalVariable *> Globals);
   unsigned getJumpTableEntrySize();
   Type *getJumpTableEntryType();
   void createJumpTableEntry(raw_ostream &OS, Function *Dest, unsigned Distance);
@@ -282,13 +254,13 @@ class LowerTypeTestsModule {
                             GlobalVariable *JumpTable, unsigned Distance);
   void verifyTypeMDNode(GlobalObject *GO, MDNode *Type);
   void buildBitSetsFromFunctions(ArrayRef<Metadata *> TypeIds,
-                                 ArrayRef<GlobalTypeMember *> Functions);
+                                 ArrayRef<Function *> Functions);
   void buildBitSetsFromFunctionsNative(ArrayRef<Metadata *> TypeIds,
-                                    ArrayRef<GlobalTypeMember *> Functions);
+                                    ArrayRef<Function *> Functions);
   void buildBitSetsFromFunctionsWASM(ArrayRef<Metadata *> TypeIds,
-                                     ArrayRef<GlobalTypeMember *> Functions);
+                                     ArrayRef<Function *> Functions);
   void buildBitSetsFromDisjointSet(ArrayRef<Metadata *> TypeIds,
-                                   ArrayRef<GlobalTypeMember *> Globals);
+                                   ArrayRef<GlobalObject *> Globals);
 
   void replaceWeakDeclarationWithJumpTablePtr(Function *F, Constant *JT);
   void moveInitializerToModuleConstructor(GlobalVariable *GV);
@@ -324,14 +296,16 @@ ModulePass *llvm::createLowerTypeTestsPass() { return new LowerTypeTests; }
 /// Build a bit set for TypeId using the object layouts in
 /// GlobalLayout.
 BitSetInfo LowerTypeTestsModule::buildBitSet(
-    Metadata *TypeId,
-    const DenseMap<GlobalTypeMember *, uint64_t> &GlobalLayout) {
+    Metadata *TypeId, const DenseMap<GlobalObject *, uint64_t> &GlobalLayout) {
   BitSetBuilder BSB;
 
   // Compute the byte offset of each address associated with this type
   // identifier.
+  SmallVector<MDNode *, 2> Types;
   for (auto &GlobalAndOffset : GlobalLayout) {
-    for (MDNode *Type : GlobalAndOffset.first->types()) {
+    Types.clear();
+    GlobalAndOffset.first->getMetadata(LLVMContext::MD_type, Types);
+    for (MDNode *Type : Types) {
       if (Type->getOperand(1) != TypeId)
         continue;
       uint64_t Offset =
@@ -547,17 +521,16 @@ Value *LowerTypeTestsModule::lowerBitSetCall(
 /// Given a disjoint set of type identifiers and globals, lay out the globals,
 /// build the bit sets and lower the llvm.type.test calls.
 void LowerTypeTestsModule::buildBitSetsFromGlobalVariables(
-    ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalTypeMember *> Globals) {
+    ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalVariable *> Globals) {
   // Build a new global with the combined contents of the referenced globals.
   // This global is a struct whose even-indexed elements contain the original
   // contents of the referenced globals and whose odd-indexed elements contain
   // any padding required to align the next element to the next power of 2.
   std::vector<Constant *> GlobalInits;
   const DataLayout &DL = M.getDataLayout();
-  for (GlobalTypeMember *G : Globals) {
-    GlobalVariable *GV = cast<GlobalVariable>(G->getGlobal());
-    GlobalInits.push_back(GV->getInitializer());
-    uint64_t InitSize = DL.getTypeAllocSize(GV->getValueType());
+  for (GlobalVariable *G : Globals) {
+    GlobalInits.push_back(G->getInitializer());
+    uint64_t InitSize = DL.getTypeAllocSize(G->getValueType());
 
     // Compute the amount of padding required.
     uint64_t Padding = NextPowerOf2(InitSize - 1) - InitSize;
@@ -581,7 +554,7 @@ void LowerTypeTestsModule::buildBitSetsFromGlobalVariables(
   const StructLayout *CombinedGlobalLayout = DL.getStructLayout(NewTy);
 
   // Compute the offsets of the original globals within the new global.
-  DenseMap<GlobalTypeMember *, uint64_t> GlobalLayout;
+  DenseMap<GlobalObject *, uint64_t> GlobalLayout;
   for (unsigned I = 0; I != Globals.size(); ++I)
     // Multiply by 2 to account for padding elements.
     GlobalLayout[Globals[I]] = CombinedGlobalLayout->getElementOffset(I * 2);
@@ -592,36 +565,31 @@ void LowerTypeTestsModule::buildBitSetsFromGlobalVariables(
   // global from which we built the combined global, and replace references
   // to the original globals with references to the aliases.
   for (unsigned I = 0; I != Globals.size(); ++I) {
-    GlobalVariable *GV = cast<GlobalVariable>(Globals[I]->getGlobal());
-
     // Multiply by 2 to account for padding elements.
     Constant *CombinedGlobalIdxs[] = {ConstantInt::get(Int32Ty, 0),
                                       ConstantInt::get(Int32Ty, I * 2)};
     Constant *CombinedGlobalElemPtr = ConstantExpr::getGetElementPtr(
         NewInit->getType(), CombinedGlobal, CombinedGlobalIdxs);
     if (LinkerSubsectionsViaSymbols) {
-      GV->replaceAllUsesWith(CombinedGlobalElemPtr);
+      Globals[I]->replaceAllUsesWith(CombinedGlobalElemPtr);
     } else {
-      assert(GV->getType()->getAddressSpace() == 0);
+      assert(Globals[I]->getType()->getAddressSpace() == 0);
       GlobalAlias *GAlias = GlobalAlias::create(NewTy->getElementType(I * 2), 0,
-                                                GV->getLinkage(), "",
+                                                Globals[I]->getLinkage(), "",
                                                 CombinedGlobalElemPtr, &M);
-      GAlias->setVisibility(GV->getVisibility());
-      GAlias->takeName(GV);
-      GV->replaceAllUsesWith(GAlias);
+      GAlias->setVisibility(Globals[I]->getVisibility());
+      GAlias->takeName(Globals[I]);
+      Globals[I]->replaceAllUsesWith(GAlias);
     }
-    GV->eraseFromParent();
+    Globals[I]->eraseFromParent();
   }
 }
 
 void LowerTypeTestsModule::lowerTypeTestCalls(
     ArrayRef<Metadata *> TypeIds, Constant *CombinedGlobalAddr,
-    const DenseMap<GlobalTypeMember *, uint64_t> &GlobalLayout) {
+    const DenseMap<GlobalObject *, uint64_t> &GlobalLayout) {
   Constant *CombinedGlobalIntAddr =
       ConstantExpr::getPtrToInt(CombinedGlobalAddr, IntPtrTy);
-  DenseMap<GlobalObject *, uint64_t> GlobalObjLayout;
-  for (auto &P : GlobalLayout)
-    GlobalObjLayout[P.first->getGlobal()] = P.second;
 
   // For each type identifier in this disjoint set...
   for (Metadata *TypeId : TypeIds) {
@@ -641,7 +609,7 @@ void LowerTypeTestsModule::lowerTypeTestCalls(
     for (CallInst *CI : TypeTestCallSites[TypeId]) {
       ++NumTypeTestCallsLowered;
       Value *Lowered =
-          lowerBitSetCall(CI, BSI, BAI, CombinedGlobalIntAddr, GlobalObjLayout);
+          lowerBitSetCall(CI, BSI, BAI, CombinedGlobalIntAddr, GlobalLayout);
       CI->replaceAllUsesWith(Lowered);
       CI->eraseFromParent();
     }
@@ -770,7 +738,7 @@ Type *LowerTypeTestsModule::getJumpTableEntryType() {
 /// Given a disjoint set of type identifiers and functions, build the bit sets
 /// and lower the llvm.type.test calls, architecture dependently.
 void LowerTypeTestsModule::buildBitSetsFromFunctions(
-    ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalTypeMember *> Functions) {
+    ArrayRef<Metadata *> TypeIds, ArrayRef<Function *> Functions) {
   if (Arch == Triple::x86 || Arch == Triple::x86_64 || Arch == Triple::arm ||
       Arch == Triple::thumb || Arch == Triple::aarch64)
     buildBitSetsFromFunctionsNative(TypeIds, Functions);
@@ -843,7 +811,7 @@ void LowerTypeTestsModule::replaceWeakDeclarationWithJumpTablePtr(
 /// Given a disjoint set of type identifiers and functions, build a jump table
 /// for the functions, build the bit sets and lower the llvm.type.test calls.
 void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
-    ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalTypeMember *> Functions) {
+    ArrayRef<Metadata *> TypeIds, ArrayRef<Function *> Functions) {
   // Unlike the global bitset builder, the function bitset builder cannot
   // re-arrange functions in a particular order and base its calculations on the
   // layout of the functions' entry points, as we have no idea how large a
@@ -924,7 +892,7 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
   assert(!Functions.empty());
 
   // Build a simple layout based on the regular layout of jump tables.
-  DenseMap<GlobalTypeMember *, uint64_t> GlobalLayout;
+  DenseMap<GlobalObject *, uint64_t> GlobalLayout;
   unsigned EntrySize = getJumpTableEntrySize();
   for (unsigned I = 0; I != Functions.size(); ++I)
     GlobalLayout[Functions[I]] = I * EntrySize;
@@ -945,48 +913,48 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
   // Build aliases pointing to offsets into the jump table, and replace
   // references to the original functions with references to the aliases.
   for (unsigned I = 0; I != Functions.size(); ++I) {
-    Function *F = cast<Function>(Functions[I]->getGlobal());
-
     // Need a name for the asm label. Normally, unnamed functions get temporary
     // asm labels in TargetLoweringObjectFile but we don't have access to that
     // here.
-    if (!F->hasName())
-      F->setName("unnamed");
-    if (LinkerSubsectionsViaSymbols || F->isDeclarationForLinker()) {
+    if (!Functions[I]->hasName())
+      Functions[I]->setName("unnamed");
+    if (LinkerSubsectionsViaSymbols || Functions[I]->isDeclarationForLinker()) {
       Constant *CombinedGlobalElemPtr = ConstantExpr::getBitCast(
           ConstantExpr::getGetElementPtr(
               JumpTableType, JumpTable,
               ArrayRef<Constant *>{ConstantInt::get(IntPtrTy, 0),
                                    ConstantInt::get(IntPtrTy, I)}),
-          F->getType());
+          Functions[I]->getType());
 
-      if (F->isWeakForLinker()) {
-        AsmOS << ".weak " << F->getName() << "\n";
-        replaceWeakDeclarationWithJumpTablePtr(F, CombinedGlobalElemPtr);
+
+      if (Functions[I]->isWeakForLinker()) {
+        AsmOS << ".weak " << Functions[I]->getName() << "\n";
+        replaceWeakDeclarationWithJumpTablePtr(Functions[I],
+                                               CombinedGlobalElemPtr);
       } else {
-        F->replaceAllUsesWith(CombinedGlobalElemPtr);
+        Functions[I]->replaceAllUsesWith(CombinedGlobalElemPtr);
       }
     } else {
-      assert(F->getType()->getAddressSpace() == 0);
+      assert(Functions[I]->getType()->getAddressSpace() == 0);
 
-      createJumpTableAlias(AsmOS, F, JumpTable, I);
+      createJumpTableAlias(AsmOS, Functions[I], JumpTable, I);
 
       Function *DeclAlias =
-          Function::Create(cast<FunctionType>(F->getValueType()),
+          Function::Create(cast<FunctionType>(Functions[I]->getValueType()),
                            GlobalValue::ExternalLinkage, "", &M);
       // Since the alias (DeclAlias) is actually a declaration, it can not have
       // internal linkage. Compensate for that by giving it hidden visibility.
       // With this we end up with a GOT relocation against a local symbol.
-      DeclAlias->setVisibility(F->hasLocalLinkage()
+      DeclAlias->setVisibility(Functions[I]->hasLocalLinkage()
                                    ? GlobalValue::HiddenVisibility
-                                   : F->getVisibility());
-      DeclAlias->takeName(F);
+                                   : Functions[I]->getVisibility());
+      DeclAlias->takeName(Functions[I]);
       // Unnamed functions can not be added to llvm.used.
-      F->setName(DeclAlias->getName() + ".cfi");
-      F->replaceAllUsesWith(DeclAlias);
+      Functions[I]->setName(DeclAlias->getName() + ".cfi");
+      Functions[I]->replaceAllUsesWith(DeclAlias);
     }
-    if (!F->isDeclarationForLinker())
-      F->setLinkage(GlobalValue::InternalLinkage);
+    if (!Functions[I]->isDeclarationForLinker())
+      Functions[I]->setLinkage(GlobalValue::InternalLinkage);
   }
 
   // Try to emit the jump table at the end of the text segment.
@@ -1002,14 +970,14 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
     AsmOS << ".thumb_func\n";
   AsmOS << JumpTable->getName() << ":\n";
   for (unsigned I = 0; I != Functions.size(); ++I)
-    createJumpTableEntry(AsmOS, cast<Function>(Functions[I]->getGlobal()), I);
+    createJumpTableEntry(AsmOS, Functions[I], I);
 
   M.appendModuleInlineAsm(AsmOS.str());
 
   SmallVector<GlobalValue *, 16> Used;
   Used.reserve(Functions.size());
   for (auto *F : Functions)
-    Used.push_back(F->getGlobal());
+    Used.push_back(F);
   appendToUsed(M, Used);
 }
 
@@ -1020,15 +988,13 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsNative(
 /// Note: Dynamic linking is not supported, as the WebAssembly ABI has not yet
 /// been finalized.
 void LowerTypeTestsModule::buildBitSetsFromFunctionsWASM(
-    ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalTypeMember *> Functions) {
+    ArrayRef<Metadata *> TypeIds, ArrayRef<Function *> Functions) {
   assert(!Functions.empty());
 
   // Build consecutive monotonic integer ranges for each call target set
-  DenseMap<GlobalTypeMember *, uint64_t> GlobalLayout;
+  DenseMap<GlobalObject *, uint64_t> GlobalLayout;
 
-  for (GlobalTypeMember *GTM : Functions) {
-    Function *F = cast<Function>(GTM->getGlobal());
-
+  for (Function *F : Functions) {
     // Skip functions that are not address taken, to avoid bloating the table
     if (!F->hasAddressTaken())
       continue;
@@ -1040,7 +1006,7 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsWASM(
     F->setMetadata("wasm.index", MD);
 
     // Assign the counter value
-    GlobalLayout[GTM] = IndirectIndex++;
+    GlobalLayout[F] = IndirectIndex++;
   }
 
   // The indirect function table index space starts at zero, so pass a NULL
@@ -1050,7 +1016,7 @@ void LowerTypeTestsModule::buildBitSetsFromFunctionsWASM(
 }
 
 void LowerTypeTestsModule::buildBitSetsFromDisjointSet(
-    ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalTypeMember *> Globals) {
+    ArrayRef<Metadata *> TypeIds, ArrayRef<GlobalObject *> Globals) {
   llvm::DenseMap<Metadata *, uint64_t> TypeIdIndices;
   for (unsigned I = 0; I != TypeIds.size(); ++I)
     TypeIdIndices[TypeIds[I]] = I;
@@ -1058,9 +1024,12 @@ void LowerTypeTestsModule::buildBitSetsFromDisjointSet(
   // For each type identifier, build a set of indices that refer to members of
   // the type identifier.
   std::vector<std::set<uint64_t>> TypeMembers(TypeIds.size());
+  SmallVector<MDNode *, 2> Types;
   unsigned GlobalIndex = 0;
-  for (GlobalTypeMember *GTM : Globals) {
-    for (MDNode *Type : GTM->types()) {
+  for (GlobalObject *GO : Globals) {
+    Types.clear();
+    GO->getMetadata(LLVMContext::MD_type, Types);
+    for (MDNode *Type : Types) {
       // Type = { offset, type identifier }
       unsigned TypeIdIndex = TypeIdIndices[Type->getOperand(1)];
       TypeMembers[TypeIdIndex].insert(GlobalIndex);
@@ -1084,32 +1053,32 @@ void LowerTypeTestsModule::buildBitSetsFromDisjointSet(
     GLB.addFragment(MemSet);
 
   // Build the bitsets from this disjoint set.
-  if (Globals.empty() || isa<GlobalVariable>(Globals[0]->getGlobal())) {
+  if (Globals.empty() || isa<GlobalVariable>(Globals[0])) {
     // Build a vector of global variables with the computed layout.
-    std::vector<GlobalTypeMember *> OrderedGVs(Globals.size());
+    std::vector<GlobalVariable *> OrderedGVs(Globals.size());
     auto OGI = OrderedGVs.begin();
     for (auto &&F : GLB.Fragments) {
       for (auto &&Offset : F) {
-        auto GV = dyn_cast<GlobalVariable>(Globals[Offset]->getGlobal());
+        auto GV = dyn_cast<GlobalVariable>(Globals[Offset]);
         if (!GV)
           report_fatal_error("Type identifier may not contain both global "
                              "variables and functions");
-        *OGI++ = Globals[Offset];
+        *OGI++ = GV;
       }
     }
 
     buildBitSetsFromGlobalVariables(TypeIds, OrderedGVs);
   } else {
     // Build a vector of functions with the computed layout.
-    std::vector<GlobalTypeMember *> OrderedFns(Globals.size());
+    std::vector<Function *> OrderedFns(Globals.size());
     auto OFI = OrderedFns.begin();
     for (auto &&F : GLB.Fragments) {
       for (auto &&Offset : F) {
-        auto Fn = dyn_cast<Function>(Globals[Offset]->getGlobal());
+        auto Fn = dyn_cast<Function>(Globals[Offset]);
         if (!Fn)
           report_fatal_error("Type identifier may not contain both global "
                              "variables and functions");
-        *OFI++ = Globals[Offset];
+        *OFI++ = Fn;
       }
     }
 
@@ -1134,37 +1103,22 @@ bool LowerTypeTestsModule::lower() {
   // Equivalence class set containing type identifiers and the globals that
   // reference them. This is used to partition the set of type identifiers in
   // the module into disjoint sets.
-  typedef EquivalenceClasses<PointerUnion<GlobalTypeMember *, Metadata *>>
+  typedef EquivalenceClasses<PointerUnion<GlobalObject *, Metadata *>>
       GlobalClassesTy;
   GlobalClassesTy GlobalClasses;
 
-  // Verify the type metadata and build a few data structures to let us
-  // efficiently enumerate the type identifiers associated with a global:
-  // a list of GlobalTypeMembers (a GlobalObject stored alongside a vector
-  // of associated type metadata) and a mapping from type identifiers to their
-  // list of GlobalTypeMembers and last observed index in the list of globals.
-  // The indices will be used later to deterministically order the list of type
-  // identifiers.
-  BumpPtrAllocator Alloc;
-  struct TIInfo {
-    unsigned Index;
-    std::vector<GlobalTypeMember *> RefGlobals;
-  };
-  llvm::DenseMap<Metadata *, TIInfo> TypeIdInfo;
+  // Verify the type metadata and build a mapping from type identifiers to their
+  // last observed index in the list of globals. This will be used later to
+  // deterministically order the list of type identifiers.
+  llvm::DenseMap<Metadata *, unsigned> TypeIdIndices;
   unsigned I = 0;
   SmallVector<MDNode *, 2> Types;
   for (GlobalObject &GO : M.global_objects()) {
     Types.clear();
     GO.getMetadata(LLVMContext::MD_type, Types);
-    if (Types.empty())
-      continue;
-
-    auto *GTM = GlobalTypeMember::create(Alloc, &GO, Types);
     for (MDNode *Type : Types) {
       verifyTypeMDNode(&GO, Type);
-      auto &Info = TypeIdInfo[cast<MDNode>(Type)->getOperand(1)];
-      Info.Index = ++I;
-      Info.RefGlobals.push_back(GTM);
+      TypeIdIndices[cast<MDNode>(Type)->getOperand(1)] = ++I;
     }
   }
 
@@ -1192,9 +1146,14 @@ bool LowerTypeTestsModule::lower() {
     GlobalClassesTy::member_iterator CurSet = GlobalClasses.findLeader(GCI);
 
     // Add the referenced globals to the type identifier's equivalence class.
-    for (GlobalTypeMember *GTM : TypeIdInfo[BitSet].RefGlobals)
-      CurSet = GlobalClasses.unionSets(
-          CurSet, GlobalClasses.findLeader(GlobalClasses.insert(GTM)));
+    for (GlobalObject &GO : M.global_objects()) {
+      Types.clear();
+      GO.getMetadata(LLVMContext::MD_type, Types);
+      for (MDNode *Type : Types)
+        if (Type->getOperand(1) == BitSet)
+          CurSet = GlobalClasses.unionSets(
+              CurSet, GlobalClasses.findLeader(GlobalClasses.insert(&GO)));
+    }
   }
 
   if (GlobalClasses.empty())
@@ -1214,7 +1173,7 @@ bool LowerTypeTestsModule::lower() {
     for (GlobalClassesTy::member_iterator MI = GlobalClasses.member_begin(I);
          MI != GlobalClasses.member_end(); ++MI) {
       if ((*MI).is<Metadata *>())
-        MaxIndex = std::max(MaxIndex, TypeIdInfo[MI->get<Metadata *>()].Index);
+        MaxIndex = std::max(MaxIndex, TypeIdIndices[MI->get<Metadata *>()]);
     }
     Sets.emplace_back(I, MaxIndex);
   }
@@ -1228,20 +1187,20 @@ bool LowerTypeTestsModule::lower() {
   for (const auto &S : Sets) {
     // Build the list of type identifiers in this disjoint set.
     std::vector<Metadata *> TypeIds;
-    std::vector<GlobalTypeMember *> Globals;
+    std::vector<GlobalObject *> Globals;
     for (GlobalClassesTy::member_iterator MI =
              GlobalClasses.member_begin(S.first);
          MI != GlobalClasses.member_end(); ++MI) {
       if ((*MI).is<Metadata *>())
         TypeIds.push_back(MI->get<Metadata *>());
       else
-        Globals.push_back(MI->get<GlobalTypeMember *>());
+        Globals.push_back(MI->get<GlobalObject *>());
     }
 
     // Order type identifiers by global index for determinism. This ordering is
     // stable as there is a one-to-one mapping between metadata and indices.
     std::sort(TypeIds.begin(), TypeIds.end(), [&](Metadata *M1, Metadata *M2) {
-      return TypeIdInfo[M1].Index < TypeIdInfo[M2].Index;
+      return TypeIdIndices[M1] < TypeIdIndices[M2];
     });
 
     // Build bitsets for this disjoint set.
