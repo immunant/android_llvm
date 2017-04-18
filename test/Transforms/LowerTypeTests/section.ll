@@ -5,11 +5,9 @@
 
 target triple = "x86_64-unknown-linux-gnu"
 
-; CHECK:      module asm ".section .text.cfi,
-; CHECK:      module asm ".cfi.jumptable:"
-; CHECK-NEXT: module asm "jmp f.cfi@plt"
-
-; CHECK: define internal void @f.cfi() section "xxx"
+; CHECK: @[[A:.*]] = private constant {{.*}} section ".text"
+; CHECK: @f = alias void (), bitcast ({{.*}}* @[[A]] to void ()*)
+; CHECK: define private void {{.*}} section "xxx"
 
 define void @f() section "xxx" !type !0 {
 entry:
