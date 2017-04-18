@@ -5,7 +5,10 @@
 
 target triple = "x86_64-unknown-linux-gnu"
 
-; CHECK: @f = alias void (), void ()* @[[JT:.*]]
+; CHECK:      module asm ".section .text.cfi,
+; CHECK:      module asm ".cfi.jumptable:"
+; CHECK-NEXT: module asm "jmp f.cfi@plt"
+
 ; CHECK: define internal void @f.cfi() section "xxx"
 
 define void @f() section "xxx" !type !0 {
@@ -18,8 +21,6 @@ entry:
   %0 = call i1 @llvm.type.test(i8* bitcast (void ()* @f to i8*), metadata !"_ZTSFvE")
   ret i1 %0
 }
-
-; CHECK: define private void @[[JT]]() #{{.*}} section ".text.cfi" align {{.*}} {
 
 declare i1 @llvm.type.test(i8*, metadata) nounwind readnone
 
