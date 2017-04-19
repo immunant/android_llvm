@@ -51,16 +51,20 @@ public:
   bool runOnModule(Module &M) override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
     AU.addRequired<MachineModuleInfo>();
     AU.addPreserved<MachineModuleInfo>();
+    AU.setPreservesAll();
     ModulePass::getAnalysisUsage(AU);
   }
 };
 }
 
 char PagerandoBinning::ID = 0;
-char &llvm::PagerandoBinningID = PagerandoBinning::ID;
+
+namespace llvm {
+ModulePass *createPagerandoBinningPass() { return new PagerandoBinning(); }
+}
+
 INITIALIZE_PASS_BEGIN(PagerandoBinning, "pagerando-binning",
                       "Pagerando binning", false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineModuleInfo);

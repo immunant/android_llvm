@@ -346,7 +346,7 @@ namespace llvm {
 
   /// PagerandoBinning - This pass groups MachineFunctions into bins and inserts
   /// bin inter-work instrumentation for cross-bin control flow.
-  extern char &PagerandoBinningID;
+  ModulePass *createPagerandoBinningPass();
 
   /// createJumpInstrTables - This pass creates jump-instruction tables.
   ModulePass *createJumpInstrTablesPass();

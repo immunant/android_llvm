@@ -663,6 +663,8 @@ void TargetPassConfig::addMachinePasses() {
   if (getOptLevel() != CodeGenOpt::None)
     addBlockPlacement();
 
+  addPass(createPagerandoBinningPass());
+
   addPreEmitPass();
 
   if (TM->Options.EnableIPRA)
@@ -683,8 +685,6 @@ void TargetPassConfig::addMachinePasses() {
 
   if (EnableMachineOutliner)
     PM->add(createMachineOutlinerPass());
-
-  addPass(&PagerandoBinningID, false);
 
   AddingMachinePasses = false;
 }
