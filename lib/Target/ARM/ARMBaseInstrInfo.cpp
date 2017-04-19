@@ -2002,12 +2002,6 @@ ARMBaseInstrInfo::optimizeSelect(MachineInstr &MI,
   return NewMI;
 }
 
-bool ARMBaseInstrInfo::optimizeToDirectCall(MachineInstr *MI) const {
-  // TODO: Implement. I'm not entirely sure this is the ideal way to do this,
-  // but I don't have a better idea right now.
-  return false;
-}
-
 /// Map pseudo instructions that imply an 'S' bit onto real opcodes. Whether the
 /// instruction is encoded with an 'S' bit is determined by the optional CPSR
 /// def operand.

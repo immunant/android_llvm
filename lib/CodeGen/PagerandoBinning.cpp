@@ -110,39 +110,6 @@ bool PagerandoBinning::runOnModule(Module &M) {
     Bins.erase(I);
   }
 
-  // Insert function inter-work
-  for (auto &F : M) {
-    MachineFunction &MF = MMI.getMachineFunction(F);
-    const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
-    unsigned CurBin = MMI.getBin(&F);
-
-    SmallVector<MachineInstr *, 8> CallsToRewrite;
-    for (auto &BB : MF) {
-      for (auto &I : BB) {
-        for (auto MemOp : I.memoperands()) {
-          auto PseudoVal = MemOp->getPseudoValue();
-          if (PseudoVal && PseudoVal->isPGLT()) {
-            for (auto &Op : I.operands()) {
-              if (Op.isGlobal()) {
-                auto GV = Op.getGlobal();
-                if (auto *DestF = dyn_cast<Function>(GV)) {
-                  if (MMI.getBin(DestF) == CurBin) {
-                    CallsToRewrite.push_back(&I);
-                  }
-                }
-                break;
-              }
-            }
-            break;
-          }
-        }
-      }
-    }
-
-    for (auto MI : CallsToRewrite)
-      TII->optimizeToDirectCall(MI);
-  }
-
   return true;
 }
 

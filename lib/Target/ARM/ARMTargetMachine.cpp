@@ -94,6 +94,7 @@ extern "C" void LLVMInitializeARMTarget() {
   initializeARMPreAllocLoadStoreOptPass(Registry);
   initializeARMConstantIslandsPass(Registry);
   initializeARMExecutionDepsFixPass(Registry);
+  initializeARMPGLTOptPass(Registry);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -581,6 +582,8 @@ void ARMPassConfig::addPreSched2() {
 
 void ARMPassConfig::addPreEmitPass() {
   addPass(createThumb2SizeReductionPass());
+
+  addPass(createARMPGLTOptimizationPass());
 
   // Constant island pass work on unbundled instructions.
   addPass(createUnpackMachineBundles([](const MachineFunction &MF) {
