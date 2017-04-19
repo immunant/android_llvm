@@ -78,7 +78,21 @@ public:
 ///
 /// @brief Abstract Stack Frame Information
 class MachineFrameInfo {
+public:
+  /// SSPLayoutKind.  Stack Smashing Protection (SSP) rules require that
+  /// vulnerable stack allocations are located close the stack protector.
+  enum SSPLayoutKind {
+    SSPLK_None,       ///< Did not trigger a stack protector.  No effect on data
+                      ///< layout.
+    SSPLK_LargeArray, ///< Array or nested array >= SSP-buffer-size.  Closest
+                      ///< to the stack protector.
+    SSPLK_SmallArray, ///< Array or nested array < SSP-buffer-size. 2nd closest
+                      ///< to the stack protector.
+    SSPLK_AddrOf      ///< The address of this allocation is exposed and
+                      ///< triggered protection.  3rd closest to the protector.
+  };
 
+private:
   // Represent a single object allocated on the stack.
   struct StackObject {
     // The offset of this object from the stack pointer on entry to
@@ -128,11 +142,14 @@ class MachineFrameInfo {
     /// If true, the object has been zero-extended.
     bool isSExt;
 
+    MachineFrameInfo::SSPLayoutKind SSPLayout;
+
     StackObject(uint64_t Sz, unsigned Al, int64_t SP, bool IM,
                 bool isSS, const AllocaInst *Val, bool A)
       : SPOffset(SP), Size(Sz), Alignment(Al), isImmutable(IM),
         isSpillSlot(isSS), isStatepointSpillSlot(false), Alloca(Val),
-        PreAllocated(false), isAliased(A), isZExt(false), isSExt(false) {}
+        PreAllocated(false), isAliased(A), isZExt(false), isSExt(false),
+        SSPLayout(SSPLK_None) {}
   };
 
   /// The alignment of the stack.
@@ -465,6 +482,20 @@ public:
     assert(!isDeadObjectIndex(ObjectIdx) &&
            "Setting frame offset for a dead object?");
     Objects[ObjectIdx+NumFixedObjects].SPOffset = SPOffset;
+  }
+
+  SSPLayoutKind getObjectSSPLayout(int ObjectIdx) const {
+    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
+           "Invalid Object Idx!");
+    return Objects[ObjectIdx+NumFixedObjects].SSPLayout;
+  }
+
+  void setObjectSSPLayout(int ObjectIdx, SSPLayoutKind Kind) {
+    assert(unsigned(ObjectIdx+NumFixedObjects) < Objects.size() &&
+           "Invalid Object Idx!");
+    assert(!isDeadObjectIndex(ObjectIdx) &&
+           "Setting SSP layou for a dead object?");
+    Objects[ObjectIdx+NumFixedObjects].SSPLayout = Kind;
   }
 
   /// Return the number of bytes that must be allocated to hold
