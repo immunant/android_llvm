@@ -607,6 +607,8 @@ void TargetPassConfig::addMachinePasses() {
     addPass(&LocalStackSlotAllocationID, false);
   }
 
+  addPass(createPagerandoBinningPass());
+
   // Run pre-ra passes.
   addPreRegAlloc();
 
@@ -662,8 +664,6 @@ void TargetPassConfig::addMachinePasses() {
   // Basic block placement.
   if (getOptLevel() != CodeGenOpt::None)
     addBlockPlacement();
-
-  addPass(createPagerandoBinningPass());
 
   addPreEmitPass();
 

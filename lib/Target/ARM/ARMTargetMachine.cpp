@@ -545,6 +545,8 @@ bool ARMPassConfig::addGlobalInstructionSelect() {
 
 void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None) {
+    addPass(createARMPGLTOptimizationPass());
+
     addPass(createMLxExpansionPass());
 
     if (EnableARMLoadStoreOpt)
@@ -582,8 +584,6 @@ void ARMPassConfig::addPreSched2() {
 
 void ARMPassConfig::addPreEmitPass() {
   addPass(createThumb2SizeReductionPass());
-
-  addPass(createARMPGLTOptimizationPass());
 
   // Constant island pass work on unbundled instructions.
   addPass(createUnpackMachineBundles([](const MachineFunction &MF) {
