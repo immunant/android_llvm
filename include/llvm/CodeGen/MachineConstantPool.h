@@ -144,6 +144,8 @@ public:
   unsigned getConstantPoolIndex(MachineConstantPoolValue *V,
                                 unsigned Alignment);
 
+  void eraseIndex(unsigned Index);
+
   /// isEmpty - Return true if this constant pool contains no constants.
   bool isEmpty() const { return Constants.empty(); }
 
