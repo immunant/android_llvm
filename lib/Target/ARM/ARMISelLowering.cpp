@@ -3006,7 +3006,7 @@ ARMTargetLowering::LowerPGLT(SDValue Op, SelectionDAG &DAG) const {
   SDLoc dl(Op);
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   MachineFunction &MF = DAG.getMachineFunction();
-  unsigned PGLTReg = DAG.getTargetLoweringInfo().getPGLTBaseRegister();
+  unsigned PGLTReg = getPGLTBaseRegister();
   if (MF.getFunction()->isRandPage()) {
     return DAG.getCopyFromReg(DAG.getEntryNode(), dl, PGLTReg, PtrVT);
   } else {
