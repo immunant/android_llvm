@@ -247,8 +247,12 @@ public:
   }
   /// \}
 
-  unsigned getBin(const Function *F) {
-    return Bins[F];
+  unsigned getBin(const Function *F) const {
+    auto I = Bins.find(F);
+    if (I != Bins.end())
+      return I->second;
+    else
+      return 0;
   }
   void setBin(const Function *F, unsigned Bin) {
     Bins[F] = Bin;
