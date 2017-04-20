@@ -7,6 +7,7 @@ cc_binary_host {
     defaults: ["llvm-defaults"],
     srcs: ["*.cpp"],
     static_libs: [
+        "libLLVMDebugInfoDWARF",
         "libLLVMObject",
         "libLLVMObjectYAML",
         "libLLVMMC",

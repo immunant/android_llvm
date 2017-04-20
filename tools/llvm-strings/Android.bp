@@ -1,0 +1,8 @@
+cc_binary_host {
+    name: "llvm-strings",
+    defaults: ["llvm-defaults"],
+    srcs: ["llvm-strings.cpp"],
+    static_libs: [
+        "libLLVMCore",
+    ],
+}

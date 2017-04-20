@@ -124,6 +124,10 @@ func outToGenerator(ctx android.ModuleContext, out string) string {
 		return "-gen-intrinsics"
 	case strings.HasSuffix(out, "GenDecoderTables.inc"):
 		return "-gen-arm-decoder"
+	case strings.HasSuffix(out, "GenRegisterBank.inc"):
+		return "-gen-register-bank"
+	case strings.HasSuffix(out, "X86GenEVEX2VEXTables.inc"):
+		return "-gen-x86-EVEX2VEX-tables"
 	case strings.HasSuffix(out, "Options.inc"):
 		return "-gen-opt-parser-defs"
 	case out == "Attributes.gen", out == "AttributesCompatFunc.inc":

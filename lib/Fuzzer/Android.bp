@@ -20,6 +20,7 @@ cc_library_static {
     cflags: [
         "-Wall",
         "-Wno-unused-parameter",
+        "-Wno-unused-result",
         "-Werror",
     ],
     include_dirs: ["external/compiler-rt/include"],
@@ -37,6 +38,7 @@ cc_library_static {
     cflags: [
         "-Wall",
         "-Wno-unused-parameter",
+        "-Wno-unused-result",
         "-Werror",
     ],
     srcs: ["FuzzerMain.cpp"],

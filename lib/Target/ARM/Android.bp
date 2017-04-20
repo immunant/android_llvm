@@ -6,6 +6,15 @@ cc_library_static {
     ],
     srcs: ["*.cpp"],
 
+    // Global ISEL is an experimental feature.  If LLVM_BUILD_GLOBAL_ISEL is not
+    // set, these files fail compilation based on a macro check.
+    exclude_srcs: [
+        "ARMCallLowering.cpp",
+        "ARMInstructionSelector.cpp",
+        "ARMLegalizerInfo.cpp",
+        "ARMRegisterBankInfo.cpp",
+    ],
+
     // b/31559947, b/31938382 clang-tidy segmentation fault.
     tidy_checks: [
         "-clang-analyzer-*",
@@ -34,6 +43,7 @@ llvm_tblgen {
     name: "llvm-gen-arm",
     in: "ARM.td",
     outs: [
+        "ARMGenRegisterBank.inc",
         "ARMGenRegisterInfo.inc",
         "ARMGenInstrInfo.inc",
         "ARMGenCodeEmitter.inc",
