@@ -32,7 +32,7 @@ to know when working in the LLVM infrastructure, and the second describes the
 Core LLVM classes.  In the future this manual will be extended with information
 describing how to use extension libraries, such as dominator information, CFG
 traversal routines, and useful utilities like the ``InstVisitor`` (`doxygen
-<http://llvm.org/doxygen/InstVisitor_8h-source.html>`__) template.
+<http://llvm.org/doxygen/InstVisitor_8h_source.html>`__) template.
 
 .. _general:
 
@@ -108,7 +108,7 @@ they don't have some drawbacks (primarily stemming from the fact that
 ``dynamic_cast<>`` only works on classes that have a v-table).  Because they are
 used so often, you must know what they do and how they work.  All of these
 templates are defined in the ``llvm/Support/Casting.h`` (`doxygen
-<http://llvm.org/doxygen/Casting_8h-source.html>`__) file (note that you very
+<http://llvm.org/doxygen/Casting_8h_source.html>`__) file (note that you very
 rarely have to include this file directly).
 
 ``isa<>``:
@@ -149,7 +149,7 @@ rarely have to include this file directly).
 
   .. code-block:: c++
 
-    if (AllocationInst *AI = dyn_cast<AllocationInst>(Val)) {
+    if (auto *AI = dyn_cast<AllocationInst>(Val)) {
       // ...
     }
 
@@ -225,7 +225,7 @@ and clients can call it using any one of:
 Similarly, APIs which need to return a string may return a ``StringRef``
 instance, which can be used directly or converted to an ``std::string`` using
 the ``str`` member function.  See ``llvm/ADT/StringRef.h`` (`doxygen
-<http://llvm.org/doxygen/classllvm_1_1StringRef_8h-source.html>`__) for more
+<http://llvm.org/doxygen/StringRef_8h_source.html>`__) for more
 information.
 
 You should rarely use the ``StringRef`` class directly, because it contains
@@ -262,6 +262,134 @@ As with a ``StringRef``, ``Twine`` objects point to external memory and should
 almost never be stored or mentioned directly.  They are intended solely for use
 when defining a function which should be able to efficiently accept concatenated
 strings.
+
+.. _formatting_strings:
+
+Formatting strings (the ``formatv`` function)
+---------------------------------------------
+While LLVM doesn't necessarily do a lot of string manipulation and parsing, it
+does do a lot of string formatting.  From diagnostic messages, to llvm tool
+outputs such as ``llvm-readobj`` to printing verbose disassembly listings and
+LLDB runtime logging, the need for string formatting is pervasive.
+
+The ``formatv`` is similar in spirit to ``printf``, but uses a different syntax
+which borrows heavily from Python and C#.  Unlike ``printf`` it deduces the type
+to be formatted at compile time, so it does not need a format specifier such as
+``%d``.  This reduces the mental overhead of trying to construct portable format
+strings, especially for platform-specific types like ``size_t`` or pointer types.
+Unlike both ``printf`` and Python, it additionally fails to compile if LLVM does
+not know how to format the type.  These two properties ensure that the function
+is both safer and simpler to use than traditional formatting methods such as 
+the ``printf`` family of functions.
+
+Simple formatting
+^^^^^^^^^^^^^^^^^
+
+A call to ``formatv`` involves a single **format string** consisting of 0 or more
+**replacement sequences**, followed by a variable length list of **replacement values**.
+A replacement sequence is a string of the form ``{N[[,align]:style]}``.
+
+``N`` refers to the 0-based index of the argument from the list of replacement
+values.  Note that this means it is possible to reference the same parameter
+multiple times, possibly with different style and/or alignment options, in any order.
+
+``align`` is an optional string specifying the width of the field to format
+the value into, and the alignment of the value within the field.  It is specified as
+an optional **alignment style** followed by a positive integral **field width**.  The
+alignment style can be one of the characters ``-`` (left align), ``=`` (center align),
+or ``+`` (right align).  The default is right aligned.  
+
+``style`` is an optional string consisting of a type specific that controls the
+formatting of the value.  For example, to format a floating point value as a percentage,
+you can use the style option ``P``.
+
+Custom formatting
+^^^^^^^^^^^^^^^^^
+
+There are two ways to customize the formatting behavior for a type.
+
+1. Provide a template specialization of ``llvm::format_provider<T>`` for your
+   type ``T`` with the appropriate static format method.
+
+  .. code-block:: c++
+  
+    namespace llvm {
+      template<>
+      struct format_provider<MyFooBar> {
+        static void format(const MyFooBar &V, raw_ostream &Stream, StringRef Style) {
+          // Do whatever is necessary to format `V` into `Stream`
+        }
+      };
+      void foo() {
+        MyFooBar X;
+        std::string S = formatv("{0}", X);
+      }
+    }
+    
+  This is a useful extensibility mechanism for adding support for formatting your own
+  custom types with your own custom Style options.  But it does not help when you want
+  to extend the mechanism for formatting a type that the library already knows how to
+  format.  For that, we need something else.
+    
+2. Provide a **format adapter** inheriting from ``llvm::FormatAdapter<T>``.
+
+  .. code-block:: c++
+  
+    namespace anything {
+      struct format_int_custom : public llvm::FormatAdapter<int> {
+        explicit format_int_custom(int N) : llvm::FormatAdapter<int>(N) {}
+        void format(llvm::raw_ostream &Stream, StringRef Style) override {
+          // Do whatever is necessary to format ``this->Item`` into ``Stream``
+        }
+      };
+    }
+    namespace llvm {
+      void foo() {
+        std::string S = formatv("{0}", anything::format_int_custom(42));
+      }
+    }
+    
+  If the type is detected to be derived from ``FormatAdapter<T>``, ``formatv``
+  will call the
+  ``format`` method on the argument passing in the specified style.  This allows
+  one to provide custom formatting of any type, including one which already has
+  a builtin format provider.
+
+``formatv`` Examples
+^^^^^^^^^^^^^^^^^^^^
+Below is intended to provide an incomplete set of examples demonstrating
+the usage of ``formatv``.  More information can be found by reading the
+doxygen documentation or by looking at the unit test suite.
+
+
+.. code-block:: c++
+  
+  std::string S;
+  // Simple formatting of basic types and implicit string conversion.
+  S = formatv("{0} ({1:P})", 7, 0.35);  // S == "7 (35.00%)"
+  
+  // Out-of-order referencing and multi-referencing
+  outs() << formatv("{0} {2} {1} {0}", 1, "test", 3); // prints "1 3 test 1"
+  
+  // Left, right, and center alignment
+  S = formatv("{0,7}",  'a');  // S == "      a";
+  S = formatv("{0,-7}", 'a');  // S == "a      ";
+  S = formatv("{0,=7}", 'a');  // S == "   a   ";
+  S = formatv("{0,+7}", 'a');  // S == "      a";
+  
+  // Custom styles
+  S = formatv("{0:N} - {0:x} - {1:E}", 12345, 123908342); // S == "12,345 - 0x3039 - 1.24E8"
+  
+  // Adapters
+  S = formatv("{0}", fmt_align(42, AlignStyle::Center, 7));  // S == "  42   "
+  S = formatv("{0}", fmt_repeat("hi", 3)); // S == "hihihi"
+  S = formatv("{0}", fmt_pad("hi", 2, 6)); // S == "  hi      "
+  
+  // Ranges
+  std::vector<int> V = {8, 9, 10};
+  S = formatv("{0}", make_range(V.begin(), V.end())); // S == "8, 9, 10"
+  S = formatv("{0:$[+]}", make_range(V.begin(), V.end())); // S == "8+9+10"
+  S = formatv("{0:$[ + ]@[x]}", make_range(V.begin(), V.end())); // S == "0x8 + 0x9 + 0xA"
 
 .. _error_apis:
 
@@ -354,7 +482,7 @@ that inherits from the ErrorInfo utility, E.g.:
     }
   };
 
-  char FileExists::ID; // This should be declared in the C++ file.
+  char BadFileFormat::ID; // This should be declared in the C++ file.
 
   Error printFormattedFile(StringRef Path) {
     if (<check for valid format>)
@@ -436,18 +564,18 @@ the boolean conversion operator):
 
 .. code-block:: c++
 
-  if (auto Err = canFail(...))
+  if (auto Err = mayFail(...))
     return Err; // Failure value - move error to caller.
 
   // Safe to continue: Err was checked.
 
-In contrast, the following code will always cause an abort, even if ``canFail``
+In contrast, the following code will always cause an abort, even if ``mayFail``
 returns a success value:
 
 .. code-block:: c++
 
-    canFail();
-    // Program will always abort here, even if canFail() returns Success, since
+    mayFail();
+    // Program will always abort here, even if mayFail() returns Success, since
     // the value is not checked.
 
 Failure values are considered checked once a handler for the error type has
@@ -469,8 +597,8 @@ a variadic list of "handlers", each of which must be a callable type (a
 function, lambda, or class with a call operator) with one argument. The
 ``handleErrors`` function will visit each handler in the sequence and check its
 argument type against the dynamic type of the error, running the first handler
-that matches. This is the same process that is used for catch clauses in C++
-exceptions.
+that matches. This is the same decision process that is used decide which catch
+clause to run for a C++ exception.
 
 Since the list of handlers passed to ``handleErrors`` may not cover every error
 type that can occur, the ``handleErrors`` function also returns an Error value
@@ -499,6 +627,17 @@ function should generally be avoided: the introduction of a new error type
 elsewhere in the program can easily turn a formerly exhaustive list of errors
 into a non-exhaustive list, risking unexpected program termination. Where
 possible, use handleErrors and propagate unknown errors up the stack instead.
+
+For tool code, where errors can be handled by printing an error message then
+exiting with an error code, the :ref:`ExitOnError <err_exitonerr>` utility
+may be a better choice than handleErrors, as it simplifies control flow when
+calling fallible functions.
+
+In situations where it is known that a particular call to a fallible function
+will always succeed (for example, a call to a function that can only fail on a
+subset of inputs with an input that is known to be safe) the
+:ref:`cantFail <err_cantfail>` functions can be used to remove the error type,
+simplifying control flow.
 
 StringError
 """""""""""
@@ -580,6 +719,8 @@ actually recognises three different forms of handler signature:
 Any error returned from a handler will be returned from the ``handleErrors``
 function so that it can be handled itself, or propagated up the stack.
 
+.. _err_exitonerr:
+
 Using ExitOnError to simplify tool code
 """""""""""""""""""""""""""""""""""""""
 
@@ -629,6 +770,43 @@ mapping can also be supplied from ``Error`` values to exit codes using the
 
 Use ``ExitOnError`` in your tool code where possible as it can greatly improve
 readability.
+
+.. _err_cantfail:
+
+Using cantFail to simplify safe callsites
+"""""""""""""""""""""""""""""""""""""""""
+
+Some functions may only fail for a subset of their inputs. For such functions
+call-sites using known-safe inputs can assume that the result will be a success
+value.
+
+The cantFail functions encapsulate this by wrapping an assertion that their
+argument is a success value and, in the case of Expected<T>, unwrapping the
+T value from the Expected<T> argument:
+
+.. code-block:: c++
+
+  Error mayFail(int X);
+  Expected<int> mayFail2(int X);
+
+  void foo() {
+    cantFail(mayFail(KnownSafeValue));
+    int Y = cantFail(mayFail2(KnownSafeValue));
+    ...
+  }
+
+Like the ExitOnError utility, cantFail simplifies control flow. Their treatment
+of error cases is very different however: Where ExitOnError is guaranteed to
+terminate the program on an error input, cantFile simply asserts that the result
+is success. In debug builds this will result in an assertion failure if an error
+is encountered. In release builds the behavior of cantFail for failure values is
+undefined. As such, care must be taken in the use of cantFail: clients must be
+certain that a cantFail wrapped call really can not fail under any
+circumstances.
+
+Use of the cantFail functions should be rare in library code, but they are
+likely to be of more use in tool and unit-test code where inputs and/or
+mocked-up classes or functions may be known to be safe.
 
 Fallible constructors
 """""""""""""""""""""
@@ -729,7 +907,7 @@ completing the walk over the archive they could use the ``joinErrors`` utility:
 
 The ``joinErrors`` routine builds a special error type called ``ErrorList``,
 which holds a list of user defined errors. The ``handleErrors`` routine
-recognizes this type and will attempt to handle each of the contained erorrs in
+recognizes this type and will attempt to handle each of the contained errors in
 order. If all contained errors can be handled, ``handleErrors`` will return
 ``Error::success()``, otherwise ``handleErrors`` will concatenate the remaining
 errors and return the resulting ``ErrorList``.
@@ -796,7 +974,7 @@ The ``function_ref`` class template
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``function_ref``
-(`doxygen <http://llvm.org/docs/doxygen/html/classllvm_1_1function__ref_3_01Ret_07Params_8_8_8_08_4.html>`__) class
+(`doxygen <http://llvm.org/doxygen/classllvm_1_1function__ref_3_01Ret_07Params_8_8_8_08_4.html>`__) class
 template represents a reference to a callable object, templated over the type
 of the callable. This is a good choice for passing a callback to a function,
 if you don't need to hold onto the callback after the function returns. In this
@@ -846,7 +1024,7 @@ you don't want them to always be noisy.  A standard compromise is to comment
 them out, allowing you to enable them if you need them in the future.
 
 The ``llvm/Support/Debug.h`` (`doxygen
-<http://llvm.org/doxygen/Debug_8h-source.html>`__) file provides a macro named
+<http://llvm.org/doxygen/Debug_8h_source.html>`__) file provides a macro named
 ``DEBUG()`` that is a much nicer solution to this problem.  Basically, you can
 put arbitrary code into the argument of the ``DEBUG`` macro, and it is only
 executed if '``opt``' (or any other tool) is run with the '``-debug``' command
@@ -943,7 +1121,7 @@ The ``Statistic`` class & ``-stats`` option
 -------------------------------------------
 
 The ``llvm/ADT/Statistic.h`` (`doxygen
-<http://llvm.org/doxygen/Statistic_8h-source.html>`__) file provides a class
+<http://llvm.org/doxygen/Statistic_8h_source.html>`__) file provides a class
 named ``Statistic`` that is used as a unified way to keep track of what the LLVM
 compiler is doing and how effective various optimizations are.  It is useful to
 see what optimizations are contributing to making a particular program run
@@ -959,23 +1137,23 @@ uniform manner with the rest of the passes being executed.
 There are many examples of ``Statistic`` uses, but the basics of using it are as
 follows:
 
-#. Define your statistic like this:
+Define your statistic like this:
 
-  .. code-block:: c++
+.. code-block:: c++
 
-    #define DEBUG_TYPE "mypassname"   // This goes before any #includes.
-    STATISTIC(NumXForms, "The # of times I did stuff");
+  #define DEBUG_TYPE "mypassname"   // This goes before any #includes.
+  STATISTIC(NumXForms, "The # of times I did stuff");
 
-  The ``STATISTIC`` macro defines a static variable, whose name is specified by
-  the first argument.  The pass name is taken from the ``DEBUG_TYPE`` macro, and
-  the description is taken from the second argument.  The variable defined
-  ("NumXForms" in this case) acts like an unsigned integer.
+The ``STATISTIC`` macro defines a static variable, whose name is specified by
+the first argument.  The pass name is taken from the ``DEBUG_TYPE`` macro, and
+the description is taken from the second argument.  The variable defined
+("NumXForms" in this case) acts like an unsigned integer.
 
-#. Whenever you make a transformation, bump the counter:
+Whenever you make a transformation, bump the counter:
 
-  .. code-block:: c++
+.. code-block:: c++
 
-    ++NumXForms;   // I did stuff!
+  ++NumXForms;   // I did stuff!
 
 That's all you have to do.  To get '``opt``' to print out the statistics
 gathered, use the '``-stats``' option:
@@ -1022,6 +1200,71 @@ report that looks like this:
 Obviously, with so many optimizations, having a unified framework for this stuff
 is very nice.  Making your pass fit well into the framework makes it more
 maintainable and useful.
+
+.. _DebugCounters:
+
+Adding debug counters to aid in debugging your code
+---------------------------------------------------
+
+Sometimes, when writing new passes, or trying to track down bugs, it
+is useful to be able to control whether certain things in your pass
+happen or not.  For example, there are times the minimization tooling
+can only easily give you large testcases.  You would like to narrow
+your bug down to a specific transformation happening or not happening,
+automatically, using bisection.  This is where debug counters help.
+They provide a framework for making parts of your code only execute a
+certain number of times.
+
+The ``llvm/Support/DebugCounter.h`` (`doxygen
+<http://llvm.org/doxygen/DebugCounter_8h_source.html>`__) file
+provides a class named ``DebugCounter`` that can be used to create
+command line counter options that control execution of parts of your code.
+
+Define your DebugCounter like this:
+
+.. code-block:: c++
+
+  DEBUG_COUNTER(DeleteAnInstruction, "passname-delete-instruction",
+		"Controls which instructions get delete").
+
+The ``DEBUG_COUNTER`` macro defines a static variable, whose name
+is specified by the first argument.  The name of the counter
+(which is used on the command line) is specified by the second
+argument, and the description used in the help is specified by the
+third argument.
+
+Whatever code you want that control, use ``DebugCounter::shouldExecute`` to control it.
+
+.. code-block:: c++
+
+  if (DebugCounter::shouldExecute(DeleteAnInstruction))
+    I->eraseFromParent();
+
+That's all you have to do.  Now, using opt, you can control when this code triggers using
+the '``--debug-counter``' option.  There are two counters provided, ``skip`` and ``count``.
+``skip`` is the number of times to skip execution of the codepath.  ``count`` is the number
+of times, once we are done skipping, to execute the codepath.
+
+.. code-block:: none
+
+  $ opt --debug-counter=passname-delete-instruction-skip=1,passname-delete-instruction-count=2 -passname
+
+This will skip the above code the first time we hit it, then execute it twice, then skip the rest of the executions.
+
+So if executed on the following code:
+
+.. code-block:: llvm
+
+  %1 = add i32 %a, %b
+  %2 = add i32 %a, %b
+  %3 = add i32 %a, %b
+  %4 = add i32 %a, %b
+
+It would delete number ``%2`` and ``%3``.
+
+A utility is provided in `utils/bisect-skip-count` to binary search
+skip and count arguments. It can be used to automatically minimize the
+skip and count for a debug-counter variable.
 
 .. _ViewGraph:
 
@@ -2059,6 +2302,22 @@ reverse) is O(1) worst case.  Testing and setting bits within 128 bits (depends
 on size) of the current bit is also O(1).  As a general statement,
 testing/setting bits in a SparseBitVector is O(distance away from last set bit).
 
+.. _debugging:
+
+Debugging
+=========
+
+A handful of `GDB pretty printers
+<https://sourceware.org/gdb/onlinedocs/gdb/Pretty-Printing.html>`__ are
+provided for some of the core LLVM libraries. To use them, execute the
+following (or add it to your ``~/.gdbinit``)::
+
+  source /path/to/llvm/src/utils/gdb-scripts/prettyprinters.py
+
+It also might be handy to enable the `print pretty
+<http://ftp.gnu.org/old-gnu/Manuals/gdb/html_node/gdb_57.html>`__ option to
+avoid data structures being printed as a big block of text.
+
 .. _common:
 
 Helpful Hints for Common Operations
@@ -2106,18 +2365,12 @@ of a ``BasicBlock`` and the number of ``Instruction``\ s it contains:
 
 .. code-block:: c++
 
-  // func is a pointer to a Function instance
-  for (Function::iterator i = func->begin(), e = func->end(); i != e; ++i)
+  Function &Func = ...
+  for (BasicBlock &BB : Func)
     // Print out the name of the basic block if it has one, and then the
     // number of instructions that it contains
-    errs() << "Basic block (name=" << i->getName() << ") has "
-               << i->size() << " instructions.\n";
-
-Note that i can be used as if it were a pointer for the purposes of invoking
-member functions of the ``Instruction`` class.  This is because the indirection
-operator is overloaded for the iterator classes.  In the above code, the
-expression ``i->size()`` is exactly equivalent to ``(*i).size()`` just like
-you'd expect.
+    errs() << "Basic block (name=" << BB.getName() << ") has "
+               << BB.size() << " instructions.\n";
 
 .. _iterate_basicblock:
 
@@ -2130,17 +2383,17 @@ a code snippet that prints out each instruction in a ``BasicBlock``:
 
 .. code-block:: c++
 
-  // blk is a pointer to a BasicBlock instance
-  for (BasicBlock::iterator i = blk->begin(), e = blk->end(); i != e; ++i)
+  BasicBlock& BB = ...
+  for (Instruction &I : BB)
      // The next statement works since operator<<(ostream&,...)
      // is overloaded for Instruction&
-     errs() << *i << "\n";
+     errs() << I << "\n";
 
 
 However, this isn't really the best way to print out the contents of a
 ``BasicBlock``!  Since the ostream operators are overloaded for virtually
 anything you'll care about, you could have just invoked the print routine on the
-basic block itself: ``errs() << *blk << "\n";``.
+basic block itself: ``errs() << BB << "\n";``.
 
 .. _iterate_insiter:
 
@@ -2274,13 +2527,13 @@ method):
       OurFunctionPass(): callCounter(0) { }
 
       virtual runOnFunction(Function& F) {
-        for (Function::iterator b = F.begin(), be = F.end(); b != be; ++b) {
-          for (BasicBlock::iterator i = b->begin(), ie = b->end(); i != ie; ++i) {
-            if (CallInst* callInst = dyn_cast<CallInst>(&*i)) {
+        for (BasicBlock &B : F) {
+          for (Instruction &I: B) {
+            if (auto *CallInst = dyn_cast<CallInst>(&I)) {
               // We know we've encountered a call instruction, so we
               // need to determine if it's a call to the
               // function pointed to by m_func or not.
-              if (callInst->getCalledFunction() == targetFunc)
+              if (CallInst->getCalledFunction() == targetFunc)
                 ++callCounter;
             }
           }
@@ -2373,12 +2626,11 @@ iterate over all predecessors of BB:
   #include "llvm/IR/CFG.h"
   BasicBlock *BB = ...;
 
-  for (pred_iterator PI = pred_begin(BB), E = pred_end(BB); PI != E; ++PI) {
-    BasicBlock *Pred = *PI;
+  for (BasicBlock *Pred : predecessors(BB)) {
     // ...
   }
 
-Similarly, to iterate over successors use ``succ_iterator/succ_begin/succ_end``.
+Similarly, to iterate over successors use ``successors``.
 
 .. _simplechanges:
 
@@ -2403,7 +2655,7 @@ For example, an ``AllocaInst`` only *requires* a (const-ptr-to) ``Type``.  Thus:
 
 .. code-block:: c++
 
-  AllocaInst* ai = new AllocaInst(Type::Int32Ty);
+  auto *ai = new AllocaInst(Type::Int32Ty);
 
 will create an ``AllocaInst`` instance that represents the allocation of one
 integer in the current stack frame, at run time.  Each ``Instruction`` subclass
@@ -2428,7 +2680,7 @@ intending to use it within the same ``Function``.  I might do:
 
 .. code-block:: c++
 
-  AllocaInst* pa = new AllocaInst(Type::Int32Ty, 0, "indexLoc");
+  auto *pa = new AllocaInst(Type::Int32Ty, 0, "indexLoc");
 
 where ``indexLoc`` is now the logical name of the instruction's execution value,
 which is a pointer to an integer on the run time stack.
@@ -2448,7 +2700,7 @@ sequence of instructions that form a ``BasicBlock``:
 
       BasicBlock *pb = ...;
       Instruction *pi = ...;
-      Instruction *newInst = new Instruction(...);
+      auto *newInst = new Instruction(...);
 
       pb->getInstList().insert(pi, newInst); // Inserts newInst before pi in pb
 
@@ -2460,7 +2712,7 @@ sequence of instructions that form a ``BasicBlock``:
   .. code-block:: c++
 
     BasicBlock *pb = ...;
-    Instruction *newInst = new Instruction(...);
+    auto *newInst = new Instruction(...);
 
     pb->getInstList().push_back(newInst); // Appends newInst to pb
 
@@ -2469,7 +2721,7 @@ sequence of instructions that form a ``BasicBlock``:
   .. code-block:: c++
 
     BasicBlock *pb = ...;
-    Instruction *newInst = new Instruction(..., pb);
+    auto *newInst = new Instruction(..., pb);
 
   which is much cleaner, especially if you are creating long instruction
   streams.
@@ -2484,7 +2736,7 @@ sequence of instructions that form a ``BasicBlock``:
   .. code-block:: c++
 
     Instruction *pi = ...;
-    Instruction *newInst = new Instruction(...);
+    auto *newInst = new Instruction(...);
 
     pi->getParent()->getInstList().insert(pi, newInst);
 
@@ -2500,7 +2752,7 @@ sequence of instructions that form a ``BasicBlock``:
   .. code-block:: c++
 
     Instruction* pi = ...;
-    Instruction* newInst = new Instruction(..., pi);
+    auto *newInst = new Instruction(..., pi);
 
   which is much cleaner, especially if you're creating a lot of instructions and
   adding them to ``BasicBlock``\ s.
@@ -2567,7 +2819,7 @@ Replacing individual instructions
 """""""""""""""""""""""""""""""""
 
 Including "`llvm/Transforms/Utils/BasicBlockUtils.h
-<http://llvm.org/doxygen/BasicBlockUtils_8h-source.html>`_" permits use of two
+<http://llvm.org/doxygen/BasicBlockUtils_8h_source.html>`_" permits use of two
 very useful replace functions: ``ReplaceInstWithValue`` and
 ``ReplaceInstWithInst``.
 
@@ -2663,7 +2915,7 @@ is easier to read and write than the equivalent
   FunctionType *ft = FunctionType::get(Type::Int8Ty, params, false);
 
 See the `class comment
-<http://llvm.org/doxygen/TypeBuilder_8h-source.html#l00001>`_ for more details.
+<http://llvm.org/doxygen/TypeBuilder_8h_source.html#l00001>`_ for more details.
 
 .. _threading:
 
@@ -2752,7 +3004,7 @@ Another way is to only call ``getPointerToFunction()`` from the
 
 When the JIT is configured to compile lazily (using
 ``ExecutionEngine::DisableLazyCompilation(false)``), there is currently a `race
-condition <http://llvm.org/bugs/show_bug.cgi?id=5184>`_ in updating call sites
+condition <https://bugs.llvm.org/show_bug.cgi?id=5184>`_ in updating call sites
 after a function is lazily-jitted.  It's still possible to use the lazy JIT in a
 threaded program if you ensure that only one thread at a time can call any
 particular lazy stub and that the JIT lock guards any IR access, but we suggest
@@ -3084,7 +3336,7 @@ The Core LLVM Class Hierarchy Reference
 
 ``#include "llvm/IR/Type.h"``
 
-header source: `Type.h <http://llvm.org/doxygen/Type_8h-source.html>`_
+header source: `Type.h <http://llvm.org/doxygen/Type_8h_source.html>`_
 
 doxygen info: `Type Clases <http://llvm.org/doxygen/classllvm_1_1Type.html>`_
 
@@ -3141,20 +3393,20 @@ Important Derived Types
   * ``unsigned getBitWidth() const``: Get the bit width of an integer type.
 
 ``SequentialType``
-  This is subclassed by ArrayType, PointerType and VectorType.
+  This is subclassed by ArrayType and VectorType.
 
   * ``const Type * getElementType() const``: Returns the type of each
     of the elements in the sequential type.
+
+  * ``uint64_t getNumElements() const``: Returns the number of elements
+    in the sequential type.
 
 ``ArrayType``
   This is a subclass of SequentialType and defines the interface for array
   types.
 
-  * ``unsigned getNumElements() const``: Returns the number of elements
-    in the array.
-
 ``PointerType``
-  Subclass of SequentialType for pointer types.
+  Subclass of Type for pointer types.
 
 ``VectorType``
   Subclass of SequentialType for vector types.  A vector type is similar to an
@@ -3188,7 +3440,7 @@ The ``Module`` class
 
 ``#include "llvm/IR/Module.h"``
 
-header source: `Module.h <http://llvm.org/doxygen/Module_8h-source.html>`_
+header source: `Module.h <http://llvm.org/doxygen/Module_8h_source.html>`_
 
 doxygen info: `Module Class <http://llvm.org/doxygen/classllvm_1_1Module.html>`_
 
@@ -3275,7 +3527,7 @@ The ``Value`` class
 
 ``#include "llvm/IR/Value.h"``
 
-header source: `Value.h <http://llvm.org/doxygen/Value_8h-source.html>`_
+header source: `Value.h <http://llvm.org/doxygen/Value_8h_source.html>`_
 
 doxygen info: `Value Class <http://llvm.org/doxygen/classllvm_1_1Value.html>`_
 
@@ -3366,7 +3618,7 @@ The ``User`` class
 
 ``#include "llvm/IR/User.h"``
 
-header source: `User.h <http://llvm.org/doxygen/User_8h-source.html>`_
+header source: `User.h <http://llvm.org/doxygen/User_8h_source.html>`_
 
 doxygen info: `User Class <http://llvm.org/doxygen/classllvm_1_1User.html>`_
 
@@ -3413,7 +3665,7 @@ The ``Instruction`` class
 ``#include "llvm/IR/Instruction.h"``
 
 header source: `Instruction.h
-<http://llvm.org/doxygen/Instruction_8h-source.html>`_
+<http://llvm.org/doxygen/Instruction_8h_source.html>`_
 
 doxygen info: `Instruction Class
 <http://llvm.org/doxygen/classllvm_1_1Instruction.html>`_
@@ -3561,7 +3813,7 @@ The ``GlobalValue`` class
 ``#include "llvm/IR/GlobalValue.h"``
 
 header source: `GlobalValue.h
-<http://llvm.org/doxygen/GlobalValue_8h-source.html>`_
+<http://llvm.org/doxygen/GlobalValue_8h_source.html>`_
 
 doxygen info: `GlobalValue Class
 <http://llvm.org/doxygen/classllvm_1_1GlobalValue.html>`_
@@ -3619,7 +3871,7 @@ The ``Function`` class
 
 ``#include "llvm/IR/Function.h"``
 
-header source: `Function.h <http://llvm.org/doxygen/Function_8h-source.html>`_
+header source: `Function.h <http://llvm.org/doxygen/Function_8h_source.html>`_
 
 doxygen info: `Function Class
 <http://llvm.org/doxygen/classllvm_1_1Function.html>`_
@@ -3728,7 +3980,7 @@ The ``GlobalVariable`` class
 ``#include "llvm/IR/GlobalVariable.h"``
 
 header source: `GlobalVariable.h
-<http://llvm.org/doxygen/GlobalVariable_8h-source.html>`_
+<http://llvm.org/doxygen/GlobalVariable_8h_source.html>`_
 
 doxygen info: `GlobalVariable Class
 <http://llvm.org/doxygen/classllvm_1_1GlobalVariable.html>`_
@@ -3786,7 +4038,7 @@ The ``BasicBlock`` class
 ``#include "llvm/IR/BasicBlock.h"``
 
 header source: `BasicBlock.h
-<http://llvm.org/doxygen/BasicBlock_8h-source.html>`_
+<http://llvm.org/doxygen/BasicBlock_8h_source.html>`_
 
 doxygen info: `BasicBlock Class
 <http://llvm.org/doxygen/classllvm_1_1BasicBlock.html>`_

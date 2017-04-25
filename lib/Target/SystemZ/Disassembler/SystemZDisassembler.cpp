@@ -7,12 +7,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MCTargetDesc/SystemZMCTargetDesc.h"
 #include "SystemZ.h"
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
 #include "llvm/MC/MCFixedLenDisassembler.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/TargetRegistry.h"
+#include <cassert>
+#include <cstdint>
 
 using namespace llvm;
 
@@ -21,17 +25,19 @@ using namespace llvm;
 typedef MCDisassembler::DecodeStatus DecodeStatus;
 
 namespace {
+
 class SystemZDisassembler : public MCDisassembler {
 public:
   SystemZDisassembler(const MCSubtargetInfo &STI, MCContext &Ctx)
     : MCDisassembler(STI, Ctx) {}
-  ~SystemZDisassembler() override {}
+  ~SystemZDisassembler() override = default;
 
   DecodeStatus getInstruction(MCInst &instr, uint64_t &Size,
                               ArrayRef<uint8_t> Bytes, uint64_t Address,
                               raw_ostream &VStream,
                               raw_ostream &CStream) const override;
 };
+
 } // end anonymous namespace
 
 static MCDisassembler *createSystemZDisassembler(const Target &T,
@@ -150,6 +156,12 @@ static DecodeStatus DecodeVR128BitRegisterClass(MCInst &Inst, uint64_t RegNo,
   return decodeRegisterClass(Inst, RegNo, SystemZMC::VR128Regs, 32);
 }
 
+static DecodeStatus DecodeAR32BitRegisterClass(MCInst &Inst, uint64_t RegNo,
+                                               uint64_t Address,
+                                               const void *Decoder) {
+  return decodeRegisterClass(Inst, RegNo, SystemZMC::AR32Regs, 16);
+}
+
 template<unsigned N>
 static DecodeStatus decodeUImmOperand(MCInst &Inst, uint64_t Imm) {
   if (!isUInt<N>(Imm))
@@ -164,12 +176,6 @@ static DecodeStatus decodeSImmOperand(MCInst &Inst, uint64_t Imm) {
     return MCDisassembler::Fail;
   Inst.addOperand(MCOperand::createImm(SignExtend64<N>(Imm)));
   return MCDisassembler::Success;
-}
-
-static DecodeStatus decodeAccessRegOperand(MCInst &Inst, uint64_t Imm,
-                                           uint64_t Address,
-                                           const void *Decoder) {
-  return decodeUImmOperand<4>(Inst, Imm);
 }
 
 static DecodeStatus decodeU1ImmOperand(MCInst &Inst, uint64_t Imm,
@@ -247,10 +253,22 @@ static DecodeStatus decodePCDBLOperand(MCInst &Inst, uint64_t Imm,
   return MCDisassembler::Success;
 }
 
+static DecodeStatus decodePC12DBLBranchOperand(MCInst &Inst, uint64_t Imm,
+                                               uint64_t Address,
+                                               const void *Decoder) {
+  return decodePCDBLOperand<12>(Inst, Imm, Address, true, Decoder);
+}
+
 static DecodeStatus decodePC16DBLBranchOperand(MCInst &Inst, uint64_t Imm,
                                                uint64_t Address,
                                                const void *Decoder) {
   return decodePCDBLOperand<16>(Inst, Imm, Address, true, Decoder);
+}
+
+static DecodeStatus decodePC24DBLBranchOperand(MCInst &Inst, uint64_t Imm,
+                                               uint64_t Address,
+                                               const void *Decoder) {
+  return decodePCDBLOperand<24>(Inst, Imm, Address, true, Decoder);
 }
 
 static DecodeStatus decodePC32DBLBranchOperand(MCInst &Inst, uint64_t Imm,

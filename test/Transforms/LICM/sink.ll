@@ -1,5 +1,7 @@
 ; RUN: opt -S -licm < %s | FileCheck %s --check-prefix=CHECK-LICM
 ; RUN: opt -S -licm < %s | opt -S -loop-sink | FileCheck %s --check-prefix=CHECK-SINK
+; RUN: opt -S < %s -passes='require<opt-remark-emit>,loop(licm),loop-sink' \
+; RUN:     | FileCheck %s --check-prefix=CHECK-SINK
 
 ; Original source code:
 ; int g;
@@ -15,7 +17,7 @@
 
 @g = global i32 0, align 4
 
-define i32 @foo(i32, i32) #0 {
+define i32 @foo(i32, i32) #0 !prof !2 {
   %3 = icmp eq i32 %1, 0
   br i1 %3, label %._crit_edge, label %.lr.ph.preheader
 
@@ -58,3 +60,4 @@ define i32 @foo(i32, i32) #0 {
 }
 
 !1 = !{!"branch_weights", i32 1, i32 2000}
+!2 = !{!"function_entry_count", i64 1}

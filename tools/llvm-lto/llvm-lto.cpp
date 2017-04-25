@@ -13,7 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/StringSet.h"
-#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
@@ -61,6 +62,10 @@ static cl::opt<bool>
 static cl::opt<bool> DisableLTOVectorization(
     "disable-lto-vectorization", cl::init(false),
     cl::desc("Do not run loop or slp vectorization during LTO"));
+
+static cl::opt<bool> EnableFreestanding(
+    "lto-freestanding", cl::init(false),
+    cl::desc("Enable Freestanding (disable builtins / TLI) during LTO"));
 
 static cl::opt<bool> UseDiagnosticHandler(
     "use-diagnostic-handler", cl::init(false),
@@ -129,6 +134,11 @@ static cl::opt<std::string> ThinLTOSaveTempsPrefix(
     cl::desc("Save ThinLTO temp files using filenames created by adding "
              "suffixes to the given file path prefix."));
 
+static cl::opt<std::string> ThinLTOGeneratedObjectsDir(
+    "thinlto-save-objects",
+    cl::desc("Save ThinLTO generated object files using filenames created in "
+             "the given directory."));
+
 static cl::opt<bool>
     SaveModuleFile("save-merged-module", cl::init(false),
                    cl::desc("Write merged LTO module to file before CodeGen"));
@@ -196,7 +206,7 @@ static void handleDiagnostics(lto_codegen_diagnostic_severity_t Severity,
 }
 
 static std::string CurrentActivity;
-static void diagnosticHandler(const DiagnosticInfo &DI) {
+static void diagnosticHandler(const DiagnosticInfo &DI, void *Context) {
   raw_ostream &OS = errs();
   OS << "llvm-lto: ";
   switch (DI.getSeverity()) {
@@ -225,11 +235,6 @@ static void diagnosticHandler(const DiagnosticInfo &DI) {
     exit(1);
 }
 
-static void diagnosticHandlerWithContext(const DiagnosticInfo &DI,
-                                         void *Context) {
-  diagnosticHandler(DI);
-}
-
 static void error(const Twine &Msg) {
   errs() << "llvm-lto: " << Msg << '\n';
   exit(1);
@@ -246,7 +251,7 @@ static void error(const ErrorOr<T> &V, const Twine &Prefix) {
 }
 
 static void maybeVerifyModule(const Module &Mod) {
-  if (!DisableVerify && verifyModule(Mod))
+  if (!DisableVerify && verifyModule(Mod, &errs()))
     error("Broken Module");
 }
 
@@ -259,7 +264,7 @@ getLocalLTOModule(StringRef Path, std::unique_ptr<MemoryBuffer> &Buffer,
   Buffer = std::move(BufferOrErr.get());
   CurrentActivity = ("loading file '" + Path + "'").str();
   std::unique_ptr<LLVMContext> Context = llvm::make_unique<LLVMContext>();
-  Context->setDiagnosticHandler(diagnosticHandlerWithContext, nullptr, true);
+  Context->setDiagnosticHandler(diagnosticHandler, nullptr, true);
   ErrorOr<std::unique_ptr<LTOModule>> Ret = LTOModule::createInLocalContext(
       std::move(Context), Buffer->getBufferStart(), Buffer->getBufferSize(),
       Options, Path);
@@ -271,12 +276,9 @@ getLocalLTOModule(StringRef Path, std::unique_ptr<MemoryBuffer> &Buffer,
 /// Print some statistics on the index for each input files.
 void printIndexStats() {
   for (auto &Filename : InputFilenames) {
-    CurrentActivity = "loading file '" + Filename + "'";
-    ErrorOr<std::unique_ptr<ModuleSummaryIndex>> IndexOrErr =
-        llvm::getModuleSummaryIndexForFile(Filename, diagnosticHandler);
-    error(IndexOrErr, "error " + CurrentActivity);
-    std::unique_ptr<ModuleSummaryIndex> Index = std::move(IndexOrErr.get());
-    CurrentActivity = "";
+    ExitOnError ExitOnErr("llvm-lto: error loading file '" + Filename + "': ");
+    std::unique_ptr<ModuleSummaryIndex> Index =
+        ExitOnErr(llvm::getModuleSummaryIndexForFile(Filename));
     // Skip files without a module summary.
     if (!Index)
       report_fatal_error(Filename + " does not contain an index");
@@ -329,12 +331,9 @@ static void createCombinedModuleSummaryIndex() {
   ModuleSummaryIndex CombinedIndex;
   uint64_t NextModuleId = 0;
   for (auto &Filename : InputFilenames) {
-    CurrentActivity = "loading file '" + Filename + "'";
-    ErrorOr<std::unique_ptr<ModuleSummaryIndex>> IndexOrErr =
-        llvm::getModuleSummaryIndexForFile(Filename, diagnosticHandler);
-    error(IndexOrErr, "error " + CurrentActivity);
-    std::unique_ptr<ModuleSummaryIndex> Index = std::move(IndexOrErr.get());
-    CurrentActivity = "";
+    ExitOnError ExitOnErr("llvm-lto: error loading file '" + Filename + "': ");
+    std::unique_ptr<ModuleSummaryIndex> Index =
+        ExitOnErr(llvm::getModuleSummaryIndexForFile(Filename));
     // Skip files without a module summary.
     if (!Index)
       continue;
@@ -399,11 +398,9 @@ loadAllFilesForIndex(const ModuleSummaryIndex &Index) {
 std::unique_ptr<ModuleSummaryIndex> loadCombinedIndex() {
   if (ThinLTOIndex.empty())
     report_fatal_error("Missing -thinlto-index for ThinLTO promotion stage");
-  auto CurrentActivity = "loading file '" + ThinLTOIndex + "'";
-  ErrorOr<std::unique_ptr<ModuleSummaryIndex>> IndexOrErr =
-      llvm::getModuleSummaryIndexForFile(ThinLTOIndex, diagnosticHandler);
-  error(IndexOrErr, "error " + CurrentActivity);
-  return std::move(IndexOrErr.get());
+  ExitOnError ExitOnErr("llvm-lto: error loading file '" + ThinLTOIndex +
+                        "': ");
+  return ExitOnErr(llvm::getModuleSummaryIndexForFile(ThinLTOIndex));
 }
 
 static std::unique_ptr<Module> loadModule(StringRef Filename,
@@ -440,6 +437,7 @@ public:
     ThinGenerator.setCodePICModel(getRelocModel());
     ThinGenerator.setTargetOptions(Options);
     ThinGenerator.setCacheDir(ThinLTOCacheDir);
+    ThinGenerator.setFreestanding(EnableFreestanding);
 
     // Add all the exported symbols to the table of symbols to preserve.
     for (unsigned i = 0; i < ExportedSymbols.size(); ++i)
@@ -719,6 +717,13 @@ private:
 
     if (!ThinLTOSaveTempsPrefix.empty())
       ThinGenerator.setSaveTempsDir(ThinLTOSaveTempsPrefix);
+
+    if (!ThinLTOGeneratedObjectsDir.empty()) {
+      ThinGenerator.setGeneratedObjectsDirectory(ThinLTOGeneratedObjectsDir);
+      ThinGenerator.run();
+      return;
+    }
+
     ThinGenerator.run();
 
     auto &Binaries = ThinGenerator.getProducedBinaries();
@@ -772,12 +777,12 @@ int main(int argc, char **argv) {
 
   if (CheckHasObjC) {
     for (auto &Filename : InputFilenames) {
-      ErrorOr<std::unique_ptr<MemoryBuffer>> BufferOrErr =
-          MemoryBuffer::getFile(Filename);
-      error(BufferOrErr, "error loading file '" + Filename + "'");
+      ExitOnError ExitOnErr(std::string(*argv) + ": error loading file '" +
+                            Filename + "': ");
+      std::unique_ptr<MemoryBuffer> BufferOrErr =
+          ExitOnErr(errorOrToExpected(MemoryBuffer::getFile(Filename)));
       auto Buffer = std::move(BufferOrErr.get());
-      LLVMContext Ctx;
-      if (llvm::isBitcodeContainingObjCCategory(*Buffer, Ctx))
+      if (ExitOnErr(llvm::isBitcodeContainingObjCCategory(*Buffer)))
         outs() << "Bitcode " << Filename << " contains ObjC\n";
       else
         outs() << "Bitcode " << Filename << " does not contain ObjC\n";
@@ -801,7 +806,7 @@ int main(int argc, char **argv) {
   unsigned BaseArg = 0;
 
   LLVMContext Context;
-  Context.setDiagnosticHandler(diagnosticHandlerWithContext, nullptr, true);
+  Context.setDiagnosticHandler(diagnosticHandler, nullptr, true);
 
   LTOCodeGenerator CodeGen(Context);
 
@@ -809,6 +814,7 @@ int main(int argc, char **argv) {
     CodeGen.setDiagnosticHandler(handleDiagnostics, nullptr);
 
   CodeGen.setCodePICModel(getRelocModel());
+  CodeGen.setFreestanding(EnableFreestanding);
 
   CodeGen.setDebugInfo(LTO_DEBUG_MODEL_DWARF);
   CodeGen.setTargetOptions(Options);

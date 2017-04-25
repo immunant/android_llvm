@@ -20,7 +20,7 @@ if(POLICY CMP0057)
 endif()
 
 if(NOT DEFINED LLVM_VERSION_MAJOR)
-  set(LLVM_VERSION_MAJOR 4)
+  set(LLVM_VERSION_MAJOR 5)
 endif()
 if(NOT DEFINED LLVM_VERSION_MINOR)
   set(LLVM_VERSION_MINOR 0)
@@ -56,26 +56,42 @@ endif()
 
 # This should only apply if you are both on an Apple host, and targeting Apple.
 if(CMAKE_HOST_APPLE AND APPLE)
-  if(NOT CMAKE_XCRUN)
-    find_program(CMAKE_XCRUN NAMES xcrun)
-  endif()
-  if(CMAKE_XCRUN)
-    execute_process(COMMAND ${CMAKE_XCRUN} -find libtool
-      OUTPUT_VARIABLE CMAKE_LIBTOOL
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-  endif()
+  # if CMAKE_LIBTOOL is not set, try and find it with xcrun or find_program
+  if(NOT CMAKE_LIBTOOL)
+    if(NOT CMAKE_XCRUN)
+      find_program(CMAKE_XCRUN NAMES xcrun)
+    endif()
+    if(CMAKE_XCRUN)
+      execute_process(COMMAND ${CMAKE_XCRUN} -find libtool
+        OUTPUT_VARIABLE CMAKE_LIBTOOL
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    endif()
 
-  if(NOT CMAKE_LIBTOOL OR NOT EXISTS CMAKE_LIBTOOL)
-    find_program(CMAKE_LIBTOOL NAMES libtool)
+    if(NOT CMAKE_LIBTOOL OR NOT EXISTS CMAKE_LIBTOOL)
+      find_program(CMAKE_LIBTOOL NAMES libtool)
+    endif()
   endif()
 
   get_property(languages GLOBAL PROPERTY ENABLED_LANGUAGES)
   if(CMAKE_LIBTOOL)
     set(CMAKE_LIBTOOL ${CMAKE_LIBTOOL} CACHE PATH "libtool executable")
     message(STATUS "Found libtool - ${CMAKE_LIBTOOL}")
+
+    execute_process(COMMAND ${CMAKE_LIBTOOL} -V
+      OUTPUT_VARIABLE LIBTOOL_V_OUTPUT
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if("${LIBTOOL_V_OUTPUT}" MATCHES ".*cctools-([0-9.]+).*")
+      string(REGEX REPLACE ".*cctools-([0-9.]+).*" "\\1" LIBTOOL_VERSION
+        ${LIBTOOL_V_OUTPUT})
+      if(NOT LIBTOOL_VERSION VERSION_LESS "862")
+        set(LIBTOOL_NO_WARNING_FLAG "-no_warning_for_no_symbols")
+      endif()
+    endif()
+    
     foreach(lang ${languages})
       set(CMAKE_${lang}_CREATE_STATIC_LIBRARY
-        "${CMAKE_LIBTOOL} -static -o <TARGET> <LINK_FLAGS> <OBJECTS> ")
+        "${CMAKE_LIBTOOL} -static ${LIBTOOL_NO_WARNING_FLAG} -o <TARGET> \
+        <LINK_FLAGS> <OBJECTS> ")
     endforeach()
   endif()
 
@@ -93,17 +109,31 @@ if(CMAKE_HOST_APPLE AND APPLE)
   endif()
 endif()
 
-# The following only works with the Ninja generator in CMake >= 3.0.
-set(LLVM_PARALLEL_COMPILE_JOBS "" CACHE STRING
-  "Define the maximum number of concurrent compilation jobs.")
-if(LLVM_PARALLEL_COMPILE_JOBS)
-  if(NOT CMAKE_MAKE_PROGRAM MATCHES "ninja")
-    message(WARNING "Job pooling is only available with Ninja generators.")
-  else()
-    set_property(GLOBAL APPEND PROPERTY JOB_POOLS compile_job_pool=${LLVM_PARALLEL_COMPILE_JOBS})
-    set(CMAKE_JOB_POOL_COMPILE compile_job_pool)
-  endif()
+# Side-by-side subprojects layout: automatically set the
+# LLVM_EXTERNAL_${project}_SOURCE_DIR using LLVM_ALL_PROJECTS
+# This allows an easy way of setting up a build directory for llvm and another
+# one for llvm+clang+... using the same sources.
+set(LLVM_ALL_PROJECTS "clang;libcxx;libcxxabi;lldb;compiler-rt;lld;polly")
+set(LLVM_ENABLE_PROJECTS "" CACHE STRING
+	"Semicolon-separated list of projects to build (${LLVM_ALL_PROJECTS}), or \"all\".")
+if( LLVM_ENABLE_PROJECTS STREQUAL "all" )
+  set( LLVM_ENABLE_PROJECTS ${LLVM_ALL_PROJECTS})
 endif()
+foreach(proj ${LLVM_ENABLE_PROJECTS})
+  set(PROJ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../${proj}")
+  if(NOT EXISTS "${PROJ_DIR}" OR NOT IS_DIRECTORY "${PROJ_DIR}")
+    message(FATAL_ERROR "LLVM_ENABLE_PROJECTS requests ${proj} but directory not found: ${PROJ_DIR}")
+  endif()
+  string(TOUPPER "${proj}" upper_proj)
+  STRING(REGEX REPLACE "-" "_" upper_proj ${upper_proj})
+  set(LLVM_EXTERNAL_${upper_proj}_SOURCE_DIR   "${CMAKE_CURRENT_SOURCE_DIR}/../${proj}")
+  # There is a widely spread opinion that clang-tools-extra should be merged
+  # into clang. The following simulates it by always enabling clang-tools-extra
+  # when enabling clang.
+  if (proj STREQUAL "clang")
+    set(LLVM_EXTERNAL_CLANG_TOOLS_EXTRA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../clang-tools-extra")
+  endif()
+endforeach()
 
 # Build llvm with ccache if the package is present
 set(LLVM_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
@@ -125,21 +155,26 @@ if(LLVM_CCACHE_BUILD)
   endif()
 endif()
 
-option(LLVM_BUILD_GLOBAL_ISEL "Experimental: Build GlobalISel" OFF)
+option(LLVM_DEPENDENCY_DEBUGGING "Dependency debugging mode to verify correctly expressed library dependencies (Darwin only)" OFF)
+
+# Some features of the LLVM build may be disallowed when dependency debugging is
+# enabled. In particular you cannot use ccache because we want to force compile
+# operations to always happen.
+if(LLVM_DEPENDENCY_DEBUGGING)
+  if(NOT CMAKE_HOST_APPLE)
+    message(FATAL_ERROR "Dependency debugging is only currently supported on Darwin hosts.")
+  endif()
+  if(LLVM_CCACHE_BUILD)
+    message(FATAL_ERROR "Cannot enable dependency debugging while using ccache.")
+  endif()
+endif()
+
+option(LLVM_BUILD_GLOBAL_ISEL "Experimental: Build GlobalISel" ON)
 if(LLVM_BUILD_GLOBAL_ISEL)
   add_definitions(-DLLVM_BUILD_GLOBAL_ISEL)
 endif()
 
-set(LLVM_PARALLEL_LINK_JOBS "" CACHE STRING
-  "Define the maximum number of concurrent link jobs.")
-if(LLVM_PARALLEL_LINK_JOBS)
-  if(NOT CMAKE_MAKE_PROGRAM MATCHES "ninja")
-    message(WARNING "Job pooling is only available with Ninja generators.")
-  else()
-    set_property(GLOBAL APPEND PROPERTY JOB_POOLS link_job_pool=${LLVM_PARALLEL_LINK_JOBS})
-    set(CMAKE_JOB_POOL_LINK link_job_pool)
-  endif()
-endif()
+option(LLVM_ENABLE_DAGISEL_COV "Debug: Prints tablegen patterns that were used for selecting" OFF)
 
 # Add path for custom modules
 set(CMAKE_MODULE_PATH
@@ -317,6 +352,8 @@ set(LLVM_TARGET_ARCH "host"
 
 option(LLVM_ENABLE_TERMINFO "Use terminfo database if available." ON)
 
+option(LLVM_ENABLE_LIBEDIT "Use libedit if available." ON)
+
 option(LLVM_ENABLE_THREADS "Use threads if available." ON)
 
 option(LLVM_ENABLE_ZLIB "Use zlib for compression/decompression if available." ON)
@@ -329,8 +366,6 @@ set(LLVM_TARGETS_TO_BUILD
    ${LLVM_TARGETS_TO_BUILD}
    ${LLVM_EXPERIMENTAL_TARGETS_TO_BUILD})
 list(REMOVE_DUPLICATES LLVM_TARGETS_TO_BUILD)
-
-include(AddLLVMDefinitions)
 
 option(LLVM_ENABLE_PIC "Build Position-Independent Code" ON)
 option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
@@ -448,6 +483,10 @@ option(LLVM_INCLUDE_UTILS "Generate build targets for the LLVM utils." ON)
 option(LLVM_BUILD_UTILS
   "Build LLVM utility binaries. If OFF, just generate build targets." ON)
 
+option(LLVM_INCLUDE_RUNTIMES "Generate build targets for the LLVM runtimes." ON)
+option(LLVM_BUILD_RUNTIMES
+  "Build the LLVM runtimes. If OFF, just generate build targets." ON)
+
 option(LLVM_BUILD_RUNTIME
   "Build the LLVM runtime libraries." ON)
 option(LLVM_BUILD_EXAMPLES
@@ -489,7 +528,7 @@ endif()
 option(LLVM_BUILD_LLVM_DYLIB "Build libllvm dynamic library" ${LLVM_BUILD_LLVM_DYLIB_default})
 
 option(LLVM_OPTIMIZED_TABLEGEN "Force TableGen to be built with optimization" OFF)
-if(CMAKE_CROSSCOMPILING OR (LLVM_OPTIMIZED_TABLEGEN AND LLVM_ENABLE_ASSERTIONS))
+if(CMAKE_CROSSCOMPILING OR (LLVM_OPTIMIZED_TABLEGEN AND (LLVM_ENABLE_ASSERTIONS OR CMAKE_CONFIGURATION_TYPES)))
   set(LLVM_USE_HOST_TOOLS ON)
 endif()
 
@@ -512,6 +551,10 @@ if (LLVM_BUILD_INSTRUMENTED OR LLVM_BUILD_INSTRUMENTED_COVERAGE)
       file(TO_NATIVE_PATH "${LLVM_PROFILE_DATA_DIR}/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
     endif()
   endif()
+endif()
+
+if (LLVM_BUILD_STATIC)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 endif()
 
 # All options referred to from HandleLLVMOptions have to be specified
@@ -579,7 +622,7 @@ endif (LLVM_USE_OPROFILE)
 
 message(STATUS "Constructing LLVMBuild project information")
 execute_process(
-  COMMAND ${PYTHON_EXECUTABLE} ${LLVMBUILDTOOL}
+  COMMAND ${PYTHON_EXECUTABLE} -B ${LLVMBUILDTOOL}
             --native-target "${LLVM_NATIVE_ARCH}"
             --enable-targets "${LLVM_TARGETS_TO_BUILD}"
             --enable-optional-components "${LLVMOPTIONALCOMPONENTS}"
@@ -669,8 +712,35 @@ configure_file(
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Config/llvm-config.h.cmake
   ${LLVM_INCLUDE_DIR}/llvm/Config/llvm-config.h)
 configure_file(
+  ${LLVM_MAIN_INCLUDE_DIR}/llvm/Config/abi-breaking.h.cmake
+  ${LLVM_INCLUDE_DIR}/llvm/Config/abi-breaking.h)
+configure_file(
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Support/DataTypes.h.cmake
   ${LLVM_INCLUDE_DIR}/llvm/Support/DataTypes.h)
+
+# Add target for generating source rpm package.
+set(LLVM_SRPM_USER_BINARY_SPECFILE ${CMAKE_CURRENT_SOURCE_DIR}/llvm.spec.in
+    CACHE FILEPATH ".spec file to use for srpm generation")
+set(LLVM_SRPM_BINARY_SPECFILE ${CMAKE_CURRENT_BINARY_DIR}/llvm.spec)
+set(LLVM_SRPM_DIR "${CMAKE_CURRENT_BINARY_DIR}/srpm")
+
+# SVN_REVISION and GIT_COMMIT get set by the call to add_version_info_from_vcs.
+# DUMMY_VAR contains a version string which we don't care about.
+add_version_info_from_vcs(DUMMY_VAR)
+if ( SVN_REVISION )
+  set(LLVM_RPM_SPEC_REVISION "r${SVN_REVISION}")
+elseif ( GIT_COMMIT )
+  set (LLVM_RPM_SPEC_REVISION "g${GIT_COMMIT}")
+endif()
+
+configure_file(
+  ${LLVM_SRPM_USER_BINARY_SPECFILE}
+  ${LLVM_SRPM_BINARY_SPECFILE} @ONLY)
+
+add_custom_target(srpm
+  COMMAND cpack -G TGZ --config CPackSourceConfig.cmake -B ${LLVM_SRPM_DIR}/SOURCES
+  COMMAND rpmbuild -bs --define '_topdir ${LLVM_SRPM_DIR}' ${LLVM_SRPM_BINARY_SPECFILE})
+
 
 # They are not referenced. See set_output_directory().
 set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/bin )
@@ -796,7 +866,9 @@ if( LLVM_INCLUDE_TOOLS )
   add_subdirectory(tools)
 endif()
 
-add_subdirectory(runtimes)
+if( LLVM_INCLUDE_RUNTIMES )
+  add_subdirectory(runtimes)
+endif()
 
 if( LLVM_INCLUDE_EXAMPLES )
   add_subdirectory(examples)
@@ -813,7 +885,7 @@ if( LLVM_INCLUDE_TESTS )
   endif()
   add_subdirectory(test)
   add_subdirectory(unittests)
-  if (MSVC)
+  if (WIN32)
     # This utility is used to prevent crashing tests from calling Dr. Watson on
     # Windows.
     add_subdirectory(utils/KillTheDoctor)
@@ -912,4 +984,9 @@ if(LLVM_DISTRIBUTION_COMPONENTS)
       message(FATAL_ERROR "Specified distribution component '${target}' doesn't have an install target")
     endif()
   endforeach()
+endif()
+
+# This allows us to deploy the Universal CRT DLLs by passing -DCMAKE_INSTALL_UCRT_LIBRARIES=ON to CMake
+if (MSVC)
+  include(InstallRequiredSystemLibraries)
 endif()

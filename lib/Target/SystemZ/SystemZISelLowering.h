@@ -83,10 +83,6 @@ enum NodeType : unsigned {
   // base of the dynamically-allocatable area.
   ADJDYNALLOC,
 
-  // Extracts the value of a 32-bit access register.  Operand 0 is
-  // the number of the register.
-  EXTRACT_ACCESS,
-
   // Count number of bits set in operand 0 per byte.
   POPCNT,
 
@@ -541,6 +537,7 @@ private:
                                  unsigned UnpackHigh) const;
   SDValue lowerShift(SDValue Op, SelectionDAG &DAG, unsigned ByScalar) const;
 
+  bool canTreatAsByteVector(EVT VT) const;
   SDValue combineExtract(const SDLoc &DL, EVT ElemVT, EVT VecVT, SDValue OrigOp,
                          unsigned Index, DAGCombinerInfo &DCI,
                          bool Force) const;
@@ -565,7 +562,8 @@ private:
                                   MachineBasicBlock *Target) const;
 
   // Implement EmitInstrWithCustomInserter for individual operation types.
-  MachineBasicBlock *emitSelect(MachineInstr &MI, MachineBasicBlock *BB) const;
+  MachineBasicBlock *emitSelect(MachineInstr &MI, MachineBasicBlock *BB,
+                                unsigned LOCROpcode) const;
   MachineBasicBlock *emitCondStore(MachineInstr &MI, MachineBasicBlock *BB,
                                    unsigned StoreOpcode, unsigned STOCOpcode,
                                    bool Invert) const;

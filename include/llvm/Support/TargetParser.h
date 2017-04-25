@@ -142,7 +142,7 @@ unsigned parseArchVersion(StringRef Arch);
 
 } // namespace ARM
 
-// FIXME:This should be made into class design,to avoid dupplication. 
+// FIXME:This should be made into class design,to avoid dupplication.
 namespace AArch64 {
 
 // Arch names.
@@ -162,7 +162,8 @@ enum ArchExtKind : unsigned {
   AEK_SIMD = 0x10,
   AEK_FP16 = 0x20,
   AEK_PROFILE = 0x40,
-  AEK_RAS = 0x80
+  AEK_RAS = 0x80,
+  AEK_LSE = 0x100
 };
 
 StringRef getCanonicalArchName(StringRef Arch);

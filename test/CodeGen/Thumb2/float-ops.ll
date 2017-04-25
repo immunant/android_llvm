@@ -272,10 +272,10 @@ define float @select_f(float %a, float %b, i1 %c) {
 define double @select_d(double %a, double %b, i1 %c) {
 ; CHECK-LABEL: select_d:
 ; NONE: ldr{{(.w)?}}     [[REG:r[0-9]+]], [sp]
-; NONE: lsls{{(.w)?}}    [[REG]], [[REG]], #31
+; NONE  ands    [[REG]], [[REG]], #1
 ; NONE: moveq   r0, r2
 ; NONE: moveq   r1, r3
-; SP: lsls r0, r0, #31
+; SP: ands r0, r0, #1
 ; SP-DAG: vmov [[ALO:r[0-9]+]], [[AHI:r[0-9]+]], d0
 ; SP-DAG: vmov [[BLO:r[0-9]+]], [[BHI:r[0-9]+]], d1
 ; SP: itt ne

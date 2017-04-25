@@ -8,16 +8,31 @@
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/SystemZMCTargetDesc.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstBuilder.h"
+#include "llvm/MC/MCParser/MCAsmLexer.h"
+#include "llvm/MC/MCParser/MCAsmParser.h"
+#include "llvm/MC/MCParser/MCAsmParserExtension.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/SMLoc.h"
 #include "llvm/Support/TargetRegistry.h"
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <memory>
+#include <string>
 
 using namespace llvm;
 
@@ -31,6 +46,7 @@ static bool inRange(const MCExpr *Expr, int64_t MinValue, int64_t MaxValue) {
 }
 
 namespace {
+
 enum RegisterKind {
   GR32Reg,
   GRH32Reg,
@@ -43,7 +59,8 @@ enum RegisterKind {
   FP128Reg,
   VR32Reg,
   VR64Reg,
-  VR128Reg
+  VR128Reg,
+  AR32Reg,
 };
 
 enum MemoryKind {
@@ -55,13 +72,11 @@ enum MemoryKind {
 };
 
 class SystemZOperand : public MCParsedAsmOperand {
-public:
 private:
   enum OperandKind {
     KindInvalid,
     KindToken,
     KindReg,
-    KindAccessReg,
     KindImm,
     KindImmTLS,
     KindMem
@@ -116,7 +131,6 @@ private:
   union {
     TokenOp Token;
     RegOp Reg;
-    unsigned AccessReg;
     const MCExpr *Imm;
     ImmTLSOp ImmTLS;
     MemOp Mem;
@@ -141,12 +155,14 @@ public:
                                                        SMLoc EndLoc) {
     return make_unique<SystemZOperand>(KindInvalid, StartLoc, EndLoc);
   }
+
   static std::unique_ptr<SystemZOperand> createToken(StringRef Str, SMLoc Loc) {
     auto Op = make_unique<SystemZOperand>(KindToken, Loc, Loc);
     Op->Token.Data = Str.data();
     Op->Token.Length = Str.size();
     return Op;
   }
+
   static std::unique_ptr<SystemZOperand>
   createReg(RegisterKind Kind, unsigned Num, SMLoc StartLoc, SMLoc EndLoc) {
     auto Op = make_unique<SystemZOperand>(KindReg, StartLoc, EndLoc);
@@ -154,18 +170,14 @@ public:
     Op->Reg.Num = Num;
     return Op;
   }
-  static std::unique_ptr<SystemZOperand>
-  createAccessReg(unsigned Num, SMLoc StartLoc, SMLoc EndLoc) {
-    auto Op = make_unique<SystemZOperand>(KindAccessReg, StartLoc, EndLoc);
-    Op->AccessReg = Num;
-    return Op;
-  }
+
   static std::unique_ptr<SystemZOperand>
   createImm(const MCExpr *Expr, SMLoc StartLoc, SMLoc EndLoc) {
     auto Op = make_unique<SystemZOperand>(KindImm, StartLoc, EndLoc);
     Op->Imm = Expr;
     return Op;
   }
+
   static std::unique_ptr<SystemZOperand>
   createMem(MemoryKind MemKind, RegisterKind RegKind, unsigned Base,
             const MCExpr *Disp, unsigned Index, const MCExpr *LengthImm,
@@ -182,6 +194,7 @@ public:
       Op->Mem.Length.Reg = LengthReg;
     return Op;
   }
+
   static std::unique_ptr<SystemZOperand>
   createImmTLS(const MCExpr *Imm, const MCExpr *Sym,
                SMLoc StartLoc, SMLoc EndLoc) {
@@ -210,12 +223,6 @@ public:
   unsigned getReg() const override {
     assert(Kind == KindReg && "Not a register");
     return Reg.Num;
-  }
-
-  // Access register operands.  Access registers aren't exposed to LLVM
-  // as registers.
-  bool isAccessReg() const {
-    return Kind == KindAccessReg;
   }
 
   // Immediate operands.
@@ -269,11 +276,6 @@ public:
   void addRegOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands");
     Inst.addOperand(MCOperand::createReg(getReg()));
-  }
-  void addAccessRegOperands(MCInst &Inst, unsigned N) const {
-    assert(N == 1 && "Invalid number of operands");
-    assert(Kind == KindAccessReg && "Invalid operand type");
-    Inst.addOperand(MCOperand::createImm(AccessReg));
   }
   void addImmOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands");
@@ -337,6 +339,7 @@ public:
   bool isVR64() const { return isReg(VR64Reg); }
   bool isVF128() const { return false; }
   bool isVR128() const { return isReg(VR128Reg); }
+  bool isAR32() const { return isReg(AR32Reg); }
   bool isAnyReg() const { return (isReg() || isImm(0, 15)); }
   bool isBDAddr32Disp12() const { return isMemDisp12(BDMem, ADDR32Reg); }
   bool isBDAddr32Disp20() const { return isMemDisp20(BDMem, ADDR32Reg); }
@@ -372,7 +375,7 @@ private:
     RegGR,
     RegFP,
     RegV,
-    RegAccess
+    RegAR
   };
   struct Register {
     RegisterGroup Group;
@@ -477,6 +480,9 @@ public:
   OperandMatchResultTy parseVR128(OperandVector &Operands) {
     return parseRegister(Operands, RegV, SystemZMC::VR128Regs, VR128Reg);
   }
+  OperandMatchResultTy parseAR32(OperandVector &Operands) {
+    return parseRegister(Operands, RegAR, SystemZMC::AR32Regs, AR32Reg);
+  }
   OperandMatchResultTy parseAnyReg(OperandVector &Operands) {
     return parseAnyRegister(Operands);
   }
@@ -498,9 +504,14 @@ public:
   OperandMatchResultTy parseBDVAddr64(OperandVector &Operands) {
     return parseAddress(Operands, BDVMem, SystemZMC::GR64Regs, ADDR64Reg);
   }
-  OperandMatchResultTy parseAccessReg(OperandVector &Operands);
+  OperandMatchResultTy parsePCRel12(OperandVector &Operands) {
+    return parsePCRel(Operands, -(1LL << 12), (1LL << 12) - 1, false);
+  }
   OperandMatchResultTy parsePCRel16(OperandVector &Operands) {
     return parsePCRel(Operands, -(1LL << 16), (1LL << 16) - 1, false);
+  }
+  OperandMatchResultTy parsePCRel24(OperandVector &Operands) {
+    return parsePCRel(Operands, -(1LL << 24), (1LL << 24) - 1, false);
   }
   OperandMatchResultTy parsePCRel32(OperandVector &Operands) {
     return parsePCRel(Operands, -(1LL << 32), (1LL << 32) - 1, false);
@@ -512,6 +523,7 @@ public:
     return parsePCRel(Operands, -(1LL << 32), (1LL << 32) - 1, true);
   }
 };
+
 } // end anonymous namespace
 
 #define GET_REGISTER_MATCHER
@@ -631,7 +643,7 @@ bool SystemZAsmParser::parseRegister(Register &Reg) {
   else if (Prefix == 'v' && Reg.Num < 32)
     Reg.Group = RegV;
   else if (Prefix == 'a' && Reg.Num < 16)
-    Reg.Group = RegAccess;
+    Reg.Group = RegAR;
   else
     return Error(Reg.StartLoc, "invalid register");
 
@@ -720,6 +732,10 @@ SystemZAsmParser::parseAnyRegister(OperandVector &Operands) {
     else if (Reg.Group == RegV) {
       Kind = VR128Reg;
       RegNo = SystemZMC::VR128Regs[Reg.Num];
+    }
+    else if (Reg.Group == RegAR) {
+      Kind = AR32Reg;
+      RegNo = SystemZMC::AR32Regs[Reg.Num];
     }
     else {
       return MatchOperand_ParseFail;
@@ -1034,9 +1050,8 @@ bool SystemZAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
     RegNo = SystemZMC::FP64Regs[Reg.Num];
   else if (Reg.Group == RegV)
     RegNo = SystemZMC::VR128Regs[Reg.Num];
-  else
-    // FIXME: Access registers aren't modelled as LLVM registers yet.
-    return Error(Reg.StartLoc, "invalid operand for instruction");
+  else if (Reg.Group == RegAR)
+    RegNo = SystemZMC::AR32Regs[Reg.Num];
   StartLoc = Reg.StartLoc;
   EndLoc = Reg.EndLoc;
   return false;
@@ -1181,21 +1196,6 @@ bool SystemZAsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   }
 
   llvm_unreachable("Unexpected match type");
-}
-
-OperandMatchResultTy
-SystemZAsmParser::parseAccessReg(OperandVector &Operands) {
-  if (Parser.getTok().isNot(AsmToken::Percent))
-    return MatchOperand_NoMatch;
-
-  Register Reg;
-  if (parseRegister(Reg, RegAccess, nullptr))
-    return MatchOperand_ParseFail;
-
-  Operands.push_back(SystemZOperand::createAccessReg(Reg.Num,
-                                                     Reg.StartLoc,
-                                                     Reg.EndLoc));
-  return MatchOperand_Success;
 }
 
 OperandMatchResultTy

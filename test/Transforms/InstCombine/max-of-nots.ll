@@ -34,13 +34,15 @@ define i32 @compute_min_3(i32 %x, i32 %y, i32 %z) {
   ret i32 %min
 }
 
+; Don't increase the critical path by moving the 'not' op after the 'select'.
+
 define i32 @compute_min_arithmetic(i32 %x, i32 %y) {
 ; CHECK-LABEL: @compute_min_arithmetic(
-; CHECK-NEXT:    [[TMP1:%.*]] = add i32 %x, -4
-; CHECK-NEXT:    [[TMP2:%.*]] = icmp slt i32 [[TMP1]], %y
-; CHECK-NEXT:    [[TMP3:%.*]] = select i1 [[TMP2]], i32 [[TMP1]], i32 %y
-; CHECK-NEXT:    [[TMP4:%.*]] = xor i32 [[TMP3]], -1
-; CHECK-NEXT:    ret i32 [[TMP4]]
+; CHECK-NEXT:    [[NOT_VALUE:%.*]] = sub i32 3, %x
+; CHECK-NEXT:    [[NOT_Y:%.*]] = xor i32 %y, -1
+; CHECK-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[NOT_VALUE]], [[NOT_Y]]
+; CHECK-NEXT:    [[NOT_MIN:%.*]] = select i1 [[CMP]], i32 [[NOT_VALUE]], i32 [[NOT_Y]]
+; CHECK-NEXT:    ret i32 [[NOT_MIN]]
 ;
   %not_value = sub i32 3, %x
   %not_y = sub i32 -1, %y
@@ -86,6 +88,28 @@ define i32 @max_of_nots(i32 %x, i32 %y) {
   %c1 = icmp slt i32 %s0, %xor_x
   %smax96 = select i1 %c1, i32 %xor_x, i32 %s0
   ret i32 %smax96
+}
+
+ ; negative test case (i.e. can not simplify) : ABS(MIN(NOT x,y))
+define i32 @abs_of_min_of_not(i32 %x, i32 %y) {
+; CHECK-LABEL: @abs_of_min_of_not(
+; CHECK-NEXT: xor
+; CHECK-NEXT: add
+; CHECK-NEXT: icmp sge
+; CHECK-NEXT: select
+; CHECK-NEXT: icmp sgt
+; CHECK-NEXT: sub
+; CHECK-NEXT: select
+; CHECK-NEXT: ret
+
+  %xord = xor i32 %x, -1
+  %yadd = add i32 %y, 2
+  %cond.i = icmp sge i32 %yadd, %xord
+  %min = select i1 %cond.i, i32 %xord, i32 %yadd
+  %cmp2 = icmp sgt i32 %min, -1
+  %sub = sub i32 0, %min
+  %abs = select i1 %cmp2, i32 %min, i32 %sub
+  ret i32  %abs
 }
 
 define <2 x i32> @max_of_nots_vec(<2 x i32> %x, <2 x i32> %y) {

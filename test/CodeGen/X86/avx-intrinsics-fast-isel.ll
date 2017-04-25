@@ -605,13 +605,13 @@ declare <8 x float> @llvm.x86.avx.cvtdq2.ps.256(<8 x i32>) nounwind readnone
 define <2 x i64> @test_mm256_cvtpd_epi32(<4 x double> %a0) nounwind {
 ; X32-LABEL: test_mm256_cvtpd_epi32:
 ; X32:       # BB#0:
-; X32-NEXT:    vcvtpd2dqy %ymm0, %xmm0
+; X32-NEXT:    vcvtpd2dq %ymm0, %xmm0
 ; X32-NEXT:    vzeroupper
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm256_cvtpd_epi32:
 ; X64:       # BB#0:
-; X64-NEXT:    vcvtpd2dqy %ymm0, %xmm0
+; X64-NEXT:    vcvtpd2dq %ymm0, %xmm0
 ; X64-NEXT:    vzeroupper
 ; X64-NEXT:    retq
   %cvt = call <4 x i32> @llvm.x86.avx.cvt.pd2dq.256(<4 x double> %a0)
@@ -623,13 +623,13 @@ declare <4 x i32> @llvm.x86.avx.cvt.pd2dq.256(<4 x double>) nounwind readnone
 define <4 x float> @test_mm256_cvtpd_ps(<4 x double> %a0) nounwind {
 ; X32-LABEL: test_mm256_cvtpd_ps:
 ; X32:       # BB#0:
-; X32-NEXT:    vcvtpd2psy %ymm0, %xmm0
+; X32-NEXT:    vcvtpd2ps %ymm0, %xmm0
 ; X32-NEXT:    vzeroupper
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm256_cvtpd_ps:
 ; X64:       # BB#0:
-; X64-NEXT:    vcvtpd2psy %ymm0, %xmm0
+; X64-NEXT:    vcvtpd2ps %ymm0, %xmm0
 ; X64-NEXT:    vzeroupper
 ; X64-NEXT:    retq
   %res = call <4 x float> @llvm.x86.avx.cvt.pd2.ps.256(<4 x double> %a0)
@@ -670,13 +670,13 @@ define <4 x double> @test_mm256_cvtps_pd(<4 x float> %a0) nounwind {
 define <2 x i64> @test_mm256_cvttpd_epi32(<4 x double> %a0) nounwind {
 ; X32-LABEL: test_mm256_cvttpd_epi32:
 ; X32:       # BB#0:
-; X32-NEXT:    vcvttpd2dqy %ymm0, %xmm0
+; X32-NEXT:    vcvttpd2dq %ymm0, %xmm0
 ; X32-NEXT:    vzeroupper
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm256_cvttpd_epi32:
 ; X64:       # BB#0:
-; X64-NEXT:    vcvttpd2dqy %ymm0, %xmm0
+; X64-NEXT:    vcvttpd2dq %ymm0, %xmm0
 ; X64-NEXT:    vzeroupper
 ; X64-NEXT:    retq
   %cvt = call <4 x i32> @llvm.x86.avx.cvtt.pd2dq.256(<4 x double> %a0)
@@ -3310,16 +3310,16 @@ define <8 x float> @test_mm256_sub_ps(<8 x float> %a0, <8 x float> %a1) nounwind
 define i32 @test_mm_testc_pd(<2 x double> %a0, <2 x double> %a1) nounwind {
 ; X32-LABEL: test_mm_testc_pd:
 ; X32:       # BB#0:
+; X32-NEXT:    xorl %eax, %eax
 ; X32-NEXT:    vtestpd %xmm1, %xmm0
-; X32-NEXT:    sbbl %eax, %eax
-; X32-NEXT:    andl $1, %eax
+; X32-NEXT:    setb %al
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm_testc_pd:
 ; X64:       # BB#0:
+; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    vtestpd %xmm1, %xmm0
-; X64-NEXT:    sbbl %eax, %eax
-; X64-NEXT:    andl $1, %eax
+; X64-NEXT:    setb %al
 ; X64-NEXT:    retq
   %res = call i32 @llvm.x86.avx.vtestc.pd(<2 x double> %a0, <2 x double> %a1)
   ret i32 %res
@@ -3329,17 +3329,17 @@ declare i32 @llvm.x86.avx.vtestc.pd(<2 x double>, <2 x double>) nounwind readnon
 define i32 @test_mm256_testc_pd(<4 x double> %a0, <4 x double> %a1) nounwind {
 ; X32-LABEL: test_mm256_testc_pd:
 ; X32:       # BB#0:
+; X32-NEXT:    xorl %eax, %eax
 ; X32-NEXT:    vtestpd %ymm1, %ymm0
-; X32-NEXT:    sbbl %eax, %eax
-; X32-NEXT:    andl $1, %eax
+; X32-NEXT:    setb %al
 ; X32-NEXT:    vzeroupper
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm256_testc_pd:
 ; X64:       # BB#0:
+; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    vtestpd %ymm1, %ymm0
-; X64-NEXT:    sbbl %eax, %eax
-; X64-NEXT:    andl $1, %eax
+; X64-NEXT:    setb %al
 ; X64-NEXT:    vzeroupper
 ; X64-NEXT:    retq
   %res = call i32 @llvm.x86.avx.vtestc.pd.256(<4 x double> %a0, <4 x double> %a1)
@@ -3350,16 +3350,16 @@ declare i32 @llvm.x86.avx.vtestc.pd.256(<4 x double>, <4 x double>) nounwind rea
 define i32 @test_mm_testc_ps(<4 x float> %a0, <4 x float> %a1) nounwind {
 ; X32-LABEL: test_mm_testc_ps:
 ; X32:       # BB#0:
+; X32-NEXT:    xorl %eax, %eax
 ; X32-NEXT:    vtestps %xmm1, %xmm0
-; X32-NEXT:    sbbl %eax, %eax
-; X32-NEXT:    andl $1, %eax
+; X32-NEXT:    setb %al
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm_testc_ps:
 ; X64:       # BB#0:
+; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    vtestps %xmm1, %xmm0
-; X64-NEXT:    sbbl %eax, %eax
-; X64-NEXT:    andl $1, %eax
+; X64-NEXT:    setb %al
 ; X64-NEXT:    retq
   %res = call i32 @llvm.x86.avx.vtestc.ps(<4 x float> %a0, <4 x float> %a1)
   ret i32 %res
@@ -3369,17 +3369,17 @@ declare i32 @llvm.x86.avx.vtestc.ps(<4 x float>, <4 x float>) nounwind readnone
 define i32 @test_mm256_testc_ps(<8 x float> %a0, <8 x float> %a1) nounwind {
 ; X32-LABEL: test_mm256_testc_ps:
 ; X32:       # BB#0:
+; X32-NEXT:    xorl %eax, %eax
 ; X32-NEXT:    vtestps %ymm1, %ymm0
-; X32-NEXT:    sbbl %eax, %eax
-; X32-NEXT:    andl $1, %eax
+; X32-NEXT:    setb %al
 ; X32-NEXT:    vzeroupper
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm256_testc_ps:
 ; X64:       # BB#0:
+; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    vtestps %ymm1, %ymm0
-; X64-NEXT:    sbbl %eax, %eax
-; X64-NEXT:    andl $1, %eax
+; X64-NEXT:    setb %al
 ; X64-NEXT:    vzeroupper
 ; X64-NEXT:    retq
   %res = call i32 @llvm.x86.avx.vtestc.ps.256(<8 x float> %a0, <8 x float> %a1)
@@ -3390,17 +3390,17 @@ declare i32 @llvm.x86.avx.vtestc.ps.256(<8 x float>, <8 x float>) nounwind readn
 define i32 @test_mm256_testc_si256(<4 x i64> %a0, <4 x i64> %a1) nounwind {
 ; X32-LABEL: test_mm256_testc_si256:
 ; X32:       # BB#0:
+; X32-NEXT:    xorl %eax, %eax
 ; X32-NEXT:    vptest %ymm1, %ymm0
-; X32-NEXT:    sbbl %eax, %eax
-; X32-NEXT:    andl $1, %eax
+; X32-NEXT:    setb %al
 ; X32-NEXT:    vzeroupper
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm256_testc_si256:
 ; X64:       # BB#0:
+; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    vptest %ymm1, %ymm0
-; X64-NEXT:    sbbl %eax, %eax
-; X64-NEXT:    andl $1, %eax
+; X64-NEXT:    setb %al
 ; X64-NEXT:    vzeroupper
 ; X64-NEXT:    retq
   %res = call i32 @llvm.x86.avx.ptestc.256(<4 x i64> %a0, <4 x i64> %a1)

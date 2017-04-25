@@ -98,11 +98,13 @@ enum Kind {
   kw_ninf,
   kw_nsz,
   kw_arcp,
+  kw_contract,
   kw_fast,
   kw_nuw,
   kw_nsw,
   kw_exact,
   kw_inbounds,
+  kw_inrange,
   kw_align,
   kw_addrspace,
   kw_section,
@@ -352,6 +354,7 @@ enum Kind {
   DwarfOp,          // DW_OP_foo
   DIFlag,           // DIFlagFoo
   DwarfMacinfo,     // DW_MACINFO_foo
+  ChecksumKind,     // CSK_foo
 
   // Type valued tokens (TyVal).
   Type,

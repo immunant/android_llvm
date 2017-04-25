@@ -82,6 +82,12 @@ class SOP1_0_32 <string opName, list<dag> pattern = []> : SOP1_Pseudo <
   let has_sdst = 0;
 }
 
+class SOP1_0_32R <string opName, list<dag> pattern = []> : SOP1_Pseudo <
+  opName, (outs), (ins SReg_32:$src0),
+  "$src0", pattern> {
+  let has_sdst = 0;
+}
+
 class SOP1_64 <string opName, list<dag> pattern=[]> : SOP1_Pseudo <
   opName, (outs SReg_64:$sdst), (ins SSrc_b64:$src0),
   "$sdst, $src0", pattern
@@ -210,7 +216,7 @@ def S_MOVRELD_B32 : SOP1_32 <"s_movreld_b32">;
 def S_MOVRELD_B64 : SOP1_64 <"s_movreld_b64">;
 } // End Uses = [M0]
 
-def S_CBRANCH_JOIN : SOP1_1  <"s_cbranch_join">;
+def S_CBRANCH_JOIN : SOP1_0_32R <"s_cbranch_join">;
 def S_MOV_REGRD_B32 : SOP1_32 <"s_mov_regrd_b32">;
 let Defs = [SCC] in {
 def S_ABS_I32 : SOP1_32 <"s_abs_i32">;
@@ -438,6 +444,22 @@ let Defs = [SCC] in {
 def S_ABSDIFF_I32 : SOP2_32 <"s_absdiff_i32">;
 } // End Defs = [SCC]
 
+let SubtargetPredicate = isVI in {
+  def S_RFE_RESTORE_B64 : SOP2_Pseudo <
+    "s_rfe_restore_b64", (outs),
+    (ins SSrc_b64:$src0, SSrc_b32:$src1),
+    "$src0, $src1"
+  > {
+    let hasSideEffects = 1;
+    let has_sdst = 0;
+  }
+}
+
+let SubtargetPredicate = isGFX9 in {
+  def S_PACK_LL_B32_B16 : SOP2_32<"s_pack_ll_b32_b16">;
+  def S_PACK_LH_B32_B16 : SOP2_32<"s_pack_lh_b32_b16">;
+  def S_PACK_HH_B32_B16 : SOP2_32<"s_pack_hh_b32_b16">;
+}
 
 //===----------------------------------------------------------------------===//
 // SOPK Instructions
@@ -590,10 +612,13 @@ def S_GETREG_B32 : SOPK_Pseudo <
 >;
 }
 
+let hasSideEffects = 1 in {
+
 def S_SETREG_B32 : SOPK_Pseudo <
   "s_setreg_b32",
   (outs), (ins SReg_32:$sdst, hwreg:$simm16),
-  "$simm16, $sdst"
+  "$simm16, $sdst",
+  [(AMDGPUsetreg i32:$sdst, (i16 timm:$simm16))]
 >;
 
 // FIXME: Not on SI?
@@ -607,6 +632,7 @@ def S_SETREG_IMM32_B32 : SOPK_Pseudo <
   let has_sdst = 0;
 }
 
+} // End hasSideEffects = 1
 
 //===----------------------------------------------------------------------===//
 // SOPC Instructions
@@ -747,6 +773,14 @@ def S_ENDPGM : SOPP <0x00000001, (ins), "s_endpgm",
   let isReturn = 1;
 }
 
+let SubtargetPredicate = isVI in {
+def S_ENDPGM_SAVED : SOPP <0x0000001B, (ins), "s_endpgm_saved"> {
+  let simm16 = 0;
+  let isBarrier = 1;
+  let isReturn = 1;
+}
+}
+
 let isBranch = 1, SchedRW = [WriteBranch] in {
 def S_BRANCH : SOPP <
   0x00000002, (ins sopp_brtarget:$simm16), "s_branch $simm16",
@@ -788,6 +822,25 @@ def S_CBRANCH_EXECNZ : SOPP <
 >;
 } // End Uses = [EXEC]
 
+def S_CBRANCH_CDBGSYS : SOPP <
+  0x00000017, (ins sopp_brtarget:$simm16),
+  "s_cbranch_cdbgsys $simm16"
+>;
+
+def S_CBRANCH_CDBGSYS_AND_USER : SOPP <
+  0x0000001A, (ins sopp_brtarget:$simm16),
+  "s_cbranch_cdbgsys_and_user $simm16"
+>;
+
+def S_CBRANCH_CDBGSYS_OR_USER : SOPP <
+  0x00000019, (ins sopp_brtarget:$simm16),
+  "s_cbranch_cdbgsys_or_user $simm16"
+>;
+
+def S_CBRANCH_CDBGUSER : SOPP <
+  0x00000018, (ins sopp_brtarget:$simm16),
+  "s_cbranch_cdbguser $simm16"
+>;
 
 } // End isBranch = 1
 } // End isTerminator = 1
@@ -802,9 +855,18 @@ def S_BARRIER : SOPP <0x0000000a, (ins), "s_barrier",
   let isConvergent = 1;
 }
 
+let SubtargetPredicate = isVI in {
+def S_WAKEUP : SOPP <0x00000003, (ins), "s_wakeup"> {
+  let simm16 = 0;
+  let mayLoad = 1;
+  let mayStore = 1;
+}
+}
+
 let mayLoad = 1, mayStore = 1, hasSideEffects = 1 in
 def S_WAITCNT : SOPP <0x0000000c, (ins WAIT_FLAG:$simm16), "s_waitcnt $simm16">;
 def S_SETHALT : SOPP <0x0000000d, (ins i16imm:$simm16), "s_sethalt $simm16">;
+def S_SETKILL : SOPP <0x0000000b, (ins i16imm:$simm16), "s_setkill $simm16">;
 
 // On SI the documentation says sleep for approximately 64 * low 2
 // bits, consistent with the reported maximum of 448. On VI the
@@ -824,9 +886,12 @@ let Uses = [EXEC, M0] in {
 def S_SENDMSG : SOPP <0x00000010, (ins SendMsgImm:$simm16), "s_sendmsg $simm16",
   [(AMDGPUsendmsg (i32 imm:$simm16))]
 >;
+
+def S_SENDMSGHALT : SOPP <0x00000011, (ins SendMsgImm:$simm16), "s_sendmsghalt $simm16",
+  [(AMDGPUsendmsghalt (i32 imm:$simm16))]
+>;
 } // End Uses = [EXEC, M0]
 
-def S_SENDMSGHALT : SOPP <0x00000011, (ins SendMsgImm:$simm16), "s_sendmsghalt $simm16">;
 def S_TRAP : SOPP <0x00000012, (ins i16imm:$simm16), "s_trap $simm16">;
 def S_ICACHE_INV : SOPP <0x00000013, (ins), "s_icache_inv"> {
   let simm16 = 0;
@@ -879,13 +944,25 @@ def : Pat <
   (i64 (ctpop i64:$src)),
     (i64 (REG_SEQUENCE SReg_64,
      (i32 (COPY_TO_REGCLASS (S_BCNT1_I32_B64 $src), SReg_32)), sub0,
-     (S_MOV_B32 0), sub1))
+     (S_MOV_B32 (i32 0)), sub1))
 >;
 
 def : Pat <
   (i32 (smax i32:$x, (i32 (ineg i32:$x)))),
   (S_ABS_I32 $x)
 >;
+
+def : Pat <
+  (i16 imm:$imm),
+  (S_MOV_B32 imm:$imm)
+>;
+
+// Same as a 32-bit inreg
+def : Pat<
+  (i32 (sext i16:$src)),
+  (S_SEXT_I32_I16 $src)
+>;
+
 
 //===----------------------------------------------------------------------===//
 // SOP2 Patterns
@@ -897,6 +974,29 @@ def : Pat <
   (i32 (addc i32:$src0, i32:$src1)),
   (S_ADD_U32 $src0, $src1)
 >;
+
+// FIXME: We need to use COPY_TO_REGCLASS to work-around the fact that
+// REG_SEQUENCE patterns don't support instructions with multiple
+// outputs.
+def : Pat<
+  (i64 (zext i16:$src)),
+    (REG_SEQUENCE SReg_64,
+      (i32 (COPY_TO_REGCLASS (S_AND_B32 $src, (S_MOV_B32 (i32 0xffff))), SGPR_32)), sub0,
+      (S_MOV_B32 (i32 0)), sub1)
+>;
+
+def : Pat <
+  (i64 (sext i16:$src)),
+    (REG_SEQUENCE SReg_64, (i32 (S_SEXT_I32_I16 $src)), sub0,
+    (i32 (COPY_TO_REGCLASS (S_ASHR_I32 (i32 (S_SEXT_I32_I16 $src)), (S_MOV_B32 (i32 31))), SGPR_32)), sub1)
+>;
+
+def : Pat<
+  (i32 (zext i16:$src)),
+  (S_AND_B32 (S_MOV_B32 (i32 0xffff)), $src)
+>;
+
+
 
 //===----------------------------------------------------------------------===//
 // SOPP Patterns
@@ -1165,6 +1265,10 @@ def S_BFE_U64_vi           : SOP2_Real_vi <0x27, S_BFE_U64>;
 def S_BFE_I64_vi           : SOP2_Real_vi <0x28, S_BFE_I64>;
 def S_CBRANCH_G_FORK_vi    : SOP2_Real_vi <0x29, S_CBRANCH_G_FORK>;
 def S_ABSDIFF_I32_vi       : SOP2_Real_vi <0x2a, S_ABSDIFF_I32>;
+def S_PACK_LL_B32_B16_vi   : SOP2_Real_vi <0x32, S_PACK_LL_B32_B16>;
+def S_PACK_LH_B32_B16_vi   : SOP2_Real_vi <0x33, S_PACK_LH_B32_B16>;
+def S_PACK_HH_B32_B16_vi   : SOP2_Real_vi <0x34, S_PACK_HH_B32_B16>;
+def S_RFE_RESTORE_B64_vi   : SOP2_Real_vi <0x2b, S_RFE_RESTORE_B64>;
 
 def S_MOVK_I32_vi          : SOPK_Real_vi <0x00, S_MOVK_I32>;
 def S_CMOVK_I32_vi         : SOPK_Real_vi <0x01, S_CMOVK_I32>;

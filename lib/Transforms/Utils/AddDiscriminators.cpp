@@ -102,6 +102,10 @@ FunctionPass *llvm::createAddDiscriminatorsPass() {
   return new AddDiscriminatorsLegacyPass();
 }
 
+static bool shouldHaveDiscriminator(const Instruction *I) {
+  return !isa<IntrinsicInst>(I) || isa<MemIntrinsic>(I);
+}
+
 /// \brief Assign DWARF discriminators.
 ///
 /// To assign discriminators, we examine the boundaries of every
@@ -176,7 +180,13 @@ static bool addDiscriminators(Function &F) {
   // discriminator for this instruction.
   for (BasicBlock &B : F) {
     for (auto &I : B.getInstList()) {
-      if (isa<IntrinsicInst>(&I))
+      // Not all intrinsic calls should have a discriminator.
+      // We want to avoid a non-deterministic assignment of discriminators at
+      // different debug levels. We still allow discriminators on memory
+      // intrinsic calls because those can be early expanded by SROA into
+      // pairs of loads and stores, and the expanded load/store instructions
+      // should have a valid discriminator.
+      if (!shouldHaveDiscriminator(&I))
         continue;
       const DILocation *DIL = I.getDebugLoc();
       if (!DIL)
@@ -188,12 +198,13 @@ static bool addDiscriminators(Function &F) {
         continue;
       // If we could insert more than one block with the same line+file, a
       // discriminator is needed to distinguish both instructions.
+      // Only the lowest 7 bits are used to represent a discriminator to fit
+      // it in 1 byte ULEB128 representation.
       unsigned Discriminator = R.second ? ++LDM[L] : LDM[L];
-      I.setDebugLoc(DIL->cloneWithDiscriminator(Discriminator));
+      I.setDebugLoc(DIL->setBaseDiscriminator(Discriminator));
       DEBUG(dbgs() << DIL->getFilename() << ":" << DIL->getLine() << ":"
-                   << DIL->getColumn() << ":"
-                   << Discriminator << " "
-                   << I << "\n");
+                   << DIL->getColumn() << ":" << Discriminator << " " << I
+                   << "\n");
       Changed = true;
     }
   }
@@ -206,6 +217,10 @@ static bool addDiscriminators(Function &F) {
     LocationSet CallLocations;
     for (auto &I : B.getInstList()) {
       CallInst *Current = dyn_cast<CallInst>(&I);
+      // We bypass intrinsic calls for the following two reasons:
+      //  1) We want to avoid a non-deterministic assigment of
+      //     discriminators.
+      //  2) We want to minimize the number of base discriminators used.
       if (!Current || isa<IntrinsicInst>(&I))
         continue;
 
@@ -215,7 +230,8 @@ static bool addDiscriminators(Function &F) {
       Location L =
           std::make_pair(CurrentDIL->getFilename(), CurrentDIL->getLine());
       if (!CallLocations.insert(L).second) {
-        Current->setDebugLoc(CurrentDIL->cloneWithDiscriminator(++LDM[L]));
+        unsigned Discriminator = ++LDM[L];
+        Current->setDebugLoc(CurrentDIL->setBaseDiscriminator(Discriminator));
         Changed = true;
       }
     }

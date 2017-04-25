@@ -48,9 +48,15 @@ function (add_sphinx_target builder project)
     # Handle installation
     if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
       if (builder STREQUAL man)
+        if (CMAKE_INSTALL_MANDIR)
+          set(INSTALL_MANDIR ${CMAKE_INSTALL_MANDIR}/)
+        else()
+          set(INSTALL_MANDIR share/man/)
+        endif()
         # FIXME: We might not ship all the tools that these man pages describe
         install(DIRECTORY "${SPHINX_BUILD_DIR}/" # Slash indicates contents of
-                DESTINATION share/man/man1)
+                COMPONENT "${project}-sphinx-man"
+                DESTINATION ${INSTALL_MANDIR}man1)
 
       elseif (builder STREQUAL html)
         string(TOUPPER "${project}" project_upper)
@@ -61,6 +67,7 @@ function (add_sphinx_target builder project)
         # the specified destination, without recreating the last component
         # of ${SPHINX_BUILD_DIR} implicitly.
         install(DIRECTORY "${SPHINX_BUILD_DIR}/."
+                COMPONENT "${project}-sphinx-html"
                 DESTINATION "${${project_upper}_INSTALL_SPHINX_HTML_DIR}")
       else()
         message(WARNING Installation of ${builder} not supported)

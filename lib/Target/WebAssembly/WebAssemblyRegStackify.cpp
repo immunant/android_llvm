@@ -30,6 +30,7 @@
 #include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/Debug.h"
@@ -87,6 +88,37 @@ static void ImposeStackOrdering(MachineInstr *MI) {
                                              /*isImp=*/true));
 }
 
+// Convert an IMPLICIT_DEF instruction into an instruction which defines
+// a constant zero value.
+static void ConvertImplicitDefToConstZero(MachineInstr *MI,
+                                          MachineRegisterInfo &MRI,
+                                          const TargetInstrInfo *TII,
+                                          MachineFunction &MF) {
+  assert(MI->getOpcode() == TargetOpcode::IMPLICIT_DEF);
+
+  const auto *RegClass =
+      MRI.getRegClass(MI->getOperand(0).getReg());
+  if (RegClass == &WebAssembly::I32RegClass) {
+    MI->setDesc(TII->get(WebAssembly::CONST_I32));
+    MI->addOperand(MachineOperand::CreateImm(0));
+  } else if (RegClass == &WebAssembly::I64RegClass) {
+    MI->setDesc(TII->get(WebAssembly::CONST_I64));
+    MI->addOperand(MachineOperand::CreateImm(0));
+  } else if (RegClass == &WebAssembly::F32RegClass) {
+    MI->setDesc(TII->get(WebAssembly::CONST_F32));
+    ConstantFP *Val = cast<ConstantFP>(Constant::getNullValue(
+        Type::getFloatTy(MF.getFunction()->getContext())));
+    MI->addOperand(MachineOperand::CreateFPImm(Val));
+  } else if (RegClass == &WebAssembly::F64RegClass) {
+    MI->setDesc(TII->get(WebAssembly::CONST_F64));
+    ConstantFP *Val = cast<ConstantFP>(Constant::getNullValue(
+        Type::getDoubleTy(MF.getFunction()->getContext())));
+    MI->addOperand(MachineOperand::CreateFPImm(Val));
+  } else {
+    llvm_unreachable("Unexpected reg class");
+  }
+}
+
 // Determine whether a call to the callee referenced by
 // MI->getOperand(CalleeOpNo) reads memory, writes memory, and/or has side
 // effects.
@@ -121,7 +153,7 @@ static void QueryCallee(const MachineInstr &MI, unsigned CalleeOpNo, bool &Read,
 }
 
 // Determine whether MI reads memory, writes memory, has side effects,
-// and/or uses the __stack_pointer value.
+// and/or uses the stack pointer value.
 static void Query(const MachineInstr &MI, AliasAnalysis &AA, bool &Read,
                   bool &Write, bool &Effects, bool &StackPointer) {
   assert(!MI.isPosition());
@@ -138,15 +170,28 @@ static void Query(const MachineInstr &MI, AliasAnalysis &AA, bool &Read,
   if (MI.mayStore()) {
     Write = true;
 
-    // Check for stores to __stack_pointer.
-    for (auto MMO : MI.memoperands()) {
-      const MachinePointerInfo &MPI = MMO->getPointerInfo();
-      if (MPI.V.is<const PseudoSourceValue *>()) {
-        auto PSV = MPI.V.get<const PseudoSourceValue *>();
-        if (const ExternalSymbolPseudoSourceValue *EPSV =
-                dyn_cast<ExternalSymbolPseudoSourceValue>(PSV))
-          if (StringRef(EPSV->getSymbol()) == "__stack_pointer")
-            StackPointer = true;
+    const MachineFunction &MF = *MI.getParent()->getParent();
+    if (MF.getSubtarget<WebAssemblySubtarget>()
+          .getTargetTriple().isOSBinFormatELF()) {
+      // Check for stores to __stack_pointer.
+      for (auto MMO : MI.memoperands()) {
+        const MachinePointerInfo &MPI = MMO->getPointerInfo();
+        if (MPI.V.is<const PseudoSourceValue *>()) {
+          auto PSV = MPI.V.get<const PseudoSourceValue *>();
+          if (const ExternalSymbolPseudoSourceValue *EPSV =
+                  dyn_cast<ExternalSymbolPseudoSourceValue>(PSV))
+            if (StringRef(EPSV->getSymbol()) == "__stack_pointer")
+              StackPointer = true;
+        }
+      }
+    } else {
+      // Check for sets of the stack pointer.
+      const MachineModuleInfoWasm &MMIW =
+          MF.getMMI().getObjFileInfo<MachineModuleInfoWasm>();
+      if ((MI.getOpcode() == WebAssembly::SET_LOCAL_I32 ||
+           MI.getOpcode() == WebAssembly::SET_LOCAL_I64) &&
+          MI.getOperand(0).getImm() == MMIW.getStackPointerGlobal()) {
+        StackPointer = true;
       }
     }
   } else if (MI.hasOrderedMemoryRef()) {
@@ -790,6 +835,12 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
           // Proceed to the next operand.
           continue;
         }
+
+        // If the instruction we just stackified is an IMPLICIT_DEF, convert it
+        // to a constant 0 so that the def is explicit, and the push/pop
+        // correspondence is maintained.
+        if (Insert->getOpcode() == TargetOpcode::IMPLICIT_DEF)
+          ConvertImplicitDefToConstZero(Insert, MRI, TII, MF);
 
         // We stackified an operand. Add the defining instruction's operands to
         // the worklist stack now to continue to build an ever deeper tree.

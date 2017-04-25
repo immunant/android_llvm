@@ -412,7 +412,7 @@ Value *WebAssemblyLowerEmscriptenEHSjLj::wrapInvoke(CallOrInvoke *CI) {
   if (CI->doesNotReturn()) {
     if (auto *F = dyn_cast<Function>(CI->getCalledValue()))
       F->removeFnAttr(Attribute::NoReturn);
-    CI->removeAttribute(AttributeSet::FunctionIndex, Attribute::NoReturn);
+    CI->removeAttribute(AttributeList::FunctionIndex, Attribute::NoReturn);
   }
 
   IRBuilder<> IRB(C);
@@ -436,24 +436,22 @@ Value *WebAssemblyLowerEmscriptenEHSjLj::wrapInvoke(CallOrInvoke *CI) {
   // Because we added the pointer to the callee as first argument, all
   // argument attribute indices have to be incremented by one.
   SmallVector<AttributeSet, 8> AttributesVec;
-  const AttributeSet &InvokePAL = CI->getAttributes();
-  CallSite::arg_iterator AI = CI->arg_begin();
-  unsigned i = 1; // Argument attribute index starts from 1
-  for (unsigned e = CI->getNumArgOperands(); i <= e; ++AI, ++i) {
-    if (InvokePAL.hasAttributes(i)) {
-      AttrBuilder B(InvokePAL, i);
-      AttributesVec.push_back(AttributeSet::get(C, i + 1, B));
-    }
-  }
+  const AttributeList &InvokeAL = CI->getAttributes();
+
   // Add any return attributes.
-  if (InvokePAL.hasAttributes(AttributeSet::ReturnIndex))
-    AttributesVec.push_back(AttributeSet::get(C, InvokePAL.getRetAttributes()));
+  AttributesVec.push_back(InvokeAL.getRetAttributes());
+  // No attributes for the callee pointer.
+  AttributesVec.push_back(AttributeSet());
+  // Copy the argument attributes from the original
+  for (unsigned i = 1, e = CI->getNumArgOperands(); i <= e; ++i) {
+    AttributesVec.push_back(InvokeAL.getParamAttributes(i));
+  }
+
   // Add any function attributes.
-  if (InvokePAL.hasAttributes(AttributeSet::FunctionIndex))
-    AttributesVec.push_back(AttributeSet::get(C, InvokePAL.getFnAttributes()));
+  AttributesVec.push_back(InvokeAL.getFnAttributes());
   // Reconstruct the AttributesList based on the vector we constructed.
-  AttributeSet NewCallPAL = AttributeSet::get(C, AttributesVec);
-  NewCall->setAttributes(NewCallPAL);
+  AttributeList NewCallAL = AttributeList::get(C, AttributesVec);
+  NewCall->setAttributes(NewCallAL);
 
   CI->replaceAllUsesWith(NewCall);
 
@@ -624,7 +622,7 @@ void WebAssemblyLowerEmscriptenEHSjLj::createSetThrewFunction(Module &M) {
   Function *F =
       Function::Create(FTy, GlobalValue::ExternalLinkage, SetThrewFName, &M);
   Argument *Arg1 = &*(F->arg_begin());
-  Argument *Arg2 = &*(++F->arg_begin());
+  Argument *Arg2 = &*std::next(F->arg_begin());
   Arg1->setName("threw");
   Arg2->setName("value");
   BasicBlock *EntryBB = BasicBlock::Create(C, "entry", F);

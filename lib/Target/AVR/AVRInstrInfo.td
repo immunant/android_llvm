@@ -694,7 +694,7 @@ Defs = [SREG] in
 }
 
 //===----------------------------------------------------------------------===//
-// One's/Two's Compliment
+// One's/Two's Complement
 //===----------------------------------------------------------------------===//
 let Constraints = "$src = $rd",
 Defs = [SREG] in
@@ -1207,6 +1207,7 @@ Constraints = "$ptrreg = $base_wb,@earlyclobber $reg,@earlyclobber $base_wb" in
 let canFoldAsLoad = 1,
 isReMaterializable = 1 in
 {
+  let Constraints = "@earlyclobber $reg" in
   def LDDRdPtrQ : FSTDLDD<0,
                           (outs GPR8:$reg),
                           (ins memri:$memri),
@@ -1227,7 +1228,8 @@ isReMaterializable = 1 in
                    Requires<[HasSRAM]>;
 
   let mayLoad = 1,
-  hasSideEffects = 0 in
+  hasSideEffects = 0,
+  Constraints = "@earlyclobber $dst" in
   def LDDWRdYQ : Pseudo<(outs DREGS:$dst),
                         (ins memri:$memri),
                         "lddw\t$dst, $memri",
@@ -1500,7 +1502,7 @@ isReMaterializable = 1 in
                      [(set i8:$dst, (load ioaddr8:$src))]>;
 
   def INWRdA : Pseudo<(outs DREGS:$dst),
-                      (ins i16imm:$src),
+                      (ins imm_port6:$src),
                       "inw\t$dst, $src",
                       [(set i16:$dst, (load ioaddr16:$src))]>;
 }
@@ -1512,7 +1514,7 @@ def OUTARr : FIOARr<(outs),
                     [(store i8:$src, ioaddr8:$dst)]>;
 
 def OUTWARr : Pseudo<(outs),
-                     (ins i16imm:$dst, DREGS:$src),
+                     (ins imm_port6:$dst, DREGS:$src),
                      "outw\t$dst, $src",
                      [(store i16:$src, ioaddr16:$dst)]>;
 
@@ -1716,7 +1718,7 @@ Defs = [SREG] in
                      (implicit SREG)]>;
 
   // CBR Rd, K
-  // Alias for `ANDI Rd, COM(K)` where COM(K) is the compliment of K.
+  // Alias for `ANDI Rd, COM(K)` where COM(K) is the complement of K.
   // FIXME: This uses the 'complement' encoder. We need it to also use the
   // imm_ldi8 encoder. This will cause no fixups to be created on this instruction.
   def CBRRdK : FRdK<0b0111,
