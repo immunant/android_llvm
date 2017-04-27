@@ -47,7 +47,7 @@ public:
   };
 
   /// A mapping of AllocaInsts to their required SSP layout.
-  typedef ValueMap<const AllocaInst *, SSPLayoutKind> SSPLayoutMap;
+  typedef DenseMap<const AllocaInst *, SSPLayoutKind> SSPLayoutMap;
 
 private:
   const TargetMachine *TM = nullptr;
