@@ -1208,7 +1208,7 @@ SparcTargetLowering::LowerCall_64(TargetLowering::CallLoweringInfo &CLI,
     if (VA.isRegLoc()) {
       if (VA.needsCustom() && VA.getValVT() == MVT::f128
           && VA.getLocVT() == MVT::i128) {
-        // Store and reload into the interger register reg and reg+1.
+        // Store and reload into the integer register reg and reg+1.
         unsigned Offset = 8 * (VA.getLocReg() - SP::I0);
         unsigned StackOffset = Offset + Subtarget->getStackPointerBias() + 128;
         SDValue StackPtr = DAG.getRegister(SP::O6, PtrVT);
@@ -1877,6 +1877,7 @@ void SparcTargetLowering::computeKnownBitsForTargetNode
                                 (const SDValue Op,
                                  APInt &KnownZero,
                                  APInt &KnownOne,
+                                 const APInt &DemandedElts,
                                  const SelectionDAG &DAG,
                                  unsigned Depth) const {
   APInt KnownZero2, KnownOne2;
@@ -2177,8 +2178,8 @@ SparcTargetLowering::LowerF128Op(SDValue Op, SelectionDAG &DAG,
     Entry.Node = RetPtr;
     Entry.Ty   = PointerType::getUnqual(RetTy);
     if (!Subtarget->is64Bit())
-      Entry.isSRet = true;
-    Entry.isReturned = false;
+      Entry.IsSRet = true;
+    Entry.IsReturned = false;
     Args.push_back(Entry);
     RetTyABI = Type::getVoidTy(*DAG.getContext());
   }

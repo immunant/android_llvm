@@ -71,7 +71,7 @@ public:
                          std::unique_ptr<MCStreamer> Streamer);
 
   StringRef getPassName() const override {
-    return "ARM Assembly / Object Emitter";
+    return "ARM Assembly Printer";
   }
 
   void printOperand(const MachineInstr *MI, int OpNum, raw_ostream &O);
@@ -113,9 +113,6 @@ public:
   void LowerPATCHABLE_FUNCTION_ENTER(const MachineInstr &MI);
   void LowerPATCHABLE_FUNCTION_EXIT(const MachineInstr &MI);
   void LowerPATCHABLE_TAIL_CALL(const MachineInstr &MI);
-  // Helper function that emits the XRay sleds we've collected for a particular
-  // function.
-  void EmitXRayTable();
 
 private:
   void EmitSled(const MachineInstr &MI, SledKind Kind);

@@ -27,15 +27,12 @@ extern "C" {
 #endif
 
 typedef struct LLVMOpaqueMetadata *LLVMMetadataRef;
-
-// These functions duplicate the LLVM*FunctionAttr functions in the stable C
-// API. We cannot use the existing functions because they take 32-bit attribute
-// values, and the Go bindings expose all of the LLVM attributes, some of which
-// have values >= 1<<32.
-
-void LLVMAddFunctionAttr2(LLVMValueRef Fn, uint64_t PA);
-uint64_t LLVMGetFunctionAttr2(LLVMValueRef Fn);
-void LLVMRemoveFunctionAttr2(LLVMValueRef Fn, uint64_t PA);
+struct LLVMDebugLocMetadata{
+    unsigned Line;
+    unsigned Col;
+    LLVMMetadataRef Scope;
+    LLVMMetadataRef InlinedAt;
+};
 
 LLVMMetadataRef LLVMConstantAsMetadata(LLVMValueRef Val);
 
@@ -54,6 +51,8 @@ void LLVMMetadataReplaceAllUsesWith(LLVMMetadataRef MD, LLVMMetadataRef New);
 void LLVMSetCurrentDebugLocation2(LLVMBuilderRef Bref, unsigned Line,
                                   unsigned Col, LLVMMetadataRef Scope,
                                   LLVMMetadataRef InlinedAt);
+
+struct LLVMDebugLocMetadata LLVMGetCurrentDebugLocation2(LLVMBuilderRef Bref);
 
 void LLVMSetSubprogram(LLVMValueRef Fn, LLVMMetadataRef SP);
 

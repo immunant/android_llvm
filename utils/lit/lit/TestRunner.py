@@ -5,10 +5,12 @@ import platform
 import tempfile
 import threading
 
+from lit.ShCommands import GlobItem
 import lit.ShUtil as ShUtil
 import lit.Test as Test
 import lit.util
 from lit.util import to_bytes, to_string
+from lit.BooleanExpression import BooleanExpression
 
 class InternalShellError(Exception):
     def __init__(self, command, message):
@@ -140,6 +142,17 @@ def executeShCmd(cmd, shenv, results, timeout=0):
 
     return (finalExitCode, timeoutInfo)
 
+def expand_glob(arg, cwd):
+    if isinstance(arg, GlobItem):
+        return arg.resolve(cwd)
+    return [arg]
+
+def expand_glob_expressions(args, cwd):
+    result = [args[0]]
+    for arg in args[1:]:
+        result.extend(expand_glob(arg, cwd))
+    return result
+
 def quote_windows_command(seq):
     """
     Reimplement Python's private subprocess.list2cmdline for MSys compatibility
@@ -196,6 +209,18 @@ def quote_windows_command(seq):
 
     return ''.join(result)
 
+# cmd is export or env
+def updateEnv(env, cmd):
+    arg_idx = 1
+    for arg_idx, arg in enumerate(cmd.args[1:]):
+        # Partition the string into KEY=VALUE.
+        key, eq, val = arg.partition('=')
+        # Stop if there was no equals.
+        if eq == '':
+            break
+        env.env[key] = val
+    cmd.args = cmd.args[arg_idx+1:]
+
 def _executeShCmd(cmd, shenv, results, timeoutHelper):
     if timeoutHelper.timeoutReached():
         # Prevent further recursion if the timeout has been hit
@@ -239,9 +264,17 @@ def _executeShCmd(cmd, shenv, results, timeoutHelper):
         if os.path.isabs(newdir):
             shenv.cwd = newdir
         else:
-            shenv.cwd = os.path.join(shenv.cwd, newdir)
+            shenv.cwd = os.path.realpath(os.path.join(shenv.cwd, newdir))
         # The cd builtin always succeeds. If the directory does not exist, the
         # following Popen calls will fail instead.
+        return 0
+
+    if cmd.commands[0].args[0] == 'export':
+        if len(cmd.commands) != 1:
+            raise ValueError("'export' cannot be part of a pipeline")
+        if len(cmd.commands[0].args) != 2:
+            raise ValueError("'export' supports only one argument")
+        updateEnv(shenv, cmd.commands[0])
         return 0
 
     procs = []
@@ -260,15 +293,7 @@ def _executeShCmd(cmd, shenv, results, timeoutHelper):
             # command. There might be multiple envs in a pipeline:
             #   env FOO=1 llc < %s | env BAR=2 llvm-mc | FileCheck %s
             cmd_shenv = ShellEnvironment(shenv.cwd, shenv.env)
-            arg_idx = 1
-            for arg_idx, arg in enumerate(j.args[1:]):
-                # Partition the string into KEY=VALUE.
-                key, eq, val = arg.partition('=')
-                # Stop if there was no equals.
-                if eq == '':
-                    break
-                cmd_shenv.env[key] = val
-            j.args = j.args[arg_idx+1:]
+            updateEnv(cmd_shenv, j)
 
         # Apply the redirections, we use (N,) as a sentinel to indicate stdin,
         # stdout, stderr for N equal to 0, 1, or 2 respectively. Redirects to or
@@ -312,15 +337,19 @@ def _executeShCmd(cmd, shenv, results, timeoutHelper):
             else:
                 if r[2] is None:
                     redir_filename = None
-                    if kAvoidDevNull and r[0] == '/dev/null':
+                    name = expand_glob(r[0], cmd_shenv.cwd)
+                    if len(name) != 1:
+                       raise InternalShellError(j,"Unsupported: glob in redirect expanded to multiple files")
+                    name = name[0]
+                    if kAvoidDevNull and name == '/dev/null':
                         r[2] = tempfile.TemporaryFile(mode=r[1])
-                    elif kIsWindows and r[0] == '/dev/tty':
+                    elif kIsWindows and name == '/dev/tty':
                         # Simulate /dev/tty on Windows.
                         # "CON" is a special filename for the console.
                         r[2] = open("CON", r[1])
                     else:
                         # Make sure relative paths are relative to the cwd.
-                        redir_filename = os.path.join(cmd_shenv.cwd, r[0])
+                        redir_filename = os.path.join(cmd_shenv.cwd, name)
                         r[2] = open(redir_filename, r[1])
                     # Workaround a Win32 and/or subprocess bug when appending.
                     #
@@ -370,6 +399,9 @@ def _executeShCmd(cmd, shenv, results, timeoutHelper):
                     f.close()
                     named_temp_files.append(f.name)
                     args[i] = f.name
+
+        # Expand all glob expressions
+        args = expand_glob_expressions(args, cmd_shenv.cwd)
 
         # On Windows, do our own command line quoting for better compatibility
         # with some core utility distributions.
@@ -555,8 +587,14 @@ def executeScriptInternal(test, litConfig, tmpBase, commands, cwd):
 
         # Show the error conditions:
         if result.exitCode != 0:
-            out += "error: command failed with exit status: %d\n" % (
-                result.exitCode,)
+            # On Windows, a negative exit code indicates a signal, and those are
+            # easier to recognize or look up if we print them in hex.
+            if litConfig.isWindows and result.exitCode < 0:
+                codeStr = hex(int(result.exitCode & 0xFFFFFFFF)).rstrip("L")
+            else:
+                codeStr = str(result.exitCode)
+            out += "error: command failed with exit status: %s\n" % (
+                codeStr,)
         if litConfig.maxIndividualTestTime > 0:
             out += 'error: command reached timeout: %s\n' % (
                 str(result.timeoutReached),)
@@ -624,7 +662,7 @@ def parseIntegratedTestScriptCommands(source_path, keywords):
     # version.
 
     keywords_re = re.compile(
-        to_bytes("(%s)(.*)\n" % ("|".join(k for k in keywords),)))
+        to_bytes("(%s)(.*)\n" % ("|".join(re.escape(k) for k in keywords),)))
 
     f = open(source_path, 'rb')
     try:
@@ -651,7 +689,7 @@ def parseIntegratedTestScriptCommands(source_path, keywords):
             # Python 2, to avoid other code having to differentiate between the
             # str and unicode types.
             keyword,ln = match.groups()
-            yield (line_number, to_string(keyword[:-1].decode('utf-8')),
+            yield (line_number, to_string(keyword.decode('utf-8')),
                    to_string(ln.decode('utf-8')))
     finally:
         f.close()
@@ -680,11 +718,14 @@ def getDefaultSubstitutions(test, tmpDir, tmpBase, normalize_slashes=False):
     substitutions = []
     substitutions.extend([('%%', '#_MARKER_#')])
     substitutions.extend(test.config.substitutions)
+    tmpName = tmpBase + '.tmp'
+    baseName = os.path.basename(tmpBase)
     substitutions.extend([('%s', sourcepath),
                           ('%S', sourcedir),
                           ('%p', sourcedir),
                           ('%{pathsep}', os.pathsep),
-                          ('%t', tmpBase + '.tmp'),
+                          ('%t', tmpName),
+                          ('%basename_t', baseName),
                           ('%T', tmpDir),
                           ('#_MARKER_#', '%')])
 
@@ -733,56 +774,214 @@ def applySubstitutions(script, substitutions):
     # convert to list before returning.
     return list(map(processLine, script))
 
-def parseIntegratedTestScript(test, require_script=True):
+
+class ParserKind(object):
+    """
+    An enumeration representing the style of an integrated test keyword or
+    command.
+
+    TAG: A keyword taking no value. Ex 'END.'
+    COMMAND: A keyword taking a list of shell commands. Ex 'RUN:'
+    LIST: A keyword taking a comma-separated list of values.
+    BOOLEAN_EXPR: A keyword taking a comma-separated list of 
+        boolean expressions. Ex 'XFAIL:'
+    CUSTOM: A keyword with custom parsing semantics.
+    """
+    TAG = 0
+    COMMAND = 1
+    LIST = 2
+    BOOLEAN_EXPR = 3
+    CUSTOM = 4
+
+    @staticmethod
+    def allowedKeywordSuffixes(value):
+        return { ParserKind.TAG:          ['.'],
+                 ParserKind.COMMAND:      [':'],
+                 ParserKind.LIST:         [':'],
+                 ParserKind.BOOLEAN_EXPR: [':'],
+                 ParserKind.CUSTOM:       [':', '.']
+               } [value]
+
+    @staticmethod
+    def str(value):
+        return { ParserKind.TAG:          'TAG',
+                 ParserKind.COMMAND:      'COMMAND',
+                 ParserKind.LIST:         'LIST',
+                 ParserKind.BOOLEAN_EXPR: 'BOOLEAN_EXPR',
+                 ParserKind.CUSTOM:       'CUSTOM'
+               } [value]
+
+
+class IntegratedTestKeywordParser(object):
+    """A parser for LLVM/Clang style integrated test scripts.
+
+    keyword: The keyword to parse for. It must end in either '.' or ':'.
+    kind: An value of ParserKind.
+    parser: A custom parser. This value may only be specified with
+            ParserKind.CUSTOM.
+    """
+    def __init__(self, keyword, kind, parser=None, initial_value=None):
+        allowedSuffixes = ParserKind.allowedKeywordSuffixes(kind)
+        if len(keyword) == 0 or keyword[-1] not in allowedSuffixes:
+            if len(allowedSuffixes) == 1:
+                raise ValueError("Keyword '%s' of kind '%s' must end in '%s'"
+                                 % (keyword, ParserKind.str(kind),
+                                    allowedSuffixes[0]))
+            else:
+                raise ValueError("Keyword '%s' of kind '%s' must end in "
+                                 " one of '%s'"
+                                 % (keyword, ParserKind.str(kind),
+                                    ' '.join(allowedSuffixes)))
+
+        if parser is not None and kind != ParserKind.CUSTOM:
+            raise ValueError("custom parsers can only be specified with "
+                             "ParserKind.CUSTOM")
+        self.keyword = keyword
+        self.kind = kind
+        self.parsed_lines = []
+        self.value = initial_value
+        self.parser = parser
+
+        if kind == ParserKind.COMMAND:
+            self.parser = self._handleCommand
+        elif kind == ParserKind.LIST:
+            self.parser = self._handleList
+        elif kind == ParserKind.BOOLEAN_EXPR:
+            self.parser = self._handleBooleanExpr
+        elif kind == ParserKind.TAG:
+            self.parser = self._handleTag
+        elif kind == ParserKind.CUSTOM:
+            if parser is None:
+                raise ValueError("ParserKind.CUSTOM requires a custom parser")
+            self.parser = parser
+        else:
+            raise ValueError("Unknown kind '%s'" % kind)
+
+    def parseLine(self, line_number, line):
+        try:
+            self.parsed_lines += [(line_number, line)]
+            self.value = self.parser(line_number, line, self.value)
+        except ValueError as e:
+            raise ValueError(str(e) + ("\nin %s directive on test line %d" %
+                                       (self.keyword, line_number)))
+
+    def getValue(self):
+        return self.value
+
+    @staticmethod
+    def _handleTag(line_number, line, output):
+        """A helper for parsing TAG type keywords"""
+        return (not line.strip() or output)
+
+    @staticmethod
+    def _handleCommand(line_number, line, output):
+        """A helper for parsing COMMAND type keywords"""
+        # Trim trailing whitespace.
+        line = line.rstrip()
+        # Substitute line number expressions
+        line = re.sub('%\(line\)', str(line_number), line)
+
+        def replace_line_number(match):
+            if match.group(1) == '+':
+                return str(line_number + int(match.group(2)))
+            if match.group(1) == '-':
+                return str(line_number - int(match.group(2)))
+        line = re.sub('%\(line *([\+-]) *(\d+)\)', replace_line_number, line)
+        # Collapse lines with trailing '\\'.
+        if output and output[-1][-1] == '\\':
+            output[-1] = output[-1][:-1] + line
+        else:
+            if output is None:
+                output = []
+            output.append(line)
+        return output
+
+    @staticmethod
+    def _handleList(line_number, line, output):
+        """A parser for LIST type keywords"""
+        if output is None:
+            output = []
+        output.extend([s.strip() for s in line.split(',')])
+        return output
+
+    @staticmethod
+    def _handleBooleanExpr(line_number, line, output):
+        """A parser for BOOLEAN_EXPR type keywords"""
+        if output is None:
+            output = []
+        output.extend([s.strip() for s in line.split(',')])
+        # Evaluate each expression to verify syntax.
+        # We don't want any results, just the raised ValueError.
+        for s in output:
+            if s != '*':
+                BooleanExpression.evaluate(s, [])
+        return output
+
+    @staticmethod
+    def _handleRequiresAny(line_number, line, output):
+        """A custom parser to transform REQUIRES-ANY: into REQUIRES:"""
+
+        # Extract the conditions specified in REQUIRES-ANY: as written.
+        conditions = []
+        IntegratedTestKeywordParser._handleList(line_number, line, conditions)
+
+        # Output a `REQUIRES: a || b || c` expression in its place.
+        expression = ' || '.join(conditions)
+        IntegratedTestKeywordParser._handleBooleanExpr(line_number,
+                                                       expression, output)
+        return output
+
+def parseIntegratedTestScript(test, additional_parsers=[],
+                              require_script=True):
     """parseIntegratedTestScript - Scan an LLVM/Clang style integrated test
     script and extract the lines to 'RUN' as well as 'XFAIL' and 'REQUIRES'
-    and 'UNSUPPORTED' information. If 'require_script' is False an empty script
+    and 'UNSUPPORTED' information.
+
+    If additional parsers are specified then the test is also scanned for the
+    keywords they specify and all matches are passed to the custom parser.
+
+    If 'require_script' is False an empty script
     may be returned. This can be used for test formats where the actual script
     is optional or ignored.
     """
+
+    # Install the built-in keyword parsers.
+    script = []
+    builtin_parsers = [
+        IntegratedTestKeywordParser('RUN:', ParserKind.COMMAND,
+                                    initial_value=script),
+        IntegratedTestKeywordParser('XFAIL:', ParserKind.BOOLEAN_EXPR,
+                                    initial_value=test.xfails),
+        IntegratedTestKeywordParser('REQUIRES:', ParserKind.BOOLEAN_EXPR,
+                                    initial_value=test.requires),
+        IntegratedTestKeywordParser('REQUIRES-ANY:', ParserKind.CUSTOM,
+                                    IntegratedTestKeywordParser._handleRequiresAny, 
+                                    initial_value=test.requires), 
+        IntegratedTestKeywordParser('UNSUPPORTED:', ParserKind.BOOLEAN_EXPR,
+                                    initial_value=test.unsupported),
+        IntegratedTestKeywordParser('END.', ParserKind.TAG)
+    ]
+    keyword_parsers = {p.keyword: p for p in builtin_parsers}
+    
+    # Install user-defined additional parsers.
+    for parser in additional_parsers:
+        if not isinstance(parser, IntegratedTestKeywordParser):
+            raise ValueError('additional parser must be an instance of '
+                             'IntegratedTestKeywordParser')
+        if parser.keyword in keyword_parsers:
+            raise ValueError("Parser for keyword '%s' already exists"
+                             % parser.keyword)
+        keyword_parsers[parser.keyword] = parser
+        
     # Collect the test lines from the script.
     sourcepath = test.getSourcePath()
-    script = []
-    requires = []
-    requires_any = []
-    unsupported = []
-    keywords = ['RUN:', 'XFAIL:', 'REQUIRES:', 'REQUIRES-ANY:',
-                'UNSUPPORTED:', 'END.']
     for line_number, command_type, ln in \
-            parseIntegratedTestScriptCommands(sourcepath, keywords):
-        if command_type == 'RUN':
-            # Trim trailing whitespace.
-            ln = ln.rstrip()
-
-            # Substitute line number expressions
-            ln = re.sub('%\(line\)', str(line_number), ln)
-            def replace_line_number(match):
-                if match.group(1) == '+':
-                    return str(line_number + int(match.group(2)))
-                if match.group(1) == '-':
-                    return str(line_number - int(match.group(2)))
-            ln = re.sub('%\(line *([\+-]) *(\d+)\)', replace_line_number, ln)
-
-            # Collapse lines with trailing '\\'.
-            if script and script[-1][-1] == '\\':
-                script[-1] = script[-1][:-1] + ln
-            else:
-                script.append(ln)
-        elif command_type == 'XFAIL':
-            test.xfails.extend([s.strip() for s in ln.split(',')])
-        elif command_type == 'REQUIRES':
-            requires.extend([s.strip() for s in ln.split(',')])
-        elif command_type == 'REQUIRES-ANY':
-            requires_any.extend([s.strip() for s in ln.split(',')])
-        elif command_type == 'UNSUPPORTED':
-            unsupported.extend([s.strip() for s in ln.split(',')])
-        elif command_type == 'END':
-            # END commands are only honored if the rest of the line is empty.
-            if not ln.strip():
-                break
-        else:
-            raise ValueError("unknown script command type: %r" % (
-                    command_type,))
+            parseIntegratedTestScriptCommands(sourcepath,
+                                              keyword_parsers.keys()):
+        parser = keyword_parsers[command_type]
+        parser.parseLine(line_number, ln)
+        if command_type == 'END.' and parser.getValue() is True:
+            break
 
     # Verify the script contains a run line.
     if require_script and not script:
@@ -793,43 +992,32 @@ def parseIntegratedTestScript(test, require_script=True):
         return lit.Test.Result(Test.UNRESOLVED,
                                "Test has unterminated run lines (with '\\')")
 
-    # Check that we have the required features:
-    missing_required_features = [f for f in requires
-                                 if f not in test.config.available_features]
+    # Enforce REQUIRES:
+    missing_required_features = test.getMissingRequiredFeatures()
     if missing_required_features:
         msg = ', '.join(missing_required_features)
         return lit.Test.Result(Test.UNSUPPORTED,
-                               "Test requires the following features: %s" % msg)
-    requires_any_features = [f for f in requires_any
-                             if f in test.config.available_features]
-    if requires_any and not requires_any_features:
-        msg = ' ,'.join(requires_any)
-        return lit.Test.Result(Test.UNSUPPORTED,
-            "Test requires any of the following features: %s" % msg)
-    unsupported_features = [f for f in unsupported
-                            if f in test.config.available_features]
+                               "Test requires the following unavailable "
+                               "features: %s" % msg)
+
+    # Enforce UNSUPPORTED:
+    unsupported_features = test.getUnsupportedFeatures()
     if unsupported_features:
         msg = ', '.join(unsupported_features)
+        return lit.Test.Result(
+            Test.UNSUPPORTED,
+            "Test does not support the following features "
+            "and/or targets: %s" % msg)
+
+    # Enforce limit_to_features.
+    if not test.isWithinFeatureLimits():
+        msg = ', '.join(test.config.limit_to_features)
         return lit.Test.Result(Test.UNSUPPORTED,
-                    "Test is unsupported with the following features: %s" % msg)
-
-    unsupported_targets = [f for f in unsupported
-                           if f in test.suite.config.target_triple]
-    if unsupported_targets:
-      return lit.Test.Result(Test.UNSUPPORTED,
-                  "Test is unsupported with the following triple: %s" % (
-                      test.suite.config.target_triple,))
-
-    if test.config.limit_to_features:
-        # Check that we have one of the limit_to_features features in requires.
-        limit_to_features_tests = [f for f in test.config.limit_to_features
-                                   if f in requires]
-        if not limit_to_features_tests:
-            msg = ', '.join(test.config.limit_to_features)
-            return lit.Test.Result(Test.UNSUPPORTED,
-                 "Test requires one of the limit_to_features features %s" % msg)
+                               "Test does not require any of the features "
+                               "specified in limit_to_features: %s" % msg)
 
     return script
+
 
 def _runShTest(test, litConfig, useExternalSh, script, tmpBase):
     # Create the output directory if it does not already exist.

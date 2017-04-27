@@ -3,8 +3,9 @@ cc_library_static {
     defaults: [
         "llvm-lib-defaults",
     ],
+    // Do not include DIA
     srcs: [
         "*.cpp",
-        "Raw/*.cpp",
+        "Native/*.cpp",
     ],
 }

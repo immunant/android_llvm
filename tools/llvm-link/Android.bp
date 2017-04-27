@@ -8,6 +8,7 @@ cc_binary {
     srcs: ["llvm-link.cpp"],
     static_libs: [
         "libLLVMLinker",
+        "libLLVMipo",
         "libLLVMIRReader",
         "libLLVMObject",
         "libLLVMMC",

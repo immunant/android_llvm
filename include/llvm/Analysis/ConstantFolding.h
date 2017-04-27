@@ -49,8 +49,7 @@ Constant *ConstantFoldInstruction(Instruction *I, const DataLayout &DL,
 
 /// ConstantFoldConstant - Attempt to fold the constant using the
 /// specified DataLayout.
-/// If successful, the constant result is result is returned, if not,
-/// null is returned.
+/// If successful, the constant result is returned, if not, null is returned.
 Constant *ConstantFoldConstant(const Constant *C, const DataLayout &DL,
                                const TargetLibraryInfo *TLI = nullptr);
 
@@ -100,6 +99,12 @@ Constant *ConstantFoldExtractValueInstruction(Constant *Agg,
 /// specified operands and indices.  The constant result is returned if
 /// successful; if not, null is returned.
 Constant *ConstantFoldExtractElementInstruction(Constant *Val, Constant *Idx);
+
+/// \brief Attempt to constant fold a shufflevector instruction with the
+/// specified operands and indices.  The constant result is returned if
+/// successful; if not, null is returned.
+Constant *ConstantFoldShuffleVectorInstruction(Constant *V1, Constant *V2,
+                                               Constant *Mask);
 
 /// ConstantFoldLoadFromConstPtr - Return the value that a load from C would
 /// produce if it is constant and determinable.  If this is not determinable,

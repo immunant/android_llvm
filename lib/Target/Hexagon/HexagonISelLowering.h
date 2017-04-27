@@ -16,16 +16,21 @@
 #define LLVM_LIB_TARGET_HEXAGON_HEXAGONISELLOWERING_H
 
 #include "Hexagon.h"
-#include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/CodeGen/ISDOpcodes.h"
+#include "llvm/CodeGen/MachineValueType.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/CallingConv.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/Target/TargetLowering.h"
+#include <cstdint>
+#include <utility>
 
 namespace llvm {
 
-// Return true when the given node fits in a positive half word.
-bool isPositiveHalfWord(SDNode *N);
+namespace HexagonISD {
 
-  namespace HexagonISD {
     enum NodeType : unsigned {
       OP_BEGIN = ISD::BUILTIN_OP_END,
 
@@ -45,7 +50,6 @@ bool isPositiveHalfWord(SDNode *N);
       JT,          // Jump table.
       CP,          // Constant pool.
 
-      POPCOUNT,
       COMBINE,
       PACKHL,
       VSPLATB,
@@ -81,21 +85,23 @@ bool isPositiveHalfWord(SDNode *N);
       TC_RETURN,
       EH_RETURN,
       DCFETCH,
+      READCYCLE,
 
       OP_END
     };
-  }
+
+} // end namespace HexagonISD
 
   class HexagonSubtarget;
 
   class HexagonTargetLowering : public TargetLowering {
     int VarArgsFrameOffset;   // Frame offset to start of varargs area.
+    const HexagonTargetMachine &HTM;
+    const HexagonSubtarget &Subtarget;
 
     bool CanReturnSmallStruct(const Function* CalleeFn, unsigned& RetSize)
         const;
     void promoteLdStType(MVT VT, MVT PromotedLdStVT);
-    const HexagonTargetMachine &HTM;
-    const HexagonSubtarget &Subtarget;
 
   public:
     explicit HexagonTargetLowering(const TargetMachine &TM,
@@ -140,6 +146,7 @@ bool isPositiveHalfWord(SDNode *N);
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINLINEASM(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerPREFETCH(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerREADCYCLECOUNTER(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEH_LABEL(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEH_RETURN(SDValue Op, SelectionDAG &DAG) const;
     SDValue
@@ -157,7 +164,7 @@ bool isPositiveHalfWord(SDNode *N);
     SDValue LowerToTLSLocalExecModel(GlobalAddressSDNode *GA,
         SelectionDAG &DAG) const;
     SDValue GetDynamicTLSAddr(SelectionDAG &DAG, SDValue Chain,
-        GlobalAddressSDNode *GA, SDValue *InFlag, EVT PtrVT,
+        GlobalAddressSDNode *GA, SDValue InFlag, EVT PtrVT,
         unsigned ReturnReg, unsigned char OperandFlags) const;
     SDValue LowerGLOBAL_OFFSET_TABLE(SDValue Op, SelectionDAG &DAG) const;
 
@@ -173,7 +180,6 @@ bool isPositiveHalfWord(SDNode *N);
 
     SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerVSELECT(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerCTPOP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerATOMIC_FENCE(SDValue Op, SelectionDAG& DAG) const;
     SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
@@ -203,6 +209,7 @@ bool isPositiveHalfWord(SDNode *N);
     SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
+
     EVT getSetCCResultType(const DataLayout &, LLVMContext &C,
                            EVT VT) const override {
       if (!VT.isVector())
@@ -281,6 +288,7 @@ bool isPositiveHalfWord(SDNode *N);
     findRepresentativeClass(const TargetRegisterInfo *TRI, MVT VT)
         const override;
   };
+
 } // end namespace llvm
 
-#endif    // Hexagon_ISELLOWERING_H
+#endif // LLVM_LIB_TARGET_HEXAGON_HEXAGONISELLOWERING_H

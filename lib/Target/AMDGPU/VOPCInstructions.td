@@ -21,6 +21,19 @@ class VOPCe <bits<8> op> : Enc32 {
   let Inst{31-25} = 0x3e;
 }
 
+class VOPC_SDWAe <bits<8> op, VOPProfile P> : VOP_SDWAe <P> {
+  bits<8> src1;
+
+  let Inst{8-0}   = 0xf9; // sdwa
+  let Inst{16-9}  = !if(P.HasSrc1, src1{7-0}, 0);
+  let Inst{24-17} = op;
+  let Inst{31-25} = 0x3e; // encoding
+
+  // VOPC disallows dst_sel and dst_unused as they have no effect on destination
+  let Inst{42-40} = SDWA.DWORD;
+  let Inst{44-43} = SDWA.UNUSED_PRESERVE;
+}
+
 //===----------------------------------------------------------------------===//
 // VOPC classes
 //===----------------------------------------------------------------------===//
@@ -71,12 +84,22 @@ class VOPC_Real <VOPC_Pseudo ps, int EncodingFamily> :
   let isPseudo = 0;
   let isCodeGenOnly = 0;
 
+  let Constraints     = ps.Constraints;
+  let DisableEncoding = ps.DisableEncoding;
+
   // copy relevant pseudo op flags
   let SubtargetPredicate = ps.SubtargetPredicate;
   let AsmMatchConverter  = ps.AsmMatchConverter;
   let Constraints        = ps.Constraints;
   let DisableEncoding    = ps.DisableEncoding;
   let TSFlags            = ps.TSFlags;
+  let UseNamedOperandTable = ps.UseNamedOperandTable;
+  let Uses                 = ps.Uses;
+}
+
+class VOPC_SDWA_Pseudo <string OpName, VOPProfile P, list<dag> pattern=[]> :
+  VOP_SDWA_Pseudo <OpName, P, pattern> {
+  let AsmMatchConverter = "cvtSdwaVOPC";
 }
 
 // This class is used only with VOPC instructions. Use $sdst for out operand
@@ -128,6 +151,7 @@ multiclass VOPC_Pseudos <string opName,
     let isCompare = 1;
     let isCommutable = 1;
   }
+
   def _e64 : VOP3_Pseudo<opName, P,
     !if(P.HasModifiers,
       [(set i1:$sdst,
@@ -142,12 +166,24 @@ multiclass VOPC_Pseudos <string opName,
     let isCompare = 1;
     let isCommutable = 1;
   }
+
+  def _sdwa : VOPC_SDWA_Pseudo <opName, P> {
+    let Defs = !if(DefExec, [VCC, EXEC], [VCC]);
+    let SchedRW = P.Schedule;
+    let isConvergent = DefExec;
+    let isCompare = 1;
+  }
 }
 
+def VOPC_I1_F16_F16 : VOPC_Profile<[Write32Bit], f16>;
 def VOPC_I1_F32_F32 : VOPC_Profile<[Write32Bit], f32>;
 def VOPC_I1_F64_F64 : VOPC_Profile<[WriteDoubleAdd], f64>;
+def VOPC_I1_I16_I16 : VOPC_Profile<[Write32Bit], i16>;
 def VOPC_I1_I32_I32 : VOPC_Profile<[Write32Bit], i32>;
 def VOPC_I1_I64_I64 : VOPC_Profile<[Write64Bit], i64>;
+
+multiclass VOPC_F16 <string opName, PatLeaf cond = COND_NULL, string revOp = opName> :
+  VOPC_Pseudos <opName, VOPC_I1_F16_F16, cond, revOp, 0>;
 
 multiclass VOPC_F32 <string opName, PatLeaf cond = COND_NULL, string revOp = opName> :
   VOPC_Pseudos <opName, VOPC_I1_F32_F32, cond, revOp, 0>;
@@ -155,17 +191,26 @@ multiclass VOPC_F32 <string opName, PatLeaf cond = COND_NULL, string revOp = opN
 multiclass VOPC_F64 <string opName, PatLeaf cond = COND_NULL, string revOp = opName> :
   VOPC_Pseudos <opName, VOPC_I1_F64_F64, cond, revOp, 0>;
 
+multiclass VOPC_I16 <string opName, PatLeaf cond = COND_NULL, string revOp = opName> :
+  VOPC_Pseudos <opName, VOPC_I1_I16_I16, cond, revOp, 0>;
+
 multiclass VOPC_I32 <string opName, PatLeaf cond = COND_NULL, string revOp = opName> :
   VOPC_Pseudos <opName, VOPC_I1_I32_I32, cond, revOp, 0>;
 
 multiclass VOPC_I64 <string opName, PatLeaf cond = COND_NULL, string revOp = opName> :
   VOPC_Pseudos <opName, VOPC_I1_I64_I64, cond, revOp, 0>;
 
+multiclass VOPCX_F16 <string opName, string revOp = opName> :
+  VOPC_Pseudos <opName, VOPC_I1_F16_F16, COND_NULL, revOp, 1>;
+
 multiclass VOPCX_F32 <string opName, string revOp = opName> :
   VOPC_Pseudos <opName, VOPC_I1_F32_F32, COND_NULL, revOp, 1>;
 
 multiclass VOPCX_F64 <string opName, string revOp = opName> :
   VOPC_Pseudos <opName, VOPC_I1_F64_F64, COND_NULL, revOp, 1>;
+
+multiclass VOPCX_I16 <string opName, string revOp = opName> :
+  VOPC_Pseudos <opName, VOPC_I1_I16_I16, COND_NULL, revOp, 1>;
 
 multiclass VOPCX_I32 <string opName, string revOp = opName> :
   VOPC_Pseudos <opName, VOPC_I1_I32_I32, COND_NULL, revOp, 1>;
@@ -204,9 +249,9 @@ defm V_CMPX_LG_F32 : VOPCX_F32 <"v_cmpx_lg_f32">;
 defm V_CMPX_GE_F32 : VOPCX_F32 <"v_cmpx_ge_f32">;
 defm V_CMPX_O_F32 : VOPCX_F32 <"v_cmpx_o_f32">;
 defm V_CMPX_U_F32 : VOPCX_F32 <"v_cmpx_u_f32">;
-defm V_CMPX_NGE_F32 : VOPCX_F32 <"v_cmpx_nge_f32">;
+defm V_CMPX_NGE_F32 : VOPCX_F32 <"v_cmpx_nge_f32", "v_cmpx_nle_f32">;
 defm V_CMPX_NLG_F32 : VOPCX_F32 <"v_cmpx_nlg_f32">;
-defm V_CMPX_NGT_F32 : VOPCX_F32 <"v_cmpx_ngt_f32">;
+defm V_CMPX_NGT_F32 : VOPCX_F32 <"v_cmpx_ngt_f32", "v_cmpx_nlt_f32">;
 defm V_CMPX_NLE_F32 : VOPCX_F32 <"v_cmpx_nle_f32">;
 defm V_CMPX_NEQ_F32 : VOPCX_F32 <"v_cmpx_neq_f32">;
 defm V_CMPX_NLT_F32 : VOPCX_F32 <"v_cmpx_nlt_f32">;
@@ -318,6 +363,80 @@ defm V_CMPSX_TRU_F64 : VOPCX_F64 <"v_cmpsx_tru_f64">;
 
 } // End SubtargetPredicate = isSICI
 
+let SubtargetPredicate = Has16BitInsts in {
+
+defm V_CMP_F_F16    : VOPC_F16 <"v_cmp_f_f16">;
+defm V_CMP_LT_F16   : VOPC_F16 <"v_cmp_lt_f16", COND_OLT, "v_cmp_gt_f16">;
+defm V_CMP_EQ_F16   : VOPC_F16 <"v_cmp_eq_f16", COND_OEQ>;
+defm V_CMP_LE_F16   : VOPC_F16 <"v_cmp_le_f16", COND_OLE, "v_cmp_ge_f16">;
+defm V_CMP_GT_F16   : VOPC_F16 <"v_cmp_gt_f16", COND_OGT>;
+defm V_CMP_LG_F16   : VOPC_F16 <"v_cmp_lg_f16", COND_ONE>;
+defm V_CMP_GE_F16   : VOPC_F16 <"v_cmp_ge_f16", COND_OGE>;
+defm V_CMP_O_F16    : VOPC_F16 <"v_cmp_o_f16", COND_O>;
+defm V_CMP_U_F16    : VOPC_F16 <"v_cmp_u_f16", COND_UO>;
+defm V_CMP_NGE_F16  : VOPC_F16 <"v_cmp_nge_f16", COND_ULT, "v_cmp_nle_f16">;
+defm V_CMP_NLG_F16  : VOPC_F16 <"v_cmp_nlg_f16", COND_UEQ>;
+defm V_CMP_NGT_F16  : VOPC_F16 <"v_cmp_ngt_f16", COND_ULE, "v_cmp_nlt_f16">;
+defm V_CMP_NLE_F16  : VOPC_F16 <"v_cmp_nle_f16", COND_UGT>;
+defm V_CMP_NEQ_F16  : VOPC_F16 <"v_cmp_neq_f16", COND_UNE>;
+defm V_CMP_NLT_F16  : VOPC_F16 <"v_cmp_nlt_f16", COND_UGE>;
+defm V_CMP_TRU_F16  : VOPC_F16 <"v_cmp_tru_f16">;
+
+defm V_CMPX_F_F16   : VOPCX_F16 <"v_cmpx_f_f16">;
+defm V_CMPX_LT_F16  : VOPCX_F16 <"v_cmpx_lt_f16", "v_cmpx_gt_f16">;
+defm V_CMPX_EQ_F16  : VOPCX_F16 <"v_cmpx_eq_f16">;
+defm V_CMPX_LE_F16  : VOPCX_F16 <"v_cmpx_le_f16", "v_cmpx_ge_f16">;
+defm V_CMPX_GT_F16  : VOPCX_F16 <"v_cmpx_gt_f16">;
+defm V_CMPX_LG_F16  : VOPCX_F16 <"v_cmpx_lg_f16">;
+defm V_CMPX_GE_F16  : VOPCX_F16 <"v_cmpx_ge_f16">;
+defm V_CMPX_O_F16   : VOPCX_F16 <"v_cmpx_o_f16">;
+defm V_CMPX_U_F16   : VOPCX_F16 <"v_cmpx_u_f16">;
+defm V_CMPX_NGE_F16 : VOPCX_F16 <"v_cmpx_nge_f16", "v_cmpx_nle_f16">;
+defm V_CMPX_NLG_F16 : VOPCX_F16 <"v_cmpx_nlg_f16">;
+defm V_CMPX_NGT_F16 : VOPCX_F16 <"v_cmpx_ngt_f16", "v_cmpx_nlt_f16">;
+defm V_CMPX_NLE_F16 : VOPCX_F16 <"v_cmpx_nle_f16">;
+defm V_CMPX_NEQ_F16 : VOPCX_F16 <"v_cmpx_neq_f16">;
+defm V_CMPX_NLT_F16 : VOPCX_F16 <"v_cmpx_nlt_f16">;
+defm V_CMPX_TRU_F16 : VOPCX_F16 <"v_cmpx_tru_f16">;
+
+defm V_CMP_F_I16 : VOPC_I16 <"v_cmp_f_i16">;
+defm V_CMP_LT_I16 : VOPC_I16 <"v_cmp_lt_i16", COND_SLT, "v_cmp_gt_i16">;
+defm V_CMP_EQ_I16 : VOPC_I16 <"v_cmp_eq_i16">;
+defm V_CMP_LE_I16 : VOPC_I16 <"v_cmp_le_i16", COND_SLE, "v_cmp_ge_i16">;
+defm V_CMP_GT_I16 : VOPC_I16 <"v_cmp_gt_i16", COND_SGT>;
+defm V_CMP_NE_I16 : VOPC_I16 <"v_cmp_ne_i16">;
+defm V_CMP_GE_I16 : VOPC_I16 <"v_cmp_ge_i16", COND_SGE>;
+defm V_CMP_T_I16 : VOPC_I16 <"v_cmp_t_i16">;
+
+defm V_CMP_F_U16 : VOPC_I16 <"v_cmp_f_u16">;
+defm V_CMP_LT_U16 : VOPC_I16 <"v_cmp_lt_u16", COND_ULT, "v_cmp_gt_u16">;
+defm V_CMP_EQ_U16 : VOPC_I16 <"v_cmp_eq_u16", COND_EQ>;
+defm V_CMP_LE_U16 : VOPC_I16 <"v_cmp_le_u16", COND_ULE, "v_cmp_ge_u16">;
+defm V_CMP_GT_U16 : VOPC_I16 <"v_cmp_gt_u16", COND_UGT>;
+defm V_CMP_NE_U16 : VOPC_I16 <"v_cmp_ne_u16", COND_NE>;
+defm V_CMP_GE_U16 : VOPC_I16 <"v_cmp_ge_u16", COND_UGE>;
+defm V_CMP_T_U16 : VOPC_I16 <"v_cmp_t_u16">;
+
+defm V_CMPX_F_I16 : VOPCX_I16 <"v_cmpx_f_i16">;
+defm V_CMPX_LT_I16 : VOPCX_I16 <"v_cmpx_lt_i16", "v_cmpx_gt_i16">;
+defm V_CMPX_EQ_I16 : VOPCX_I16 <"v_cmpx_eq_i16">;
+defm V_CMPX_LE_I16 : VOPCX_I16 <"v_cmpx_le_i16", "v_cmpx_ge_i16">;
+defm V_CMPX_GT_I16 : VOPCX_I16 <"v_cmpx_gt_i16">;
+defm V_CMPX_NE_I16 : VOPCX_I16 <"v_cmpx_ne_i16">;
+defm V_CMPX_GE_I16 : VOPCX_I16 <"v_cmpx_ge_i16">;
+defm V_CMPX_T_I16 : VOPCX_I16 <"v_cmpx_t_i16">;
+defm V_CMPX_F_U16 : VOPCX_I16 <"v_cmpx_f_u16">;
+
+defm V_CMPX_LT_U16 : VOPCX_I16 <"v_cmpx_lt_u16", "v_cmpx_gt_u16">;
+defm V_CMPX_EQ_U16 : VOPCX_I16 <"v_cmpx_eq_u16">;
+defm V_CMPX_LE_U16 : VOPCX_I16 <"v_cmpx_le_u16", "v_cmpx_ge_u16">;
+defm V_CMPX_GT_U16 : VOPCX_I16 <"v_cmpx_gt_u16">;
+defm V_CMPX_NE_U16 : VOPCX_I16 <"v_cmpx_ne_u16">;
+defm V_CMPX_GE_U16 : VOPCX_I16 <"v_cmpx_ge_u16">;
+defm V_CMPX_T_U16 : VOPCX_I16 <"v_cmpx_t_u16">;
+
+} // End SubtargetPredicate = Has16BitInsts
+
 defm V_CMP_F_I32 : VOPC_I32 <"v_cmp_f_i32">;
 defm V_CMP_LT_I32 : VOPC_I32 <"v_cmp_lt_i32", COND_SLT, "v_cmp_gt_i32">;
 defm V_CMP_EQ_I32 : VOPC_I32 <"v_cmp_eq_i32">;
@@ -398,8 +517,8 @@ class VOPC_Class_Profile<list<SchedReadWrite> sched, ValueType vt> :
   VOPC_Profile<sched, vt, i32> {
   let Ins64 = (ins Src0Mod:$src0_modifiers, Src0RC64:$src0, Src1RC64:$src1);
   let Asm64 = "$sdst, $src0_modifiers, $src1";
-  let InsSDWA = (ins Src0Mod:$src0_modifiers, Src0RC64:$src0,
-                     Int32InputMods:$src1_modifiers, Src1RC64:$src1,
+  let InsSDWA = (ins Src0ModSDWA:$src0_modifiers, Src0SDWA:$src0,
+                     Src1ModSDWA:$src1_modifiers, Src1SDWA:$src1,
                      clampmod:$clamp, src0_sel:$src0_sel, src1_sel:$src1_sel);
   let AsmSDWA = " vcc, $src0_modifiers, $src1_modifiers$clamp $src0_sel $src1_sel";
   let HasSrc1Mods = 0;
@@ -423,14 +542,28 @@ multiclass VOPC_Class_Pseudos <string opName, VOPC_Profile p, bit DefExec> {
     let SchedRW = p.Schedule;
     let isConvergent = DefExec;
   }
+
   def _e64 : VOP3_Pseudo<opName, p, getVOPCClassPat64<p>.ret> {
     let Defs = !if(DefExec, [EXEC], []);
     let SchedRW = p.Schedule;
   }
+
+  def _sdwa : VOPC_SDWA_Pseudo <opName, p> {
+    let Defs = !if(DefExec, [VCC, EXEC], [VCC]);
+    let SchedRW = p.Schedule;
+    let isConvergent = DefExec;
+  }
 }
 
+def VOPC_I1_F16_I32 : VOPC_Class_Profile<[Write32Bit], f16>;
 def VOPC_I1_F32_I32 : VOPC_Class_Profile<[Write32Bit], f32>;
 def VOPC_I1_F64_I32 : VOPC_Class_Profile<[WriteDoubleAdd], f64>;
+
+multiclass VOPC_CLASS_F16 <string opName> :
+  VOPC_Class_Pseudos <opName, VOPC_I1_F16_I32, 0>;
+
+multiclass VOPCX_CLASS_F16 <string opName> :
+  VOPC_Class_Pseudos <opName, VOPC_I1_F16_I32, 1>;
 
 multiclass VOPC_CLASS_F32 <string opName> :
   VOPC_Class_Pseudos <opName, VOPC_I1_F32_I32, 0>;
@@ -448,6 +581,8 @@ defm V_CMP_CLASS_F32 : VOPC_CLASS_F32 <"v_cmp_class_f32">;
 defm V_CMPX_CLASS_F32 : VOPCX_CLASS_F32 <"v_cmpx_class_f32">;
 defm V_CMP_CLASS_F64 : VOPC_CLASS_F64 <"v_cmp_class_f64">;
 defm V_CMPX_CLASS_F64 : VOPCX_CLASS_F64 <"v_cmpx_class_f64">;
+defm V_CMP_CLASS_F16  : VOPC_CLASS_F16 <"v_cmp_class_f16">;
+defm V_CMPX_CLASS_F16 : VOPCX_CLASS_F16 <"v_cmpx_class_f16">;
 
 //===----------------------------------------------------------------------===//
 // V_ICMPIntrinsic Pattern.
@@ -765,25 +900,6 @@ defm V_CMPX_CLASS_F64 : VOPC_Real_si <0xb8>;
 // VI
 //===----------------------------------------------------------------------===//
 
-class VOPC_SDWA<bits<8> op, VOPC_Pseudo ps, VOPProfile P = ps.Pfl> :
-  VOP_SDWA <ps.OpName, P> {
-  let Defs = ps.Defs;
-  let hasSideEffects = ps.hasSideEffects;
-  let AsmMatchConverter = "cvtSdwaVOPC";
-  let isCompare = ps.isCompare;
-  let isCommutable = ps.isCommutable;
-
-  bits<8> src1;
-  let Inst{8-0}   = 0xf9; // sdwa
-  let Inst{16-9}  = !if(P.HasSrc1, src1{7-0}, 0);
-  let Inst{24-17} = op;
-  let Inst{31-25} = 0x3e; // encoding
-
-  // VOPC disallows dst_sel and dst_unused as they have no effect on destination
-  let Inst{42-40} = SDWA_DWORD;
-  let Inst{44-43} = SDWA_UNUSED_PRESERVE;
-}
-
 multiclass VOPC_Real_vi <bits<10> op> {
   let AssemblerPredicates = [isVI], DecoderNamespace = "VI" in {
     def _e32_vi :
@@ -800,9 +916,9 @@ multiclass VOPC_Real_vi <bits<10> op> {
     }
   }
 
-  // for now left sdwa only for asm/dasm
-  // TODO: add corresponding pseudo
-  def _sdwa : VOPC_SDWA<op{7-0}, !cast<VOPC_Pseudo>(NAME#"_e32")>;
+  def _sdwa_vi :
+    VOP_SDWA_Real <!cast<VOPC_SDWA_Pseudo>(NAME#"_sdwa")>,
+    VOPC_SDWAe <op{7-0}, !cast<VOPC_SDWA_Pseudo>(NAME#"_sdwa").Pfl>;
 
   def : VOPCInstAlias <!cast<VOP3_Pseudo>(NAME#"_e64"),
                        !cast<Instruction>(NAME#"_e32_vi")> {
@@ -810,147 +926,219 @@ multiclass VOPC_Real_vi <bits<10> op> {
   }
 }
 
-defm V_CMP_F_F32     : VOPC_Real_vi <0x40>;
-defm V_CMP_LT_F32    : VOPC_Real_vi <0x41>;
-defm V_CMP_EQ_F32    : VOPC_Real_vi <0x42>;
-defm V_CMP_LE_F32    : VOPC_Real_vi <0x43>;
-defm V_CMP_GT_F32    : VOPC_Real_vi <0x44>;
-defm V_CMP_LG_F32    : VOPC_Real_vi <0x45>;
-defm V_CMP_GE_F32    : VOPC_Real_vi <0x46>;
-defm V_CMP_O_F32     : VOPC_Real_vi <0x47>;
-defm V_CMP_U_F32     : VOPC_Real_vi <0x48>;
-defm V_CMP_NGE_F32   : VOPC_Real_vi <0x49>;
-defm V_CMP_NLG_F32   : VOPC_Real_vi <0x4a>;
-defm V_CMP_NGT_F32   : VOPC_Real_vi <0x4b>;
-defm V_CMP_NLE_F32   : VOPC_Real_vi <0x4c>;
-defm V_CMP_NEQ_F32   : VOPC_Real_vi <0x4d>;
-defm V_CMP_NLT_F32   : VOPC_Real_vi <0x4e>;
-defm V_CMP_TRU_F32   : VOPC_Real_vi <0x4f>;
-
-defm V_CMPX_F_F32    : VOPC_Real_vi <0x50>;
-defm V_CMPX_LT_F32   : VOPC_Real_vi <0x51>;
-defm V_CMPX_EQ_F32   : VOPC_Real_vi <0x52>;
-defm V_CMPX_LE_F32   : VOPC_Real_vi <0x53>;
-defm V_CMPX_GT_F32   : VOPC_Real_vi <0x54>;
-defm V_CMPX_LG_F32   : VOPC_Real_vi <0x55>;
-defm V_CMPX_GE_F32   : VOPC_Real_vi <0x56>;
-defm V_CMPX_O_F32    : VOPC_Real_vi <0x57>;
-defm V_CMPX_U_F32    : VOPC_Real_vi <0x58>;
-defm V_CMPX_NGE_F32  : VOPC_Real_vi <0x59>;
-defm V_CMPX_NLG_F32  : VOPC_Real_vi <0x5a>;
-defm V_CMPX_NGT_F32  : VOPC_Real_vi <0x5b>;
-defm V_CMPX_NLE_F32  : VOPC_Real_vi <0x5c>;
-defm V_CMPX_NEQ_F32  : VOPC_Real_vi <0x5d>;
-defm V_CMPX_NLT_F32  : VOPC_Real_vi <0x5e>;
-defm V_CMPX_TRU_F32  : VOPC_Real_vi <0x5f>;
-
-defm V_CMP_F_F64     : VOPC_Real_vi <0x60>;
-defm V_CMP_LT_F64    : VOPC_Real_vi <0x61>;
-defm V_CMP_EQ_F64    : VOPC_Real_vi <0x62>;
-defm V_CMP_LE_F64    : VOPC_Real_vi <0x63>;
-defm V_CMP_GT_F64    : VOPC_Real_vi <0x64>;
-defm V_CMP_LG_F64    : VOPC_Real_vi <0x65>;
-defm V_CMP_GE_F64    : VOPC_Real_vi <0x66>;
-defm V_CMP_O_F64     : VOPC_Real_vi <0x67>;
-defm V_CMP_U_F64     : VOPC_Real_vi <0x68>;
-defm V_CMP_NGE_F64   : VOPC_Real_vi <0x69>;
-defm V_CMP_NLG_F64   : VOPC_Real_vi <0x6a>;
-defm V_CMP_NGT_F64   : VOPC_Real_vi <0x6b>;
-defm V_CMP_NLE_F64   : VOPC_Real_vi <0x6c>;
-defm V_CMP_NEQ_F64   : VOPC_Real_vi <0x6d>;
-defm V_CMP_NLT_F64   : VOPC_Real_vi <0x6e>;
-defm V_CMP_TRU_F64   : VOPC_Real_vi <0x6f>;
-
-defm V_CMPX_F_F64    : VOPC_Real_vi <0x70>;
-defm V_CMPX_LT_F64   : VOPC_Real_vi <0x71>;
-defm V_CMPX_EQ_F64   : VOPC_Real_vi <0x72>;
-defm V_CMPX_LE_F64   : VOPC_Real_vi <0x73>;
-defm V_CMPX_GT_F64   : VOPC_Real_vi <0x74>;
-defm V_CMPX_LG_F64   : VOPC_Real_vi <0x75>;
-defm V_CMPX_GE_F64   : VOPC_Real_vi <0x76>;
-defm V_CMPX_O_F64    : VOPC_Real_vi <0x77>;
-defm V_CMPX_U_F64    : VOPC_Real_vi <0x78>;
-defm V_CMPX_NGE_F64  : VOPC_Real_vi <0x79>;
-defm V_CMPX_NLG_F64  : VOPC_Real_vi <0x7a>;
-defm V_CMPX_NGT_F64  : VOPC_Real_vi <0x7b>;
-defm V_CMPX_NLE_F64  : VOPC_Real_vi <0x7c>;
-defm V_CMPX_NEQ_F64  : VOPC_Real_vi <0x7d>;
-defm V_CMPX_NLT_F64  : VOPC_Real_vi <0x7e>;
-defm V_CMPX_TRU_F64  : VOPC_Real_vi <0x7f>;
-
-defm V_CMP_F_I32     : VOPC_Real_vi <0xc0>;
-defm V_CMP_LT_I32    : VOPC_Real_vi <0xc1>;
-defm V_CMP_EQ_I32    : VOPC_Real_vi <0xc2>;
-defm V_CMP_LE_I32    : VOPC_Real_vi <0xc3>;
-defm V_CMP_GT_I32    : VOPC_Real_vi <0xc4>;
-defm V_CMP_NE_I32    : VOPC_Real_vi <0xc5>;
-defm V_CMP_GE_I32    : VOPC_Real_vi <0xc6>;
-defm V_CMP_T_I32     : VOPC_Real_vi <0xc7>;
-
-defm V_CMPX_F_I32    : VOPC_Real_vi <0xd0>;
-defm V_CMPX_LT_I32   : VOPC_Real_vi <0xd1>;
-defm V_CMPX_EQ_I32   : VOPC_Real_vi <0xd2>;
-defm V_CMPX_LE_I32   : VOPC_Real_vi <0xd3>;
-defm V_CMPX_GT_I32   : VOPC_Real_vi <0xd4>;
-defm V_CMPX_NE_I32   : VOPC_Real_vi <0xd5>;
-defm V_CMPX_GE_I32   : VOPC_Real_vi <0xd6>;
-defm V_CMPX_T_I32    : VOPC_Real_vi <0xd7>;
-
-defm V_CMP_F_I64     : VOPC_Real_vi <0xe0>;
-defm V_CMP_LT_I64    : VOPC_Real_vi <0xe1>;
-defm V_CMP_EQ_I64    : VOPC_Real_vi <0xe2>;
-defm V_CMP_LE_I64    : VOPC_Real_vi <0xe3>;
-defm V_CMP_GT_I64    : VOPC_Real_vi <0xe4>;
-defm V_CMP_NE_I64    : VOPC_Real_vi <0xe5>;
-defm V_CMP_GE_I64    : VOPC_Real_vi <0xe6>;
-defm V_CMP_T_I64     : VOPC_Real_vi <0xe7>;
-
-defm V_CMPX_F_I64    : VOPC_Real_vi <0xf0>;
-defm V_CMPX_LT_I64   : VOPC_Real_vi <0xf1>;
-defm V_CMPX_EQ_I64   : VOPC_Real_vi <0xf2>;
-defm V_CMPX_LE_I64   : VOPC_Real_vi <0xf3>;
-defm V_CMPX_GT_I64   : VOPC_Real_vi <0xf4>;
-defm V_CMPX_NE_I64   : VOPC_Real_vi <0xf5>;
-defm V_CMPX_GE_I64   : VOPC_Real_vi <0xf6>;
-defm V_CMPX_T_I64    : VOPC_Real_vi <0xf7>;
-
-defm V_CMP_F_U32     : VOPC_Real_vi <0xc8>;
-defm V_CMP_LT_U32    : VOPC_Real_vi <0xc9>;
-defm V_CMP_EQ_U32    : VOPC_Real_vi <0xca>;
-defm V_CMP_LE_U32    : VOPC_Real_vi <0xcb>;
-defm V_CMP_GT_U32    : VOPC_Real_vi <0xcc>;
-defm V_CMP_NE_U32    : VOPC_Real_vi <0xcd>;
-defm V_CMP_GE_U32    : VOPC_Real_vi <0xce>;
-defm V_CMP_T_U32     : VOPC_Real_vi <0xcf>;
-
-defm V_CMPX_F_U32    : VOPC_Real_vi <0xd8>;
-defm V_CMPX_LT_U32   : VOPC_Real_vi <0xd9>;
-defm V_CMPX_EQ_U32   : VOPC_Real_vi <0xda>;
-defm V_CMPX_LE_U32   : VOPC_Real_vi <0xdb>;
-defm V_CMPX_GT_U32   : VOPC_Real_vi <0xdc>;
-defm V_CMPX_NE_U32   : VOPC_Real_vi <0xdd>;
-defm V_CMPX_GE_U32   : VOPC_Real_vi <0xde>;
-defm V_CMPX_T_U32    : VOPC_Real_vi <0xdf>;
-
-defm V_CMP_F_U64     : VOPC_Real_vi <0xe8>;
-defm V_CMP_LT_U64    : VOPC_Real_vi <0xe9>;
-defm V_CMP_EQ_U64    : VOPC_Real_vi <0xea>;
-defm V_CMP_LE_U64    : VOPC_Real_vi <0xeb>;
-defm V_CMP_GT_U64    : VOPC_Real_vi <0xec>;
-defm V_CMP_NE_U64    : VOPC_Real_vi <0xed>;
-defm V_CMP_GE_U64    : VOPC_Real_vi <0xee>;
-defm V_CMP_T_U64     : VOPC_Real_vi <0xef>;
-
-defm V_CMPX_F_U64    : VOPC_Real_vi <0xf8>;
-defm V_CMPX_LT_U64   : VOPC_Real_vi <0xf9>;
-defm V_CMPX_EQ_U64   : VOPC_Real_vi <0xfa>;
-defm V_CMPX_LE_U64   : VOPC_Real_vi <0xfb>;
-defm V_CMPX_GT_U64   : VOPC_Real_vi <0xfc>;
-defm V_CMPX_NE_U64   : VOPC_Real_vi <0xfd>;
-defm V_CMPX_GE_U64   : VOPC_Real_vi <0xfe>;
-defm V_CMPX_T_U64    : VOPC_Real_vi <0xff>;
-
 defm V_CMP_CLASS_F32  : VOPC_Real_vi <0x10>;
 defm V_CMPX_CLASS_F32 : VOPC_Real_vi <0x11>;
 defm V_CMP_CLASS_F64  : VOPC_Real_vi <0x12>;
 defm V_CMPX_CLASS_F64 : VOPC_Real_vi <0x13>;
+defm V_CMP_CLASS_F16  : VOPC_Real_vi <0x14>;
+defm V_CMPX_CLASS_F16 : VOPC_Real_vi <0x15>;
+
+defm V_CMP_F_F16      : VOPC_Real_vi <0x20>;
+defm V_CMP_LT_F16     : VOPC_Real_vi <0x21>;
+defm V_CMP_EQ_F16     : VOPC_Real_vi <0x22>;
+defm V_CMP_LE_F16     : VOPC_Real_vi <0x23>;
+defm V_CMP_GT_F16     : VOPC_Real_vi <0x24>;
+defm V_CMP_LG_F16     : VOPC_Real_vi <0x25>;
+defm V_CMP_GE_F16     : VOPC_Real_vi <0x26>;
+defm V_CMP_O_F16      : VOPC_Real_vi <0x27>;
+defm V_CMP_U_F16      : VOPC_Real_vi <0x28>;
+defm V_CMP_NGE_F16    : VOPC_Real_vi <0x29>;
+defm V_CMP_NLG_F16    : VOPC_Real_vi <0x2a>;
+defm V_CMP_NGT_F16    : VOPC_Real_vi <0x2b>;
+defm V_CMP_NLE_F16    : VOPC_Real_vi <0x2c>;
+defm V_CMP_NEQ_F16    : VOPC_Real_vi <0x2d>;
+defm V_CMP_NLT_F16    : VOPC_Real_vi <0x2e>;
+defm V_CMP_TRU_F16    : VOPC_Real_vi <0x2f>;
+
+defm V_CMPX_F_F16     : VOPC_Real_vi <0x30>;
+defm V_CMPX_LT_F16    : VOPC_Real_vi <0x31>;
+defm V_CMPX_EQ_F16    : VOPC_Real_vi <0x32>;
+defm V_CMPX_LE_F16    : VOPC_Real_vi <0x33>;
+defm V_CMPX_GT_F16    : VOPC_Real_vi <0x34>;
+defm V_CMPX_LG_F16    : VOPC_Real_vi <0x35>;
+defm V_CMPX_GE_F16    : VOPC_Real_vi <0x36>;
+defm V_CMPX_O_F16     : VOPC_Real_vi <0x37>;
+defm V_CMPX_U_F16     : VOPC_Real_vi <0x38>;
+defm V_CMPX_NGE_F16   : VOPC_Real_vi <0x39>;
+defm V_CMPX_NLG_F16   : VOPC_Real_vi <0x3a>;
+defm V_CMPX_NGT_F16   : VOPC_Real_vi <0x3b>;
+defm V_CMPX_NLE_F16   : VOPC_Real_vi <0x3c>;
+defm V_CMPX_NEQ_F16   : VOPC_Real_vi <0x3d>;
+defm V_CMPX_NLT_F16   : VOPC_Real_vi <0x3e>;
+defm V_CMPX_TRU_F16   : VOPC_Real_vi <0x3f>;
+
+defm V_CMP_F_F32      : VOPC_Real_vi <0x40>;
+defm V_CMP_LT_F32     : VOPC_Real_vi <0x41>;
+defm V_CMP_EQ_F32     : VOPC_Real_vi <0x42>;
+defm V_CMP_LE_F32     : VOPC_Real_vi <0x43>;
+defm V_CMP_GT_F32     : VOPC_Real_vi <0x44>;
+defm V_CMP_LG_F32     : VOPC_Real_vi <0x45>;
+defm V_CMP_GE_F32     : VOPC_Real_vi <0x46>;
+defm V_CMP_O_F32      : VOPC_Real_vi <0x47>;
+defm V_CMP_U_F32      : VOPC_Real_vi <0x48>;
+defm V_CMP_NGE_F32    : VOPC_Real_vi <0x49>;
+defm V_CMP_NLG_F32    : VOPC_Real_vi <0x4a>;
+defm V_CMP_NGT_F32    : VOPC_Real_vi <0x4b>;
+defm V_CMP_NLE_F32    : VOPC_Real_vi <0x4c>;
+defm V_CMP_NEQ_F32    : VOPC_Real_vi <0x4d>;
+defm V_CMP_NLT_F32    : VOPC_Real_vi <0x4e>;
+defm V_CMP_TRU_F32    : VOPC_Real_vi <0x4f>;
+
+defm V_CMPX_F_F32     : VOPC_Real_vi <0x50>;
+defm V_CMPX_LT_F32    : VOPC_Real_vi <0x51>;
+defm V_CMPX_EQ_F32    : VOPC_Real_vi <0x52>;
+defm V_CMPX_LE_F32    : VOPC_Real_vi <0x53>;
+defm V_CMPX_GT_F32    : VOPC_Real_vi <0x54>;
+defm V_CMPX_LG_F32    : VOPC_Real_vi <0x55>;
+defm V_CMPX_GE_F32    : VOPC_Real_vi <0x56>;
+defm V_CMPX_O_F32     : VOPC_Real_vi <0x57>;
+defm V_CMPX_U_F32     : VOPC_Real_vi <0x58>;
+defm V_CMPX_NGE_F32   : VOPC_Real_vi <0x59>;
+defm V_CMPX_NLG_F32   : VOPC_Real_vi <0x5a>;
+defm V_CMPX_NGT_F32   : VOPC_Real_vi <0x5b>;
+defm V_CMPX_NLE_F32   : VOPC_Real_vi <0x5c>;
+defm V_CMPX_NEQ_F32   : VOPC_Real_vi <0x5d>;
+defm V_CMPX_NLT_F32   : VOPC_Real_vi <0x5e>;
+defm V_CMPX_TRU_F32   : VOPC_Real_vi <0x5f>;
+
+defm V_CMP_F_F64      : VOPC_Real_vi <0x60>;
+defm V_CMP_LT_F64     : VOPC_Real_vi <0x61>;
+defm V_CMP_EQ_F64     : VOPC_Real_vi <0x62>;
+defm V_CMP_LE_F64     : VOPC_Real_vi <0x63>;
+defm V_CMP_GT_F64     : VOPC_Real_vi <0x64>;
+defm V_CMP_LG_F64     : VOPC_Real_vi <0x65>;
+defm V_CMP_GE_F64     : VOPC_Real_vi <0x66>;
+defm V_CMP_O_F64      : VOPC_Real_vi <0x67>;
+defm V_CMP_U_F64      : VOPC_Real_vi <0x68>;
+defm V_CMP_NGE_F64    : VOPC_Real_vi <0x69>;
+defm V_CMP_NLG_F64    : VOPC_Real_vi <0x6a>;
+defm V_CMP_NGT_F64    : VOPC_Real_vi <0x6b>;
+defm V_CMP_NLE_F64    : VOPC_Real_vi <0x6c>;
+defm V_CMP_NEQ_F64    : VOPC_Real_vi <0x6d>;
+defm V_CMP_NLT_F64    : VOPC_Real_vi <0x6e>;
+defm V_CMP_TRU_F64    : VOPC_Real_vi <0x6f>;
+
+defm V_CMPX_F_F64     : VOPC_Real_vi <0x70>;
+defm V_CMPX_LT_F64    : VOPC_Real_vi <0x71>;
+defm V_CMPX_EQ_F64    : VOPC_Real_vi <0x72>;
+defm V_CMPX_LE_F64    : VOPC_Real_vi <0x73>;
+defm V_CMPX_GT_F64    : VOPC_Real_vi <0x74>;
+defm V_CMPX_LG_F64    : VOPC_Real_vi <0x75>;
+defm V_CMPX_GE_F64    : VOPC_Real_vi <0x76>;
+defm V_CMPX_O_F64     : VOPC_Real_vi <0x77>;
+defm V_CMPX_U_F64     : VOPC_Real_vi <0x78>;
+defm V_CMPX_NGE_F64   : VOPC_Real_vi <0x79>;
+defm V_CMPX_NLG_F64   : VOPC_Real_vi <0x7a>;
+defm V_CMPX_NGT_F64   : VOPC_Real_vi <0x7b>;
+defm V_CMPX_NLE_F64   : VOPC_Real_vi <0x7c>;
+defm V_CMPX_NEQ_F64   : VOPC_Real_vi <0x7d>;
+defm V_CMPX_NLT_F64   : VOPC_Real_vi <0x7e>;
+defm V_CMPX_TRU_F64   : VOPC_Real_vi <0x7f>;
+
+defm V_CMP_F_I16      : VOPC_Real_vi <0xa0>;
+defm V_CMP_LT_I16     : VOPC_Real_vi <0xa1>;
+defm V_CMP_EQ_I16     : VOPC_Real_vi <0xa2>;
+defm V_CMP_LE_I16     : VOPC_Real_vi <0xa3>;
+defm V_CMP_GT_I16     : VOPC_Real_vi <0xa4>;
+defm V_CMP_NE_I16     : VOPC_Real_vi <0xa5>;
+defm V_CMP_GE_I16     : VOPC_Real_vi <0xa6>;
+defm V_CMP_T_I16      : VOPC_Real_vi <0xa7>;
+
+defm V_CMP_F_U16      : VOPC_Real_vi <0xa8>;
+defm V_CMP_LT_U16     : VOPC_Real_vi <0xa9>;
+defm V_CMP_EQ_U16     : VOPC_Real_vi <0xaa>;
+defm V_CMP_LE_U16     : VOPC_Real_vi <0xab>;
+defm V_CMP_GT_U16     : VOPC_Real_vi <0xac>;
+defm V_CMP_NE_U16     : VOPC_Real_vi <0xad>;
+defm V_CMP_GE_U16     : VOPC_Real_vi <0xae>;
+defm V_CMP_T_U16      : VOPC_Real_vi <0xaf>;
+
+defm V_CMPX_F_I16 : VOPC_Real_vi <0xb0>;
+defm V_CMPX_LT_I16 : VOPC_Real_vi <0xb1>;
+defm V_CMPX_EQ_I16 : VOPC_Real_vi <0xb2>;
+defm V_CMPX_LE_I16 : VOPC_Real_vi <0xb3>;
+defm V_CMPX_GT_I16 : VOPC_Real_vi <0xb4>;
+defm V_CMPX_NE_I16 : VOPC_Real_vi <0xb5>;
+defm V_CMPX_GE_I16 : VOPC_Real_vi <0xb6>;
+defm V_CMPX_T_I16 : VOPC_Real_vi <0xb7>;
+
+defm V_CMPX_F_U16 : VOPC_Real_vi <0xb8>;
+defm V_CMPX_LT_U16 : VOPC_Real_vi <0xb9>;
+defm V_CMPX_EQ_U16 : VOPC_Real_vi <0xba>;
+defm V_CMPX_LE_U16 : VOPC_Real_vi <0xbb>;
+defm V_CMPX_GT_U16 : VOPC_Real_vi <0xbc>;
+defm V_CMPX_NE_U16 : VOPC_Real_vi <0xbd>;
+defm V_CMPX_GE_U16 : VOPC_Real_vi <0xbe>;
+defm V_CMPX_T_U16 : VOPC_Real_vi <0xbf>;
+
+defm V_CMP_F_I32      : VOPC_Real_vi <0xc0>;
+defm V_CMP_LT_I32     : VOPC_Real_vi <0xc1>;
+defm V_CMP_EQ_I32     : VOPC_Real_vi <0xc2>;
+defm V_CMP_LE_I32     : VOPC_Real_vi <0xc3>;
+defm V_CMP_GT_I32     : VOPC_Real_vi <0xc4>;
+defm V_CMP_NE_I32     : VOPC_Real_vi <0xc5>;
+defm V_CMP_GE_I32     : VOPC_Real_vi <0xc6>;
+defm V_CMP_T_I32      : VOPC_Real_vi <0xc7>;
+
+defm V_CMPX_F_I32     : VOPC_Real_vi <0xd0>;
+defm V_CMPX_LT_I32    : VOPC_Real_vi <0xd1>;
+defm V_CMPX_EQ_I32    : VOPC_Real_vi <0xd2>;
+defm V_CMPX_LE_I32    : VOPC_Real_vi <0xd3>;
+defm V_CMPX_GT_I32    : VOPC_Real_vi <0xd4>;
+defm V_CMPX_NE_I32    : VOPC_Real_vi <0xd5>;
+defm V_CMPX_GE_I32    : VOPC_Real_vi <0xd6>;
+defm V_CMPX_T_I32     : VOPC_Real_vi <0xd7>;
+
+defm V_CMP_F_I64      : VOPC_Real_vi <0xe0>;
+defm V_CMP_LT_I64     : VOPC_Real_vi <0xe1>;
+defm V_CMP_EQ_I64     : VOPC_Real_vi <0xe2>;
+defm V_CMP_LE_I64     : VOPC_Real_vi <0xe3>;
+defm V_CMP_GT_I64     : VOPC_Real_vi <0xe4>;
+defm V_CMP_NE_I64     : VOPC_Real_vi <0xe5>;
+defm V_CMP_GE_I64     : VOPC_Real_vi <0xe6>;
+defm V_CMP_T_I64      : VOPC_Real_vi <0xe7>;
+
+defm V_CMPX_F_I64     : VOPC_Real_vi <0xf0>;
+defm V_CMPX_LT_I64    : VOPC_Real_vi <0xf1>;
+defm V_CMPX_EQ_I64    : VOPC_Real_vi <0xf2>;
+defm V_CMPX_LE_I64    : VOPC_Real_vi <0xf3>;
+defm V_CMPX_GT_I64    : VOPC_Real_vi <0xf4>;
+defm V_CMPX_NE_I64    : VOPC_Real_vi <0xf5>;
+defm V_CMPX_GE_I64    : VOPC_Real_vi <0xf6>;
+defm V_CMPX_T_I64     : VOPC_Real_vi <0xf7>;
+
+defm V_CMP_F_U32      : VOPC_Real_vi <0xc8>;
+defm V_CMP_LT_U32     : VOPC_Real_vi <0xc9>;
+defm V_CMP_EQ_U32     : VOPC_Real_vi <0xca>;
+defm V_CMP_LE_U32     : VOPC_Real_vi <0xcb>;
+defm V_CMP_GT_U32     : VOPC_Real_vi <0xcc>;
+defm V_CMP_NE_U32     : VOPC_Real_vi <0xcd>;
+defm V_CMP_GE_U32     : VOPC_Real_vi <0xce>;
+defm V_CMP_T_U32      : VOPC_Real_vi <0xcf>;
+
+defm V_CMPX_F_U32     : VOPC_Real_vi <0xd8>;
+defm V_CMPX_LT_U32    : VOPC_Real_vi <0xd9>;
+defm V_CMPX_EQ_U32    : VOPC_Real_vi <0xda>;
+defm V_CMPX_LE_U32    : VOPC_Real_vi <0xdb>;
+defm V_CMPX_GT_U32    : VOPC_Real_vi <0xdc>;
+defm V_CMPX_NE_U32    : VOPC_Real_vi <0xdd>;
+defm V_CMPX_GE_U32    : VOPC_Real_vi <0xde>;
+defm V_CMPX_T_U32     : VOPC_Real_vi <0xdf>;
+
+defm V_CMP_F_U64      : VOPC_Real_vi <0xe8>;
+defm V_CMP_LT_U64     : VOPC_Real_vi <0xe9>;
+defm V_CMP_EQ_U64     : VOPC_Real_vi <0xea>;
+defm V_CMP_LE_U64     : VOPC_Real_vi <0xeb>;
+defm V_CMP_GT_U64     : VOPC_Real_vi <0xec>;
+defm V_CMP_NE_U64     : VOPC_Real_vi <0xed>;
+defm V_CMP_GE_U64     : VOPC_Real_vi <0xee>;
+defm V_CMP_T_U64      : VOPC_Real_vi <0xef>;
+
+defm V_CMPX_F_U64     : VOPC_Real_vi <0xf8>;
+defm V_CMPX_LT_U64    : VOPC_Real_vi <0xf9>;
+defm V_CMPX_EQ_U64    : VOPC_Real_vi <0xfa>;
+defm V_CMPX_LE_U64    : VOPC_Real_vi <0xfb>;
+defm V_CMPX_GT_U64    : VOPC_Real_vi <0xfc>;
+defm V_CMPX_NE_U64    : VOPC_Real_vi <0xfd>;
+defm V_CMPX_GE_U64    : VOPC_Real_vi <0xfe>;
+defm V_CMPX_T_U64     : VOPC_Real_vi <0xff>;

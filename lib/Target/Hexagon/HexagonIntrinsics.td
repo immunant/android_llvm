@@ -806,12 +806,10 @@ def : T_Q_RI_pat<C2_cmpgti,  int_hexagon_C2_cmpgti, s32_0ImmPred>;
 def : T_Q_RI_pat<C2_cmpgtui, int_hexagon_C2_cmpgtui, u32_0ImmPred>;
 
 def : Pat <(int_hexagon_C2_cmpgei I32:$src1, s32_0ImmPred:$src2),
-           (C2_tfrpr (C2_cmpgti I32:$src1,
-                                (DEC_CONST_SIGNED s32_0ImmPred:$src2)))>;
+           (C2_tfrpr (C2_cmpgti I32:$src1, (SDEC1 s32_0ImmPred:$src2)))>;
 
 def : Pat <(int_hexagon_C2_cmpgeui I32:$src1, u32_0ImmPred:$src2),
-           (C2_tfrpr (C2_cmpgtui I32:$src1,
-                                 (DEC_CONST_UNSIGNED u32_0ImmPred:$src2)))>;
+           (C2_tfrpr (C2_cmpgtui I32:$src1, (UDEC1 u32_0ImmPred:$src2)))>;
 
 def : Pat <(int_hexagon_C2_cmpgeui I32:$src, 0),
            (C2_tfrpr (C2_cmpeq I32:$src, I32:$src))>;
@@ -1243,6 +1241,15 @@ class S2op_tableidx_pat <Intrinsic IntID, InstHexagon OutputInst,
          (OutputInst I32:$src1, I32:$src2, u4_0ImmPred:$src3,
                      (XformImm u5_0ImmPred:$src4))>;
 
+def SDEC2 : SDNodeXForm<imm, [{
+  int32_t V = N->getSExtValue();
+  return CurDAG->getTargetConstant(V-2, SDLoc(N), MVT::i32);
+}]>;
+
+def SDEC3 : SDNodeXForm<imm, [{
+  int32_t V = N->getSExtValue();
+  return CurDAG->getTargetConstant(V-3, SDLoc(N), MVT::i32);
+}]>;
 
 // Table Index : Extract and insert bits.
 // Map to the real hardware instructions after subtracting appropriate
@@ -1255,11 +1262,11 @@ def : Pat <(int_hexagon_S2_tableidxb_goodsyntax I32:$src1, I32:$src2,
                          u4_0ImmPred:$src3, u5_0ImmPred:$src4)>;
 
 def : S2op_tableidx_pat <int_hexagon_S2_tableidxh_goodsyntax, S2_tableidxh,
-                         DEC_CONST_SIGNED>;
+                         SDEC1>;
 def : S2op_tableidx_pat <int_hexagon_S2_tableidxw_goodsyntax, S2_tableidxw,
-                         DEC2_CONST_SIGNED>;
+                         SDEC2>;
 def : S2op_tableidx_pat <int_hexagon_S2_tableidxd_goodsyntax, S2_tableidxd,
-                         DEC3_CONST_SIGNED>;
+                         SDEC3>;
 
 //*******************************************************************
 //           STYPE/VH
@@ -1339,6 +1346,25 @@ def: T_stc_pat<S2_storerh_pci, int_hexagon_circ_sth,   s4_1ImmPred, I32>;
 def: T_stc_pat<S2_storeri_pci, int_hexagon_circ_stw,   s4_2ImmPred, I32>;
 def: T_stc_pat<S2_storerd_pci, int_hexagon_circ_std,   s4_3ImmPred, I64>;
 def: T_stc_pat<S2_storerf_pci, int_hexagon_circ_sthhi, s4_1ImmPred, I32>;
+
+multiclass MaskedStore <InstHexagon MI, Intrinsic IntID> {
+  def : Pat<(IntID VecPredRegs:$src1, IntRegs:$src2, VectorRegs:$src3),
+            (MI VecPredRegs:$src1, IntRegs:$src2, #0, VectorRegs:$src3)>,
+        Requires<[UseHVXSgl]>;
+
+  def : Pat<(!cast<Intrinsic>(IntID#"_128B") VecPredRegs128B:$src1,
+                                             IntRegs:$src2,
+                                             VectorRegs128B:$src3),
+            (!cast<InstHexagon>(MI#"_128B") VecPredRegs128B:$src1,
+                                            IntRegs:$src2, #0,
+                                            VectorRegs128B:$src3)>,
+        Requires<[UseHVXDbl]>;
+}
+
+defm : MaskedStore <V6_vS32b_qpred_ai, int_hexagon_V6_vmaskedstoreq>;
+defm : MaskedStore <V6_vS32b_nqpred_ai, int_hexagon_V6_vmaskedstorenq>;
+defm : MaskedStore <V6_vS32b_nt_qpred_ai, int_hexagon_V6_vmaskedstorentq>;
+defm : MaskedStore <V6_vS32b_nt_nqpred_ai, int_hexagon_V6_vmaskedstorentnq>;
 
 include "HexagonIntrinsicsV3.td"
 include "HexagonIntrinsicsV4.td"

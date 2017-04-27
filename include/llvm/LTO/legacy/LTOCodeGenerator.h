@@ -41,6 +41,8 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include <string>
@@ -173,6 +175,10 @@ struct LTOCodeGenerator {
   /// Calls \a verifyMergedModuleOnce().
   bool compileOptimized(ArrayRef<raw_pwrite_stream *> Out);
 
+  /// Enable the Freestanding mode: indicate that the optimizer should not
+  /// assume builtins are present on the target.
+  void setFreestanding(bool Enabled) { Freestanding = Enabled; }
+
   void setDiagnosticHandler(lto_diagnostic_handler_t, void *);
 
   LLVMContext &getContext() { return Context; }
@@ -205,6 +211,8 @@ private:
   void emitError(const std::string &ErrMsg);
   void emitWarning(const std::string &ErrMsg);
 
+  void finishOptimizationRemarks();
+
   LLVMContext &Context;
   std::unique_ptr<Module> MergedModule;
   std::unique_ptr<Linker> TheLinker;
@@ -232,6 +240,8 @@ private:
   bool ShouldEmbedUselists = false;
   bool ShouldRestoreGlobalsLinkage = false;
   TargetMachine::CodeGenFileType FileType = TargetMachine::CGFT_ObjectFile;
+  std::unique_ptr<tool_output_file> DiagnosticOutputFile;
+  bool Freestanding = false;
 };
 }
 #endif

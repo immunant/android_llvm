@@ -6,6 +6,15 @@ cc_library_static {
     ],
     srcs: ["*.cpp"],
 
+    // Global ISEL is an experimental feature.  If LLVM_BUILD_GLOBAL_ISEL is not
+    // set, these files fail compilation based on a macro check.
+    exclude_srcs: [
+        "X86CallLowering.cpp",
+        "X86InstructionSelector.cpp",
+        "X86LegalizerInfo.cpp",
+        "X86RegisterBankInfo.cpp",
+    ],
+
     // b/31559947, b/31938382 clang-tidy segmentation fault.
     tidy_checks: [
         "-clang-analyzer-*",
@@ -39,6 +48,7 @@ llvm_tblgen {
         "X86GenAsmWriter.inc",
         "X86GenAsmWriter1.inc",
         "X86GenDisassemblerTables.inc",
+        "X86GenEVEX2VEXTables.inc",
         "X86GenRegisterInfo.inc",
         "X86GenInstrInfo.inc",
         "X86GenDAGISel.inc",
