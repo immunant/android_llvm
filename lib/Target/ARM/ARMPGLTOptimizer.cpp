@@ -151,11 +151,14 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
         }
         MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
                                           User->getDebugLoc(), TII->get(CallOpc));
-        if (isThumb2)
+        int OpNum = 1;
+        if (CallOpc == ARM::tBL) {
           MIB.add(predOps(ARMCC::AL));
+          OpNum += 2;
+        }
         MIB.addGlobalAddress(GV, 0, 0);
-        for (int i = 1, e = User->getNumOperands(); i < e; ++i)
-          MIB.add(User->getOperand(i));
+        for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
+          MIB.add(User->getOperand(OpNum));
         User->eraseFromParent();
       } else {
         for (auto Op : User->defs()) {
