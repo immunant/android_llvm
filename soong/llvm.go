@@ -45,6 +45,22 @@ func hostFlags(ctx android.BaseContext) []string {
 		cflags = append(cflags, "-O0", "-g")
 	}
 
+	profile_generate := ctx.AConfig().IsEnvTrue("FORCE_BUILD_LLVM_PROFILE_GENERATE")
+	profile_use := ctx.AConfig().Getenv("FORCE_BUILD_LLVM_PROFILE_USE")
+
+	if (profile_generate && profile_use != "") {
+		ctx.ModuleErrorf("FORCE_BUILD_LLVM_PROFILE_GENERATE and FORCE_BUILD_LLVM_PROFILE_USE cannot be specified simultaneously")
+	}
+	if (profile_generate) {
+		cflags = append(cflags, "-fprofile-instr-generate")
+	}
+	if (profile_use != "") {
+		cflags = append(cflags, "-fprofile-instr-use=" + profile_use)
+		// TODO (pirama): Investigate and enable these warnings
+		cflags = append(cflags, "-Wno-profile-instr-unprofiled")
+		cflags = append(cflags, "-Wno-profile-instr-out-of-date")
+	}
+
 	return cflags
 }
 
