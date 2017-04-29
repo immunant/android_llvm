@@ -806,6 +806,7 @@ initializeFunctionInfo(const std::vector<MachineInstr*> &CPEMIs) {
           case ARM::t2LDRpci:
           case ARM::t2LDRHpci:
           case ARM::t2LDRBpci:
+          case ARM::t2PLDpci:
             Bits = 12;  // +-offset_12
             NegOk = true;
             break;
