@@ -264,7 +264,7 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
                                             Value *&VAList) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
-  Function *DestFn = &F;
+  Function *NewFn = &F;
 
   SmallVector<CallInst*, 1> VAStarts;
   for (auto &B : F) {
@@ -276,7 +276,7 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
   }
 
   if (VAStarts.empty())
-    return DestFn;
+    return NewFn;
 
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type
@@ -292,33 +292,37 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
       {Builder.CreateBitCast(NewVAListAlloca, Builder.getInt8PtrTy())});
 
-  // Copy the function
+  // Create a new function definition
   SmallVector<Type*, 4> Params(FFTy->param_begin(), FFTy->param_end());
   Params.push_back(VAListTy->getPointerTo());
   FunctionType *NonVarArgs = FunctionType::get(FFTy->getReturnType(), Params, false);
-  DestFn = Function::Create(NonVarArgs, F.getLinkage(), "", M);
-  DestFn->takeName(&F);
+  NewFn = Function::Create(NonVarArgs, F.getLinkage(), "", M);
+  NewFn->copyAttributesFrom(&F);
+  NewFn->setComdat(F.getComdat());
+  NewFn->takeName(&F);
+  NewFn->setSubprogram(F.getSubprogram());
+
+  // Move the original function blocks into the newly created function
+  NewFn->getBasicBlockList().splice(NewFn->begin(), F.getBasicBlockList());
+
+  // Transfer old arguments to new arguments
+  Function::arg_iterator NewArgI = NewFn->arg_begin();
+  for (Function::arg_iterator OldArgI = F.arg_begin(), OldArgE = F.arg_end();
+       OldArgI != OldArgE; ++OldArgI, ++NewArgI) {
+    OldArgI->replaceAllUsesWith(&*NewArgI);
+    NewArgI->takeName(&*OldArgI);
+  }
 
   ValueToValueMapTy VMap;
   SmallVector<ReturnInst*, 1> Returns;
 
-  Function::arg_iterator DestI = DestFn->arg_begin();
+  Function::arg_iterator DestI = NewFn->arg_begin();
   for (Function::const_arg_iterator I = F.arg_begin(), E = F.arg_end();
        I != E; ++I)
     if (VMap.count(I) == 0) {   // Is this argument preserved?
       DestI->setName(I->getName()); // Copy the name over...
       VMap[I] = DestI++;        // Add mapping to VMap
     }
-
-  if (DISubprogram *SP = F.getSubprogram()) {
-    // If we have debug info, add mapping for the metadata nodes that should not
-    // be cloned by CloneFunctionInfo.
-    auto &MD = VMap.MD();
-    MD[SP->getUnit()].reset(SP->getUnit());
-    MD[SP->getType()].reset(SP->getType());
-    MD[SP->getFile()].reset(SP->getFile());
-  }
-  CloneFunctionInto(DestFn, &F, VMap, true, Returns);
 
   // return the new wrapper alloca to our caller so it can pass it in the built
   // call
@@ -329,23 +333,20 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
   // one va_start, then we need to keep the alloca and replace va_start with a
   // va_copy.
   if (VAStarts.size() == 1) {
-    // use the passed va_list instead of an alloca in the callee
-    Value *ClonedAlloca = VMap[VAListAlloca];
-    ClonedAlloca->replaceAllUsesWith(DestI);
+    // use the new va_list argument instead of an alloca in the callee
+    VAListAlloca->replaceAllUsesWith(NewArgI);
+    VAListAlloca->eraseFromParent();
 
-    // remove the alloca
-    cast<Instruction>(ClonedAlloca)->eraseFromParent();
     // remove the va_start
-    cast<Instruction>(VMap[VAStarts[0]])->eraseFromParent();
+    VAStarts[0]->eraseFromParent();
   } else {
-    IRBuilder<> CalleeBuilder(DestFn->getContext());
-    for (auto I : VAStarts) {
-      auto *NewI = cast<CallInst>(VMap[I]);
+    IRBuilder<> CalleeBuilder(NewFn->getContext());
+    for (auto NewI : VAStarts) {
       CalleeBuilder.SetInsertPoint(NewI);
       CalleeBuilder.CreateCall(
           Intrinsic::getDeclaration(M, Intrinsic::vacopy),
           {NewI->getArgOperand(0),
-           CalleeBuilder.CreateBitCast(DestI, CalleeBuilder.getInt8PtrTy())});
+           CalleeBuilder.CreateBitCast(NewArgI, CalleeBuilder.getInt8PtrTy())});
 
       // remove the va_start
       NewI->eraseFromParent();
@@ -354,7 +355,7 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
 
   F.eraseFromParent();
 
-  return DestFn;
+  return NewFn;
 }
 
 void PGLTEntryWrappers::MoveInstructionToWrapper(Instruction *I, BasicBlock *BB) {
