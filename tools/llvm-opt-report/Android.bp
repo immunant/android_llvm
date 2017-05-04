@@ -1,13 +1,13 @@
 //===---------------------------------------------------------------===
-// llvm-strings command line tool
+// llvm-opt-report command line tool
 //===---------------------------------------------------------------===
 
 cc_binary_host {
-    name: "llvm-strings",
+    name: "llvm-opt-report",
     defaults: ["llvm-defaults"],
-    srcs: ["llvm-strings.cpp"],
+    srcs: ["OptReport.cpp"],
     static_libs: [
-        "libLLVMObject",
+        "libLLVMDemangle",
         "libLLVMCore",
         "libLLVMSupport",
     ],

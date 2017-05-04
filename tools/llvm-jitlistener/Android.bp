@@ -1,0 +1,39 @@
+//===---------------------------------------------------------------===
+// llvm-jitlistener command line tool
+//===---------------------------------------------------------------===
+
+cc_binary_host {
+    name: "llvm-jitlistener",
+    defaults: ["llvm-defaults"],
+    srcs: ["llvm-jitlistener.cpp"],
+		group_static_libs: true,
+    static_libs: [
+        "libLLVMAnalysis",
+        "libLLVMAsmParser",
+        "libLLVMAsmPrinter",
+        "libLLVMBitReader",
+        "libLLVMCodeGen",
+        "libLLVMCore",
+        "libLLVMDebugInfoCodeView",
+        "libLLVMDebugInfoDWARF",
+        "libLLVMExecutionEngine",
+        "libLLVMGlobalISel",
+        "libLLVMIRReader",
+        "libLLVMMC",
+        "libLLVMMCDisassembler",
+        "libLLVMMCJIT",
+        "libLLVMMCParser",
+        "libLLVMObject",
+        "libLLVMRuntimeDyld",
+        "libLLVMSelectionDAG",
+        "libLLVMSupport",
+        "libLLVMTarget",
+        "libLLVMScalarOpts",
+        "libLLVMTransformUtils",
+        "libLLVMX86AsmPrinter",
+        "libLLVMX86CodeGen",
+        "libLLVMX86Desc",
+        "libLLVMX86Info",
+        "libLLVMX86Utils",
+    ],
+}

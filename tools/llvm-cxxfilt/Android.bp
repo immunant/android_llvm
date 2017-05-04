@@ -1,14 +1,14 @@
 //===---------------------------------------------------------------===
-// llvm-strings command line tool
+// llvm-cxxfilt command line tool
 //===---------------------------------------------------------------===
 
 cc_binary_host {
-    name: "llvm-strings",
+    name: "llvm-cxxfilt",
     defaults: ["llvm-defaults"],
-    srcs: ["llvm-strings.cpp"],
+    srcs: ["llvm-cxxfilt.cpp"],
     static_libs: [
-        "libLLVMObject",
         "libLLVMCore",
+        "libLLVMDemangle",
         "libLLVMSupport",
     ],
 }

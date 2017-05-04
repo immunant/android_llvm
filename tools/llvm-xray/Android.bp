@@ -1,0 +1,24 @@
+//===---------------------------------------------------------------===
+// llvm-xray command line tool
+//===---------------------------------------------------------------===
+
+cc_binary_host {
+    name: "llvm-xray",
+    defaults: ["llvm-defaults"],
+    srcs: ["*.cc"],
+		group_static_libs: true,
+    static_libs: [
+        "libLLVMBitReader",
+        "libLLVMCore",
+        "libLLVMDebugInfoCodeView",
+        "libLLVMDebugInfoDWARF",
+        "libLLVMDebugInfoMSF",
+        "libLLVMDebugInfoPDB",
+        "libLLVMMC",
+        "libLLVMMCParser",
+        "libLLVMObject",
+        "libLLVMSupport",
+        "libLLVMSymbolize",
+        "libLLVMXRay",
+    ],
+}

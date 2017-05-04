@@ -1,13 +1,14 @@
 //===---------------------------------------------------------------===
-// llvm-strings command line tool
+// llvm-modextract command line tool
 //===---------------------------------------------------------------===
 
 cc_binary_host {
-    name: "llvm-strings",
+    name: "llvm-modextract",
     defaults: ["llvm-defaults"],
-    srcs: ["llvm-strings.cpp"],
+    srcs: ["llvm-modextract.cpp"],
     static_libs: [
-        "libLLVMObject",
+        "libLLVMBitReader",
+        "libLLVMBitWriter",
         "libLLVMCore",
         "libLLVMSupport",
     ],
