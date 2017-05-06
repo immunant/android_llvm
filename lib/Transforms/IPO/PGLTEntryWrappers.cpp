@@ -67,7 +67,8 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 }
 
 bool PGLTEntryWrappers::ProcessFn(Function &F) {
-  if (F.isDeclaration() || F.hasAvailableExternallyLinkage())
+  if (F.isDeclaration() || F.hasAvailableExternallyLinkage() ||
+      F.hasComdat()) // TODO: Support COMDAT
     return false;
 
   F.addFnAttr(Attribute::RandPage);
