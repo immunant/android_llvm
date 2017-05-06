@@ -2005,15 +2005,13 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     if (GV) {
       Callee = LowerGlobalAddressELF(Callee, DAG);
     } else if (ExternalSymbolSDNode *S=dyn_cast<ExternalSymbolSDNode>(Callee)) {
-      const char *Sym = S->getSymbol();
-
-      SDValue ZeroVal = DAG.getConstant(0, dl, MVT::i32);
+      SDValue PGLTValue = DAG.getNode(ISD::PGLT, dl, DAG.getVTList(MVT::i32, MVT::Other));
       SDValue GOTAddr = DAG.getLoad(
-          PtrVt, dl, DAG.getEntryNode(), ZeroVal,
+          PtrVt, dl, PGLTValue.getValue(1), PGLTValue,
           MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
 
       ARMConstantPoolValue *CPV =
-        ARMConstantPoolSymbol::Create(*DAG.getContext(), Sym,
+        ARMConstantPoolSymbol::Create(*DAG.getContext(), S->getSymbol(),
                                       ARMCP::GOT_BREL);
       // Get the address of the callee into a register
       SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVt, 4);
