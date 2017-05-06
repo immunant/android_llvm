@@ -351,6 +351,9 @@ namespace llvm {
     void setBinSymbol(unsigned BinNumber, const MCSymbol *Sym) {
       if (BinSymbols.size() <= BinNumber-1)
         BinSymbols.resize(BinNumber);
+
+      assert((BinSymbols[BinNumber-1] == nullptr ||
+              BinSymbols[BinNumber-1] == Sym) && "Replacing existing bin symbol");
       BinSymbols[BinNumber-1] = Sym;
     }
     const MCSymbol* getBinSymbol(unsigned BinNumber) {
