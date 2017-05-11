@@ -1,14 +1,18 @@
 //===---------------------------------------------------------------===
-// llvm-strings command line tool
+// llvm-cat command line tool
 //===---------------------------------------------------------------===
 
 cc_binary_host {
-    name: "llvm-strings",
+    name: "llvm-cat",
     defaults: ["llvm-defaults"],
-    srcs: ["llvm-strings.cpp"],
+    srcs: ["llvm-cat.cpp"],
+		group_static_libs: true,
     static_libs: [
-        "libLLVMObject",
+        "libLLVMAsmParser",
+        "libLLVMBitReader",
+        "libLLVMBitWriter",
         "libLLVMCore",
+        "libLLVMIRReader",
         "libLLVMSupport",
     ],
 }
