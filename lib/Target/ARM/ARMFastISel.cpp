@@ -537,7 +537,7 @@ unsigned ARMFastISel::ARMMaterializeGV(const GlobalValue *GV, MVT VT) {
   // For now 32-bit only.
   if (VT != MVT::i32 || GV->isThreadLocal()) return 0;
 
-  // ROPI/RWPI not currently supported.
+  // ROPI/RWPI/PIP not currently supported.
   if (Subtarget->isROPI() || Subtarget->isRWPI() || Subtarget->isPIP())
     return 0;
 
@@ -2304,6 +2304,11 @@ bool ARMFastISel::SelectCall(const Instruction *I,
 
   // Allow SelectionDAG isel to handle tail calls.
   if (CI->isTailCall()) return false;
+
+  // Can't handle PIP
+  const Function *F = dyn_cast<Function>(Callee);
+  if (FuncInfo.MF->getFunction()->isRandPage() || (F && F->isRandPage()))
+    return false;
 
   // Check the calling convention.
   ImmutableCallSite CS(CI);

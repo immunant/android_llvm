@@ -349,7 +349,8 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
   STI = &static_cast<const ARMSubtarget &>(MF->getSubtarget());
   TII = STI->getInstrInfo();
   isPositionIndependentOrROPI =
-      STI->getTargetLowering()->isPositionIndependent() || STI->isROPI();
+      STI->getTargetLowering()->isPositionIndependent() ||
+      STI->isROPI() || STI->isPIP();
   AFI = MF->getInfo<ARMFunctionInfo>();
 
   isThumb = AFI->isThumbFunction();
