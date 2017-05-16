@@ -25,6 +25,8 @@ import shutil
 import subprocess
 import sys
 
+from version import Version
+
 THIS_DIR = os.path.realpath(os.path.dirname(__file__))
 ORIG_ENV = dict(os.environ)
 
@@ -33,10 +35,10 @@ def android_path(*args):
     return os.path.realpath(os.path.join(THIS_DIR, '../../', *args))
 
 
-#import version
-# TODO(pirama): Automatically detect clang version
-def clang_version():
-    return '5.0.0'
+def extract_clang_version(stage2_install):
+    version_file = os.path.join(stage2_install, 'include', 'clang', 'Basic',
+                                'Version.inc')
+    return Version(version_file)
 
 
 def ndk_path():
@@ -129,7 +131,7 @@ def invoke_cmake(out_path, defines, env, cmake_path, target=None):
         [ninja_bin_path(), 'install'], cwd=out_path, env=env)
 
 
-def build_crts(stage2_install):
+def build_crts(stage2_install, version):
     cc = os.path.join(stage2_install, 'bin', 'clang')
     cxx = os.path.join(stage2_install, 'bin', 'clang++')
     llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
@@ -162,7 +164,8 @@ def build_crts(stage2_install):
     for (arch, ndk_arch, toolchain_path, llvm_triple, extra_flags) in crt_configs:
         print "Building compiler-rt for %s" % arch
         crt_path = android_path('out', 'clangrt-' + arch)
-        crt_install = os.path.join(stage2_install, 'lib', 'clang', clang_version())
+        crt_install = os.path.join(stage2_install, 'lib64', 'clang',
+                                   version.short_version())
 
         toolchain_root = android_path('prebuilts/gcc', build_os_type())
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
@@ -313,8 +316,10 @@ def main():
     build_llvm(targets=stage2_targets, build_dir=stage2_path,
                install_dir=stage2_install, extra_defines=stage2_extra_defines)
 
+    version = extract_clang_version(stage2_install)
+
     if build_os_type() == 'linux-x86':
-        build_crts(stage2_install)
+        build_crts(stage2_install, version)
 
         # Build single-stage clang for Windows
         windows_targets = stage2_targets
