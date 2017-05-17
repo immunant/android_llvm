@@ -71,6 +71,9 @@ bool PGLTEntryWrappers::ProcessFn(Function &F) {
       F.hasComdat()) // TODO: Support COMDAT
     return false;
 
+  if (isa<UnreachableInst>(F.getEntryBlock().getTerminator()))
+    return false;
+
   F.addFnAttr(Attribute::RandPage);
 
   std::vector<Use *> AddressUses;
