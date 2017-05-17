@@ -149,6 +149,12 @@ bool PGLTEntryWrappers::ProcessFn(Function &F) {
       }
     }
     return true;
+  } else {
+    // Even if we don't need a wrapper, we still need to ensure that the
+    // function doesn't have an explicit section.
+    if (F.hasSection()) {
+      F.setSection("");
+    }
   }
 
   return false;
