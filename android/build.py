@@ -99,7 +99,7 @@ def base_cmake_defines():
     return defines
 
 
-def invoke_cmake(out_path, defines, env, cmake_path, target=None):
+def invoke_cmake(out_path, defines, env, cmake_path, target=None, install=True):
     flags = ['-G', 'Ninja']
 
     # Specify CMAKE_PREFIX_PATH so 'cmake -G Ninja ...' can find the ninja
@@ -127,16 +127,13 @@ def invoke_cmake(out_path, defines, env, cmake_path, target=None):
         [cmake_bin_path()] + flags, cwd=out_path, env=env)
     subprocess.check_call(
         [ninja_bin_path()] + ninja_target, cwd=out_path, env=env)
-    subprocess.check_call(
-        [ninja_bin_path(), 'install'], cwd=out_path, env=env)
+    if install:
+        subprocess.check_call(
+            [ninja_bin_path(), 'install'], cwd=out_path, env=env)
 
 
-def build_crts(stage2_install, version):
-    cc = os.path.join(stage2_install, 'bin', 'clang')
-    cxx = os.path.join(stage2_install, 'bin', 'clang++')
-    llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
-
-    crt_configs = [
+def cross_compile_configs(stage2_install):
+    configs = [
         # Bug: http://b/35404115: Use armv7 triple - some assembly sources in
         # builtins fail to build with arm
         ('arm', 'arm',
@@ -148,7 +145,7 @@ def build_crts(stage2_install, version):
         ('x86_64', 'x86_64',
             'x86/x86_64-linux-android-4.9/x86_64-linux-android',
             'x86_64-linux-android', ''),
-        ('x86', 'x86',
+        ('i386', 'x86',
             'x86/x86_64-linux-android-4.9/x86_64-linux-android',
             'i686-linux-android', '-m32'),
         # Disable mips32 and mips64 because they don't build.
@@ -160,13 +157,10 @@ def build_crts(stage2_install, version):
         #     'mips64el-linux-android', '-m64'),
         ]
 
-    # Now build compiler-rt for each arch
-    for (arch, ndk_arch, toolchain_path, llvm_triple, extra_flags) in crt_configs:
-        print "Building compiler-rt for %s" % arch
-        crt_path = android_path('out', 'clangrt-' + arch)
-        crt_install = os.path.join(stage2_install, 'lib64', 'clang',
-                                   version.short_version())
+    cc = os.path.join(stage2_install, 'bin', 'clang')
+    cxx = os.path.join(stage2_install, 'bin', 'clang++')
 
+    for (arch, ndk_arch, toolchain_path, llvm_triple, extra_flags) in configs:
         toolchain_root = android_path('prebuilts/gcc', build_os_type())
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
         sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
@@ -178,9 +172,11 @@ def build_crts(stage2_install, version):
                                           os.path.basename(toolchain_path),
                                           '4.9.x')
         # The 32-bit libgcc.a is in a separate subdir
-        if arch == 'x86':
+        if arch == 'i386':
             toolchain_builtins = os.path.join(toolchain_builtins, '32')
-
+        defines = {}
+        defines['CMAKE_C_COMPILER'] = cc
+        defines['CMAKE_CXX_COMPILER'] = cxx
 
         cflags = ['--target=%s' % llvm_triple,
                   '--sysroot=%s' % sysroot,
@@ -191,15 +187,24 @@ def build_crts(stage2_install, version):
                   '-Wno-unused-command-line-argument',
                   extra_flags,
                  ]
+        yield (arch, llvm_triple, defines, cflags)
+
+
+def build_crts(stage2_install, clang_version):
+    llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
+    # Now build compiler-rt for each arch
+    for (arch, llvm_triple, crt_defines, cflags) in cross_compile_configs(stage2_install):
+        print "Building compiler-rt for %s" % arch
+        crt_path = android_path('out', 'lib', 'clangrt-'+arch)
+        crt_install = os.path.join(stage2_install, 'lib64', 'clang',
+                                   clang_version.short_version())
+
         cxxflags = cflags[:]
 
-        crt_defines = base_cmake_defines()
         crt_defines['ANDROID'] = '1'
         crt_defines['LLVM_CONFIG_PATH'] = llvm_config
         crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'ON'
         crt_defines['COMPILER_RT_ENABLE_WERROR'] = 'ON'
-        crt_defines['CMAKE_C_COMPILER'] = cc
-        crt_defines['CMAKE_CXX_COMPILER'] = cxx
         crt_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         crt_defines['CMAKE_ASM_FLAGS'] = ' '.join(cflags)
         crt_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
@@ -207,14 +212,48 @@ def build_crts(stage2_install, version):
         crt_defines['COMPILER_RT_TEST_TARGET_TRIPLE'] = llvm_triple
         crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'OFF'
         crt_defines['CMAKE_INSTALL_PREFIX'] = crt_install
+        crt_defines.update(base_cmake_defines())
 
         crt_env = dict(ORIG_ENV)
 
-        crt_cmake_path = os.path.join(android_path('llvm'), 'projects',
-                                      'compiler-rt')
+        crt_cmake_path = android_path('llvm', 'projects', 'compiler-rt')
         rm_cmake_cache(crt_path)
         invoke_cmake(out_path=crt_path, defines=crt_defines, env=crt_env,
                 cmake_path=crt_cmake_path)
+
+
+def build_libfuzzers(stage2_install, clang_version):
+    libcxx_headers = android_path('llvm', 'projects', 'libcxx', 'include')
+    support_headers = android_path('bionic', 'libc', 'include')
+
+    for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(stage2_install):
+        print "Building libfuzzer for %s" % arch
+        libfuzzer_path = android_path('out', 'lib', 'libfuzzer-'+arch)
+        libfuzzer_defines['CMAKE_BUILD_TYPE'] = 'Release'
+        libfuzzer_defines['LLVM_USE_SANITIZER'] = 'Address'
+        libfuzzer_defines['LLVM_USE_SANITIZE_COVERAGE'] = 'YES'
+        libfuzzer_defines['CMAKE_CXX_STANDARD'] = '11'
+
+        cflags.extend(['-isystem %s' % libcxx_headers,
+                       '-isystem %s' % support_headers])
+        cxxflags = cflags[:]
+
+        libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+        libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
+
+        libfuzzer_cmake_path = android_path('llvm', 'lib', 'Fuzzer')
+        libfuzzer_env = dict(ORIG_ENV)
+        rm_cmake_cache(libfuzzer_path)
+        invoke_cmake(out_path=libfuzzer_path, defines=libfuzzer_defines,
+                     env=libfuzzer_env, cmake_path=libfuzzer_cmake_path,
+                     install=False)
+        # We need to install libfuzzer manually.
+        static_lib = os.path.join(libfuzzer_path, 'libLLVMFuzzer.a')
+        lib_dir = os.path.join(stage2_install, 'lib64', 'clang',
+                               clang_version.short_version(), 'lib',
+                               'linux', arch)
+        check_create_path(lib_dir)
+        shutil.copy2(static_lib, os.path.join(lib_dir, 'libFuzzer.a'))
 
 
 def build_llvm(targets, build_dir, install_dir, extra_defines=None):
@@ -320,6 +359,7 @@ def main():
 
     if build_os_type() == 'linux-x86':
         build_crts(stage2_install, version)
+        build_libfuzzers(stage2_install, version)
 
         # Build single-stage clang for Windows
         windows_targets = stage2_targets
