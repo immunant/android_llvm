@@ -33,7 +33,7 @@ using namespace llvm;
 AMDGPUInstructionSelector::AMDGPUInstructionSelector(
     const SISubtarget &STI, const AMDGPURegisterBankInfo &RBI)
     : InstructionSelector(), TII(*STI.getInstrInfo()),
-      TRI(*STI.getRegisterInfo()), RBI(RBI) {}
+      TRI(*STI.getRegisterInfo()), RBI(RBI), AMDGPUASI(STI.getAMDGPUAS()) {}
 
 MachineOperand
 AMDGPUInstructionSelector::getSubOperand64(MachineOperand &MO,
@@ -84,13 +84,19 @@ bool AMDGPUInstructionSelector::selectG_ADD(MachineInstr &I) const {
 
   DebugLoc DL = I.getDebugLoc();
 
+  MachineOperand Lo1(getSubOperand64(I.getOperand(1), AMDGPU::sub0));
+  MachineOperand Lo2(getSubOperand64(I.getOperand(2), AMDGPU::sub0));
+
   BuildMI(*BB, &I, DL, TII.get(AMDGPU::S_ADD_U32), DstLo)
-          .add(getSubOperand64(I.getOperand(1), AMDGPU::sub0))
-          .add(getSubOperand64(I.getOperand(2), AMDGPU::sub0));
+          .add(Lo1)
+          .add(Lo2);
+
+  MachineOperand Hi1(getSubOperand64(I.getOperand(1), AMDGPU::sub1));
+  MachineOperand Hi2(getSubOperand64(I.getOperand(2), AMDGPU::sub1));
 
   BuildMI(*BB, &I, DL, TII.get(AMDGPU::S_ADDC_U32), DstHi)
-          .add(getSubOperand64(I.getOperand(1), AMDGPU::sub1))
-          .add(getSubOperand64(I.getOperand(2), AMDGPU::sub1));
+          .add(Hi1)
+          .add(Hi2);
 
   BuildMI(*BB, &I, DL, TII.get(AMDGPU::REG_SEQUENCE), I.getOperand(0).getReg())
           .addReg(DstLo)
@@ -285,7 +291,7 @@ bool AMDGPUInstructionSelector::selectSMRD(MachineInstr &I,
   if (!I.hasOneMemOperand())
     return false;
 
-  if ((*I.memoperands_begin())->getAddrSpace() != AMDGPUAS::CONSTANT_ADDRESS)
+  if ((*I.memoperands_begin())->getAddrSpace() != AMDGPUASI.CONSTANT_ADDRESS)
     return false;
 
   if (!isInstrUniform(I))

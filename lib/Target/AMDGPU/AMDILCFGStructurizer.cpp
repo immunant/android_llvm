@@ -99,16 +99,6 @@ DEBUG( \
 
 #define INVALIDSCCNUM -1
 
-template<class NodeT>
-void ReverseVector(SmallVectorImpl<NodeT *> &Src) {
-  size_t sz = Src.size();
-  for (size_t i = 0; i < sz/2; ++i) {
-    NodeT *t = Src[i];
-    Src[i] = Src[sz - i - 1];
-    Src[sz - i - 1] = t;
-  }
-}
-
 //===----------------------------------------------------------------------===//
 //
 // supporting data structure for CFGStructurizer
@@ -911,11 +901,8 @@ void AMDGPUCFGStructurizer::orderBlocks(MachineFunction *MF) {
     }
   }
 
-  //walk through all the block in func to check for unreachable
-  typedef GraphTraits<MachineFunction *> GTM;
-  auto It = GTM::nodes_begin(MF), E = GTM::nodes_end(MF);
-  for (; It != E; ++It) {
-    MachineBasicBlock *MBB = *It;
+  // walk through all the block in func to check for unreachable
+  for (auto *MBB : nodes(MF)) {
     SccNum = getSCCNum(MBB);
     if (SccNum == INVALIDSCCNUM)
       dbgs() << "unreachable block BB" << MBB->getNumber() << "\n";
@@ -1081,13 +1068,9 @@ int AMDGPUCFGStructurizer::mergeLoop(MachineLoop *LoopRep) {
   MachineBasicBlock *ExitBlk = *ExitBlks.begin();
   assert(ExitBlk && "Loop has several exit block");
   MBBVector LatchBlks;
-  typedef GraphTraits<Inverse<MachineBasicBlock*>> InvMBBTraits;
-  InvMBBTraits::ChildIteratorType PI = InvMBBTraits::child_begin(LoopHeader),
-      PE = InvMBBTraits::child_end(LoopHeader);
-  for (; PI != PE; PI++) {
-    if (LoopRep->contains(*PI))
-      LatchBlks.push_back(*PI);
-  }
+  for (auto *LB : inverse_children<MachineBasicBlock*>(LoopHeader))
+    if (LoopRep->contains(LB))
+      LatchBlks.push_back(LB);
 
   for (unsigned i = 0, e = ExitingMBBs.size(); i < e; ++i)
     mergeLoopbreakBlock(ExitingMBBs[i], ExitBlk);
