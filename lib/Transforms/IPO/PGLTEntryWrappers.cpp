@@ -148,7 +148,6 @@ bool PGLTEntryWrappers::ProcessFn(Function &F) {
         }
       }
     }
-    return true;
   } else {
     // Even if we don't need a wrapper, we still need to ensure that the
     // function doesn't have an explicit section.
@@ -157,7 +156,7 @@ bool PGLTEntryWrappers::ProcessFn(Function &F) {
     }
   }
 
-  return false;
+  return true;
 }
 
 Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
