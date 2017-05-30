@@ -29,6 +29,7 @@ import utils
 from version import Version
 
 ORIG_ENV = dict(os.environ)
+STAGE2_TARGETS = 'AArch64;ARM;Mips;X86'
 
 
 def extract_clang_version(stage2_install):
@@ -354,9 +355,7 @@ def build_runtimes(stage2_install):
 
 def main():
     stage1_install = build_stage1()
-
-    stage2_targets = 'AArch64;ARM;Mips;X86'
-    stage2_install = build_stage2(stage1_install, stage2_targets)
+    stage2_install = build_stage2(stage1_install, STAGE2_TARGETS)
 
     if build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
