@@ -24,15 +24,11 @@ import os
 import shutil
 import subprocess
 import sys
+import utils
 
 from version import Version
 
-THIS_DIR = os.path.realpath(os.path.dirname(__file__))
 ORIG_ENV = dict(os.environ)
-
-
-def android_path(*args):
-    return os.path.realpath(os.path.join(THIS_DIR, '../../', *args))
 
 
 def extract_clang_version(stage2_install):
@@ -45,7 +41,8 @@ def ndk_path():
     # TODO Switch to r13 from the toolchain/prebuilts/ndk/r13 branch
     ndk_version = 'r10'
     platform_level = 'android-23'
-    return android_path('prebuilts/ndk', ndk_version, 'platforms', platform_level)
+    return utils.android_path('prebuilts/ndk', ndk_version, 'platforms',
+                              platform_level)
 
 
 def build_os_type():
@@ -56,7 +53,7 @@ def build_os_type():
 
 
 def cmake_prebuilt_bin_dir():
-    return android_path('prebuilts/cmake', build_os_type(), 'bin')
+    return utils.android_path('prebuilts/cmake', build_os_type(), 'bin')
 
 
 def cmake_bin_path():
@@ -72,21 +69,12 @@ def check_create_path(path):
         os.makedirs(path)
 
 
-def rm_tree(dir):
-    def chmod_and_retry(func, path, _):
-        if not os.access(path, os.W_OK):
-            os.chmod(path, stat.S_IWUSR)
-            return func(path)
-        raise
-    shutil.rmtree(dir, onerror=chmod_and_retry)
-
-
 def rm_cmake_cache(dir):
     for dirpath, dirs, files in os.walk(dir):
         if 'CMakeCache.txt' in files:
             os.remove(os.path.join(dirpath, 'CMakeCache.txt'))
         if 'CMakeFiles' in dirs:
-            rm_tree(os.path.join(dirpath, 'CMakeFiles'))
+            utils.rm_tree(os.path.join(dirpath, 'CMakeFiles'))
 
 
 # Base cmake options such as build type that are common across all invocations
@@ -161,7 +149,7 @@ def cross_compile_configs(stage2_install):
     cxx = os.path.join(stage2_install, 'bin', 'clang++')
 
     for (arch, ndk_arch, toolchain_path, llvm_triple, extra_flags) in configs:
-        toolchain_root = android_path('prebuilts/gcc', build_os_type())
+        toolchain_root = utils.android_path('prebuilts/gcc', build_os_type())
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
         sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
 
@@ -195,7 +183,7 @@ def build_crts(stage2_install, clang_version):
     # Now build compiler-rt for each arch
     for (arch, llvm_triple, crt_defines, cflags) in cross_compile_configs(stage2_install):
         print "Building compiler-rt for %s" % arch
-        crt_path = android_path('out', 'lib', 'clangrt-'+arch)
+        crt_path = utils.android_path('out', 'lib', 'clangrt-'+arch)
         crt_install = os.path.join(stage2_install, 'lib64', 'clang',
                                    clang_version.short_version())
 
@@ -216,19 +204,19 @@ def build_crts(stage2_install, clang_version):
 
         crt_env = dict(ORIG_ENV)
 
-        crt_cmake_path = android_path('llvm', 'projects', 'compiler-rt')
+        crt_cmake_path = utils.android_path('llvm', 'projects', 'compiler-rt')
         rm_cmake_cache(crt_path)
         invoke_cmake(out_path=crt_path, defines=crt_defines, env=crt_env,
                 cmake_path=crt_cmake_path)
 
 
 def build_libfuzzers(stage2_install, clang_version):
-    libcxx_headers = android_path('llvm', 'projects', 'libcxx', 'include')
-    support_headers = android_path('bionic', 'libc', 'include')
+    libcxx_headers = utils.android_path('llvm', 'projects', 'libcxx', 'include')
+    support_headers = utils.android_path('bionic', 'libc', 'include')
 
     for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(stage2_install):
         print "Building libfuzzer for %s" % arch
-        libfuzzer_path = android_path('out', 'lib', 'libfuzzer-'+arch)
+        libfuzzer_path = utils.android_path('out', 'lib', 'libfuzzer-'+arch)
         libfuzzer_defines['CMAKE_BUILD_TYPE'] = 'Release'
         libfuzzer_defines['LLVM_USE_SANITIZER'] = 'Address'
         libfuzzer_defines['LLVM_USE_SANITIZE_COVERAGE'] = 'YES'
@@ -241,7 +229,7 @@ def build_libfuzzers(stage2_install, clang_version):
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
 
-        libfuzzer_cmake_path = android_path('llvm', 'lib', 'Fuzzer')
+        libfuzzer_cmake_path = utils.android_path('llvm', 'lib', 'Fuzzer')
         libfuzzer_env = dict(ORIG_ENV)
         rm_cmake_cache(libfuzzer_path)
         invoke_cmake(out_path=libfuzzer_path, defines=libfuzzer_defines,
@@ -268,14 +256,14 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None):
     env = dict(ORIG_ENV)
 
     invoke_cmake(out_path=build_dir, defines=cmake_defines, env=env,
-                 cmake_path=android_path('llvm'))
+                 cmake_path=utils.android_path('llvm'))
 
 
 def build_llvm_for_windows(targets, build_dir, install_dir,
                            native_clang_install, is_32_bit=False):
 
-    mingw_path = android_path('prebuilts', 'gcc', 'linux-x86', 'host',
-                              'x86_64-w64-mingw32-4.8')
+    mingw_path = utils.android_path('prebuilts', 'gcc', 'linux-x86', 'host',
+                                    'x86_64-w64-mingw32-4.8')
     mingw_cc = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-gcc')
     mingw_cxx = os.path.join(mingw_path, 'bin', 'x86_64-w64-mingw32-g++')
 
@@ -323,10 +311,10 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
                extra_defines=windows_extra_defines)
 
 
-def main():
+def build_stage1():
     # Build/install the stage 1 toolchain
-    stage1_path = android_path('out', 'stage1')
-    stage1_install = android_path('out', 'stage1-install')
+    stage1_path = utils.android_path('out', 'stage1')
+    stage1_install = utils.android_path('out', 'stage1-install')
     stage1_targets = 'X86'
 
     stage1_extra_defines = dict()
@@ -338,15 +326,17 @@ def main():
     stage1_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
     build_llvm(targets=stage1_targets, build_dir=stage1_path,
                install_dir=stage1_install, extra_defines=stage1_extra_defines)
+    return stage1_install
 
+
+def build_stage2(stage1_install, stage2_targets):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
     # Build/install the stage2 toolchain
     stage2_cc = os.path.join(stage1_install, 'bin', 'clang')
     stage2_cxx = os.path.join(stage1_install, 'bin', 'clang++')
-    stage2_path = android_path('out', 'stage2')
-    stage2_install = android_path('out', 'stage2-install')
-    stage2_targets = 'AArch64;ARM;Mips;X86'
+    stage2_path = utils.android_path('out', 'stage2')
+    stage2_install = utils.android_path('out', 'stage2-install')
 
     stage2_extra_defines = dict()
     stage2_extra_defines['CMAKE_C_COMPILER'] = stage2_cc
@@ -354,27 +344,38 @@ def main():
 
     build_llvm(targets=stage2_targets, build_dir=stage2_path,
                install_dir=stage2_install, extra_defines=stage2_extra_defines)
+    return stage2_install
 
+
+def build_runtimes(stage2_install):
     version = extract_clang_version(stage2_install)
+    build_crts(stage2_install, version)
+    build_libfuzzers(stage2_install, version)
+
+
+def main():
+    stage1_install = build_stage1()
+
+    stage2_targets = 'AArch64;ARM;Mips;X86'
+    stage2_install = build_stage2(stage1_install, stage2_targets)
 
     if build_os_type() == 'linux-x86':
-        build_crts(stage2_install, version)
-        build_libfuzzers(stage2_install, version)
+        build_runtimes(stage2_install)
 
         # Build single-stage clang for Windows
         windows_targets = stage2_targets
 
         # Build 64-bit clang for Windows
-        windows64_path  = android_path('out', 'windows-x86')
-        windows64_install = android_path('out', 'windows-x86-install')
+        windows64_path  = utils.android_path('out', 'windows-x86')
+        windows64_install = utils.android_path('out', 'windows-x86-install')
         build_llvm_for_windows(targets=windows_targets,
                                build_dir=windows64_path,
                                install_dir=windows64_install,
                                native_clang_install=stage2_install)
 
         # Build 32-bit clang for Windows
-        windows32_path = android_path('out', 'windows-i386')
-        windows32_install = android_path('out', 'windows-i386')
+        windows32_path = utils.android_path('out', 'windows-i386')
+        windows32_install = utils.android_path('out', 'windows-i386')
         build_llvm_for_windows(targets=windows_targets,
                                build_dir=windows32_path,
                                install_dir=windows32_install,
