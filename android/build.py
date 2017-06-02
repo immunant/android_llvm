@@ -100,7 +100,6 @@ def invoke_cmake(out_path, defines, env, cmake_path, target=None, install=True):
     flags += [cmake_path]
 
     check_create_path(out_path)
-    os.chdir(out_path)
     # TODO(srhines): Enable this with a flag, because it forces clean builds
     # due to the updated cmake generated files.
     #rm_cmake_cache(out_path)
