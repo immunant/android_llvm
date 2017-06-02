@@ -243,6 +243,15 @@ def build_libfuzzers(stage2_install, clang_version):
         check_create_path(lib_dir)
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libFuzzer.a'))
 
+    # Install libfuzzer headers.
+    header_src = utils.android_path('llvm', 'lib', 'Fuzzer')
+    header_dst = os.path.join(stage2_install, 'prebuilt_include', 'llvm',
+                              'lib', 'Fuzzer')
+    check_create_path(header_dst)
+    for f in os.listdir(header_src):
+        if f.endswith('.h') or f.endswith('.def'):
+            shutil.copy2(os.path.join(header_src, f), header_dst)
+
 
 def build_llvm(targets, build_dir, install_dir, extra_defines=None):
     cmake_defines = base_cmake_defines()
