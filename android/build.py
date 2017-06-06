@@ -178,6 +178,38 @@ def cross_compile_configs(stage2_install):
         yield (arch, llvm_triple, defines, cflags)
 
 
+def build_libcxx(stage2_install, clang_version):
+    support_headers = utils.android_path('bionic', 'libc', 'include')
+    for (arch, llvm_triple, libcxx_defines, cflags) in cross_compile_configs(stage2_install):
+        print "Building libcxx for %s" % arch
+        libcxx_path = utils.android_path('out', 'lib', 'libcxx-'+arch)
+
+        cflags.extend(['-isystem %s' % support_headers])
+
+        libcxx_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+        libcxx_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
+        libcxx_defines['CMAKE_BUILD_TYPE'] = 'Release'
+
+        libcxx_env = dict(ORIG_ENV)
+
+        libcxx_cmake_path = utils.llvm_path('projects', 'libcxx')
+        rm_cmake_cache(libcxx_path)
+
+        invoke_cmake(out_path=libcxx_path, defines=libcxx_defines,
+                     env=libcxx_env, cmake_path=libcxx_cmake_path,
+                     install=False)
+        # We need to install libcxx manually.
+        libcxx_install = os.path.join(stage2_install, 'lib64', 'clang',
+                                      clang_version.short_version(), 'lib',
+                                      'linux', arch)
+        libcxx_libs = os.path.join(libcxx_path, 'lib')
+        check_create_path(libcxx_install)
+        for f in os.listdir(libcxx_libs):
+            if f.startswith('libc++'):
+                shutil.copy2(os.path.join(libcxx_libs, f), libcxx_install)
+
+
+
 def build_crts(stage2_install, clang_version):
     llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
     # Now build compiler-rt for each arch
@@ -187,15 +219,13 @@ def build_crts(stage2_install, clang_version):
         crt_install = os.path.join(stage2_install, 'lib64', 'clang',
                                    clang_version.short_version())
 
-        cxxflags = cflags[:]
-
         crt_defines['ANDROID'] = '1'
         crt_defines['LLVM_CONFIG_PATH'] = llvm_config
         crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'ON'
         crt_defines['COMPILER_RT_ENABLE_WERROR'] = 'ON'
         crt_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         crt_defines['CMAKE_ASM_FLAGS'] = ' '.join(cflags)
-        crt_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
+        crt_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
         crt_defines['COMPILER_RT_TEST_COMPILER_CFLAGS'] = ' '.join(cflags)
         crt_defines['COMPILER_RT_TEST_TARGET_TRIPLE'] = llvm_triple
         crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'OFF'
@@ -224,10 +254,9 @@ def build_libfuzzers(stage2_install, clang_version):
 
         cflags.extend(['-isystem %s' % libcxx_headers,
                        '-isystem %s' % support_headers])
-        cxxflags = cflags[:]
 
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
-        libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
+        libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
 
         libfuzzer_cmake_path = utils.llvm_path('lib', 'Fuzzer')
         libfuzzer_env = dict(ORIG_ENV)
@@ -360,6 +389,7 @@ def build_runtimes(stage2_install):
     version = extract_clang_version(stage2_install)
     build_crts(stage2_install, version)
     build_libfuzzers(stage2_install, version)
+    build_libcxx(stage2_install, version)
 
 
 def main():
