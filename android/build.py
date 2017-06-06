@@ -370,7 +370,7 @@ def main():
         build_runtimes(stage2_install)
 
         # Build single-stage clang for Windows
-        windows_targets = stage2_targets
+        windows_targets = STAGE2_TARGETS
 
         # Build 64-bit clang for Windows
         windows64_path  = utils.android_path('out', 'windows-x86')
