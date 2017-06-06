@@ -111,6 +111,12 @@ bool PGLTEntryWrappers::ProcessFn(Function &F) {
           }
         }
       }
+
+      // Skip personality function uses
+      if (auto UserFn = dyn_cast<Function>(FU)) {
+        if (UserFn->getPersonalityFn() == &F)
+          continue;
+      }
     }
 
     if (isa<CallInst>(FU) || isa<InvokeInst>(FU)) {
