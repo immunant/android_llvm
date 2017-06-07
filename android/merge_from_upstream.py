@@ -16,6 +16,7 @@
 #
 
 import argparse
+import multiprocessing
 import os
 import re
 import subprocess
@@ -43,9 +44,15 @@ def parse_args():
   return parser.parse_args()
 
 
+def sync_upstream_branch(path):
+    jobs = '-j{}'.format(multiprocessing.cpu_count())
+    subprocess.check_call(['repo', 'sync', jobs, '.'], cwd=path)
+
+
 def merge_projects(revision, create_new_branch):
     project_sha_dict = {}
     for (project, path) in PROJECT_PATH:
+        sync_upstream_branch(path)
         sha = get_commit_hash(revision, path)
         if sha is None:
             return
@@ -63,8 +70,9 @@ def merge_projects(revision, create_new_branch):
 
 def get_commit_hash(revision, path):
     # Get sha and commit message body for each log.
-    p = subprocess.Popen('git log aosp/upstream-mirror --format="%h%x1f%B%x1e"',
-                         shell=True, stdout=subprocess.PIPE, cwd=path)
+    p = subprocess.Popen(['git', 'log', 'aosp/upstream-mirror',
+                          '--format=%h%x1f%B%x1e'], stdout=subprocess.PIPE,
+                         cwd=path)
     (log, _) = p.communicate()
     if p.returncode != 0:
         print('git log for path: %s failed!' % path)
