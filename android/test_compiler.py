@@ -22,7 +22,7 @@ import os
 import subprocess
 import utils
 
-TARGETS = ('aosp_angler-eng')
+TARGETS = ('aosp_angler-eng', 'aosp_bullhead-eng', 'aosp_marlin-eng')
 
 
 def parse_args():
@@ -41,6 +41,9 @@ def parse_args():
                         default=False, help='Build default targets only.')
     parser.add_argument('--flashall-path', nargs='?', help='Use internal '
                         'flashall tool if the path is set.')
+    parser.add_argument('-t', '--target', nargs='?', help='Build for specified '
+                        'target. This will work only when --build-only is '
+                        'enabled.')
     clean_built_target_group = parser.add_mutually_exclusive_group()
     clean_built_target_group.add_argument(
         '--clean-built-target', action='store_true', default=True,
@@ -147,10 +150,12 @@ def main():
     if len(devices) == 0:
         print("You don't have any devices connected. Will build for "
               'default targets only.')
+
     if args.build_only or len(device) == 0:
-        for target in TARGETS:
+        targets = [args.target] if args.target else TARGETS
+        for target in targets:
             build_target(args.android_path, clang_version, target,
-                         args.jobs)
+                    args.jobs)
     else:
         for device in devices:
             result = test_device(args.android_path, clang_version, device,
