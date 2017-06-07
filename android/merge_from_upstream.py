@@ -37,10 +37,13 @@ def parse_args():
   parser = argparse.ArgumentParser()
   parser.add_argument('revision', help='Revision number of llvm source.',
                       type=int)
+  parser.add_argument('--create-new-branch', action='store_true', default=False,
+                      help='Create new branch using `repo start` before '
+                           'merging from upstream.')
   return parser.parse_args()
 
 
-def merge_projects(revision):
+def merge_projects(revision, create_new_branch):
     project_sha_dict = {}
     for (project, path) in PROJECT_PATH:
         sha = get_commit_hash(revision, path)
@@ -51,6 +54,9 @@ def merge_projects(revision):
 
     for (project, path) in PROJECT_PATH:
         sha = project_sha_dict[project]
+        if create_new_branch:
+            branch_name = 'merge-upstream-r%s' % revision
+            subprocess.check_call(['repo', 'start', branch_name, '.'], cwd=path)
         subprocess.check_call(['git', 'merge', sha, '-m',
             'Merge %s for LLVM update to %d' % (sha, revision)], cwd=path)
 
@@ -92,7 +98,7 @@ def parse_log(raw_log):
 
 def main():
     args = parse_args()
-    merge_projects(args.revision)
+    merge_projects(args.revision, args.create_new_branch)
 
 
 if __name__ == '__main__':
