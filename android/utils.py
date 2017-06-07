@@ -41,4 +41,8 @@ def rm_tree(dir):
 
 
 def android_path(*args):
-    return os.path.realpath(os.path.join(THIS_DIR, '../../', *args))
+    return os.path.realpath(os.path.join(THIS_DIR, '../../../', *args))
+
+
+def llvm_path(*args):
+    return os.path.realpath(os.path.join(THIS_DIR, '../', *args))
