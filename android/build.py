@@ -204,14 +204,14 @@ def build_crts(stage2_install, clang_version):
 
         crt_env = dict(ORIG_ENV)
 
-        crt_cmake_path = utils.android_path('llvm', 'projects', 'compiler-rt')
+        crt_cmake_path = utils.llvm_path('projects', 'compiler-rt')
         rm_cmake_cache(crt_path)
         invoke_cmake(out_path=crt_path, defines=crt_defines, env=crt_env,
                 cmake_path=crt_cmake_path)
 
 
 def build_libfuzzers(stage2_install, clang_version):
-    libcxx_headers = utils.android_path('llvm', 'projects', 'libcxx', 'include')
+    libcxx_headers = utils.llvm_path('projects', 'libcxx', 'include')
     support_headers = utils.android_path('bionic', 'libc', 'include')
 
     for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(stage2_install):
@@ -229,7 +229,7 @@ def build_libfuzzers(stage2_install, clang_version):
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
 
-        libfuzzer_cmake_path = utils.android_path('llvm', 'lib', 'Fuzzer')
+        libfuzzer_cmake_path = utils.llvm_path('lib', 'Fuzzer')
         libfuzzer_env = dict(ORIG_ENV)
         rm_cmake_cache(libfuzzer_path)
         invoke_cmake(out_path=libfuzzer_path, defines=libfuzzer_defines,
@@ -244,7 +244,7 @@ def build_libfuzzers(stage2_install, clang_version):
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libFuzzer.a'))
 
     # Install libfuzzer headers.
-    header_src = utils.android_path('llvm', 'lib', 'Fuzzer')
+    header_src = utils.llvm_path('lib', 'Fuzzer')
     header_dst = os.path.join(stage2_install, 'prebuilt_include', 'llvm',
                               'lib', 'Fuzzer')
     check_create_path(header_dst)
@@ -265,7 +265,7 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None):
     env = dict(ORIG_ENV)
 
     invoke_cmake(out_path=build_dir, defines=cmake_defines, env=env,
-                 cmake_path=utils.android_path('llvm'))
+                 cmake_path=utils.llvm_path())
 
 
 def build_llvm_for_windows(targets, build_dir, install_dir,

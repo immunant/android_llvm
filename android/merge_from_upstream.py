@@ -21,16 +21,16 @@ import os
 import re
 import subprocess
 
-from utils import android_path
+from utils import llvm_path
 
 PROJECT_PATH = (
-    ('llvm', android_path('llvm')),
-    ('cfe', android_path('llvm/tools/clang')),
-    ('clang-tools-extra', android_path('llvm/tools/clang/tools/extra')),
-    ('compiler-rt', android_path('llvm/projects/compiler-rt')),
-    ('libcxx', android_path('llvm/projects/libcxx')),
-    ('libcxxabi', android_path('llvm/projects/libcxxabi')),
-    ('openmp', android_path('llvm/projects/openmp')),
+    ('llvm', llvm_path()),
+    ('cfe', llvm_path('tools/clang')),
+    ('clang-tools-extra', llvm_path('tools/clang/tools/extra')),
+    ('compiler-rt', llvm_path('projects/compiler-rt')),
+    ('libcxx', llvm_path('projects/libcxx')),
+    ('libcxxabi', llvm_path('projects/libcxxabi')),
+    ('openmp', llvm_path('projects/openmp')),
 )
 
 
