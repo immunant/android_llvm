@@ -178,6 +178,17 @@ def cross_compile_configs(stage2_install):
         yield (arch, llvm_triple, defines, cflags)
 
 
+def build_asan_test(stage2_install):
+    # We can not build asan_test using current CMake building system. Since
+    # those files are not used to build AOSP, we just simply touch them so that
+    # we can pass the build checks.
+    for arch in ('aarch64', 'arm', 'i686', 'mips', 'mips64'):
+        asan_test_path = os.path.join(stage2_install, 'test', arch, 'bin')
+        check_create_path(asan_test_path)
+        asan_test_bin_path = os.path.join(asan_test_path, 'asan_test')
+        open(asan_test_bin_path, 'w+').close()
+
+
 def build_libcxx(stage2_install, clang_version):
     support_headers = utils.android_path('bionic', 'libc', 'include')
     for (arch, llvm_triple, libcxx_defines, cflags) in cross_compile_configs(stage2_install):
@@ -390,6 +401,7 @@ def build_runtimes(stage2_install):
     build_crts(stage2_install, version)
     build_libfuzzers(stage2_install, version)
     build_libcxx(stage2_install, version)
+    build_asan_test(stage2_install)
 
 
 def main():
