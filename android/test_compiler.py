@@ -17,10 +17,12 @@
 
 import argparse
 import build
+import compiler_wrapper
 import multiprocessing
 import os
-import subprocess
 import utils
+import shutil
+import subprocess
 
 TARGETS = ('aosp_angler-eng', 'aosp_bullhead-eng', 'aosp_marlin-eng')
 
@@ -51,12 +53,20 @@ def parse_args():
     clean_built_target_group.add_argument(
         '--no-clean-built-target', action='store_false',
         dest='clean_built_target', help='Do not remove target output.')
+    redirect_stderr_group = parser.add_mutually_exclusive_group()
+    redirect_stderr_group.add_argument(
+        '--redirect-stderr', action='store_true', default=True,
+        help='Redirect clang stderr to $OUT/clang-error.log.')
+    clean_built_target_group.add_argument(
+        '--no-redirect-stderr', action='store_false',
+        dest='redirect_stderr', help='Do not redirect clang stderr.')
     return parser.parse_args()
 
 
 def link_clang(android_base, clang_path):
     android_clang_path = os.path.join(android_base, 'prebuilts', 'clang',
-                                      'host', 'linux-x86', 'clang-dev')
+                                      'host', utils.build_os_type(),
+                                      'clang-dev')
     utils.remove(android_clang_path)
     os.symlink(os.path.abspath(clang_path), android_clang_path)
 
@@ -77,30 +87,41 @@ def rm_current_product_out():
         utils.remove(os.environ['ANDROID_PRODUCT_OUT'])
 
 
-def build_target(android_base, clang_version, target, max_jobs):
+def build_target(android_base, clang_version, target, max_jobs,
+                 redirect_stderr):
     jobs = '-j{}'.format(
             max(1, min(max_jobs, multiprocessing.cpu_count())))
     result = True
     env_out = subprocess.Popen(['bash', '-c',  '. ./build/envsetup.sh;'
                                 'lunch ' + target + ' >/dev/null && env'],
                                cwd=android_base, stdout=subprocess.PIPE )
+    env = {}
     for line in env_out.stdout:
         (key, _, value) = line.partition('=')
         value = value.strip()
-        if key in os.environ and value==os.environ[key]:
-            continue
-        os.environ[key] = value
+        env[key] = value
     env_out.communicate()
+
+    if redirect_stderr:
+        redirect_key = compiler_wrapper.STDERR_REDIRECT_KEY
+        redirect_path = os.path.abspath(os.path.join(android_base, 'out',
+                                                     'clang-error.log'))
+        utils.remove(redirect_path)
+        env[redirect_key] = redirect_path
+
+    fallback_path = build.clang_prebuilt_bin_dir()
+    env[compiler_wrapper.PREBUILT_COMPILER_PATH_KEY] = fallback_path
 
     print('Start building %s.' % target)
     subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' dist'
                            ' LLVM_PREBUILTS_VERSION=clang-dev' +
                            (' LLVM_RELEASE_VERSION=%s' %
-                           clang_version.short_version())], cwd=android_base)
+                            clang_version.short_version())], cwd=android_base,
+                          env=env)
 
 
 def test_device(android_base, clang_version, device, max_jobs, clean_output,
-                flashall_path):
+                flashall_path, redirect_stderr):
     [label, target] = device[-1].split(':')
     # If current device is not connected correctly we will just skip it.
     if label != 'device':
@@ -109,10 +130,11 @@ def test_device(android_base, clang_version, device, max_jobs, clean_output,
     else:
         target = 'aosp_' + target + '-eng'
     try:
-        build_target(android_base, clang_version, target, max_jobs)
+        build_target(android_base, clang_version, target, max_jobs,
+                     redirect_stderr)
         if flashall_path is None:
-            bin_path = os.path.join(android_base, 'out', 'host', 'linux-x86',
-                                    'bin')
+            bin_path = os.path.join(android_base, 'out', 'host',
+                                    utils.build_os_type(), 'bin')
             subprocess.check_call(['./adb', '-s', device[0], 'reboot',
                                    'bootloader'], cwd=bin_path)
             subprocess.check_call(['./fastboot', '-s', device[0], 'flashall'],
@@ -127,6 +149,24 @@ def test_device(android_base, clang_version, device, max_jobs, clean_output,
     if clean_output:
         rm_current_product_out()
     return result
+
+
+def install_wrappers(llvm_install_path):
+    wrapper_path = utils.llvm_path('android', 'compiler_wrapper.py')
+    bin_path = os.path.join(llvm_install_path, 'bin')
+    clang_path = os.path.join(bin_path, 'clang')
+    clangxx_path = os.path.join(bin_path, 'clang++')
+
+    # Rename clang and clang++ to clang.real and clang++.real. Clang may
+    # already be moved, so we only move clang when clang is link.
+    if os.path.islink(clang_path):
+        shutil.move(clang_path, clang_path + '.real')
+    utils.remove(clangxx_path)
+    utils.remove(clangxx_path + '.real')
+    os.symlink('clang.real', clangxx_path + '.real')
+
+    shutil.copy2(wrapper_path, clang_path)
+    shutil.copy2(wrapper_path, clangxx_path)
 
 
 def build_clang():
@@ -144,13 +184,14 @@ def main():
     else:
         clang_path = args.clang_path
         clang_version = build.extract_clang_version(clang_path)
+    install_wrappers(clang_path)
     link_clang(args.android_path, clang_path)
 
     if args.build_only:
         targets = [args.target] if args.target else TARGETS
         for target in targets:
             build_target(args.android_path, clang_version, target,
-                    args.jobs)
+                         args.jobs, args.redirect_stderr)
     else:
         devices = get_connected_device_list()
         if len(devices) == 0:
@@ -158,7 +199,7 @@ def main():
         for device in devices:
             result = test_device(args.android_path, clang_version, device,
                                  args.jobs, args.clean_built_target,
-                                 args.flashall_path)
+                                 args.flashall_path, args.redirect_stderr)
             if not result and not args.keep_going:
                 break
 

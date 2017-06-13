@@ -46,20 +46,13 @@ def ndk_path():
                               platform_level)
 
 
-def build_os_type():
-    if sys.platform.startswith('linux'):
-        return 'linux-x86'
-    else:
-        return 'darwin-x86'
-
-
 # This is the baseline stable version of Clang to start our stage-1 build.
 def clang_prebuilt_version():
     return 'clang-4053586'
 
 
 def clang_prebuilt_base_dir():
-    return utils.android_path('prebuilts/clang/host', build_os_type(),
+    return utils.android_path('prebuilts/clang/host', utils.build_os_type(),
                               clang_prebuilt_version())
 
 def clang_prebuilt_bin_dir():
@@ -71,7 +64,7 @@ def clang_prebuilt_lib_dir():
 
 
 def cmake_prebuilt_bin_dir():
-    return utils.android_path('prebuilts/cmake', build_os_type(), 'bin')
+    return utils.android_path('prebuilts/cmake', utils.build_os_type(), 'bin')
 
 
 def cmake_bin_path():
@@ -168,7 +161,8 @@ def cross_compile_configs(stage2_install):
     cxx = os.path.join(stage2_install, 'bin', 'clang++')
 
     for (arch, ndk_arch, toolchain_path, llvm_triple, extra_flags) in configs:
-        toolchain_root = utils.android_path('prebuilts/gcc', build_os_type())
+        toolchain_root = utils.android_path('prebuilts/gcc',
+                                            utils.build_os_type())
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
         sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
 
@@ -423,7 +417,7 @@ def build_stage1():
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
     # necessary to pass -lc++abi explicitly.  This is needed only for Linux.
-    if build_os_type() == 'linux-x86':
+    if utils.build_os_type() == 'linux-x86':
         stage1_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
         stage1_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
 
@@ -432,7 +426,7 @@ def build_stage1():
     # fail compilation of lib/builtins/atomic_*.c that only get built for
     # Darwin and fail compilation due to us using the bionic version of
     # stdatomic.h.
-    if build_os_type() == 'darwin-x86':
+    if utils.build_os_type() == 'darwin-x86':
           stage1_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
 
     build_llvm(targets=stage1_targets, build_dir=stage1_path,
@@ -460,7 +454,7 @@ def build_stage2(stage1_install, stage2_targets):
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
     # necessary to pass -lc++abi explicitly.  This is needed only for Linux.
-    if build_os_type() == 'linux-x86':
+    if utils.build_os_type() == 'linux-x86':
         stage2_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
         stage2_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
 
@@ -469,7 +463,7 @@ def build_stage2(stage1_install, stage2_targets):
     # fail compilation of lib/builtins/atomic_*.c that only get built for
     # Darwin and fail compilation due to us using the bionic version of
     # stdatomic.h.
-    if build_os_type == 'darwin-x86':
+    if utils.build_os_type == 'darwin-x86':
         stage2_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
 
     # Point CMake to the libc++ from stage1.  It is possible that once built,
@@ -497,7 +491,7 @@ def main():
     stage1_install = build_stage1()
     stage2_install = build_stage2(stage1_install, STAGE2_TARGETS)
 
-    if build_os_type() == 'linux-x86':
+    if utils.build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
 
         # Build single-stage clang for Windows

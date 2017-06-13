@@ -18,6 +18,7 @@
 import os
 import shutil
 import stat
+import sys
 
 THIS_DIR = os.path.realpath(os.path.dirname(__file__))
 
@@ -46,3 +47,10 @@ def android_path(*args):
 
 def llvm_path(*args):
     return os.path.realpath(os.path.join(THIS_DIR, '../', *args))
+
+
+def build_os_type():
+    if sys.platform.startswith('linux'):
+        return 'linux-x86'
+    else:
+        return 'darwin-x86'
