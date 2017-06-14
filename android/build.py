@@ -85,6 +85,7 @@ def base_cmake_defines():
     defines['CMAKE_BUILD_TYPE'] = 'Release'
     defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
     defines['LLVM_ENABLE_THREADS'] = 'OFF'
+    defines['LLVM_LIBDIR_SUFFIX'] = '64'
     return defines
 
 
