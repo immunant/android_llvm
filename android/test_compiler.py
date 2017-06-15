@@ -93,7 +93,7 @@ def build_target(android_base, clang_version, target, max_jobs):
     env_out.communicate()
 
     print('Start building %s.' % target)
-    subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs +
+    subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' dist'
                            ' LLVM_PREBUILTS_VERSION=clang-dev' +
                            (' LLVM_RELEASE_VERSION=%s' %
                            clang_version.short_version())], cwd=android_base)
