@@ -146,17 +146,15 @@ def main():
         clang_version = build.extract_clang_version(clang_path)
     link_clang(args.android_path, clang_path)
 
-    devices = get_connected_device_list()
-    if len(devices) == 0:
-        print("You don't have any devices connected. Will build for "
-              'default targets only.')
-
-    if args.build_only or len(device) == 0:
+    if args.build_only:
         targets = [args.target] if args.target else TARGETS
         for target in targets:
             build_target(args.android_path, clang_version, target,
                     args.jobs)
     else:
+        devices = get_connected_device_list()
+        if len(devices) == 0:
+            print("You don't have any devices connected.")
         for device in devices:
             result = test_device(args.android_path, clang_version, device,
                                  args.jobs, args.clean_built_target,
