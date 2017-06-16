@@ -171,6 +171,10 @@ def cross_compile_configs(stage2_install):
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
         sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
 
+        defines = {}
+        defines['CMAKE_C_COMPILER'] = cc
+        defines['CMAKE_CXX_COMPILER'] = cxx
+
         # Bug: http://b/35402623: Manually include the directory with libgcc.a.
         # For some reason, it is not found automatically
         toolchain_builtins = os.path.join(toolchain_root, toolchain_path, '..',
@@ -180,17 +184,14 @@ def cross_compile_configs(stage2_install):
         # The 32-bit libgcc.a is in a separate subdir
         if arch == 'i386':
             toolchain_builtins = os.path.join(toolchain_builtins, '32')
-        defines = {}
-        defines['CMAKE_C_COMPILER'] = cc
-        defines['CMAKE_CXX_COMPILER'] = cxx
+        ldflags = ['-L' + toolchain_builtins]
+        defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
+        defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
+        defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
 
         cflags = ['--target=%s' % llvm_triple,
                   '--sysroot=%s' % sysroot,
                   '-B%s' % toolchain_bin,
-                  '-L%s' % toolchain_builtins,
-                  # Bug: http://b/35402623 Clang warns that the -L... above is
-                  # unused in compile-only invocations.
-                  '-Wno-unused-command-line-argument',
                   extra_flags,
                  ]
         yield (arch, llvm_triple, defines, cflags)
@@ -286,6 +287,11 @@ def build_libfuzzers(stage2_install, clang_version):
 
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
+
+        # lib/Fuzzer/CMakeLists.txt does not call cmake_minimum_required() to
+        # set a minimum version.  Explicitly request a policy that'll pass
+        # CMAKE_*_LINKER_FLAGS to the trycompile() step.
+        libfuzzer_defines['CMAKE_POLICY_DEFAULT_CMP0056'] = 'NEW'
 
         libfuzzer_cmake_path = utils.llvm_path('lib', 'Fuzzer')
         libfuzzer_env = dict(ORIG_ENV)
