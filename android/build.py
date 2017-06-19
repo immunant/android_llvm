@@ -53,6 +53,23 @@ def build_os_type():
         return 'darwin-x86'
 
 
+# This is the baseline stable version of Clang to start our stage-1 build.
+def clang_prebuilt_version():
+    return 'clang-4053586'
+
+
+def clang_prebuilt_base_dir():
+    return utils.android_path('prebuilts/clang/host', build_os_type(),
+                              clang_prebuilt_version())
+
+def clang_prebuilt_bin_dir():
+    return utils.android_path(clang_prebuilt_base_dir(), 'bin')
+
+
+def clang_prebuilt_lib_dir():
+    return utils.android_path(clang_prebuilt_base_dir(), 'lib64')
+
+
 def cmake_prebuilt_bin_dir():
     return utils.android_path('prebuilts/cmake', build_os_type(), 'bin')
 
@@ -155,6 +172,10 @@ def cross_compile_configs(stage2_install):
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
         sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
 
+        defines = {}
+        defines['CMAKE_C_COMPILER'] = cc
+        defines['CMAKE_CXX_COMPILER'] = cxx
+
         # Bug: http://b/35402623: Manually include the directory with libgcc.a.
         # For some reason, it is not found automatically
         toolchain_builtins = os.path.join(toolchain_root, toolchain_path, '..',
@@ -164,17 +185,14 @@ def cross_compile_configs(stage2_install):
         # The 32-bit libgcc.a is in a separate subdir
         if arch == 'i386':
             toolchain_builtins = os.path.join(toolchain_builtins, '32')
-        defines = {}
-        defines['CMAKE_C_COMPILER'] = cc
-        defines['CMAKE_CXX_COMPILER'] = cxx
+        ldflags = ['-L' + toolchain_builtins]
+        defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
+        defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
+        defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
 
         cflags = ['--target=%s' % llvm_triple,
                   '--sysroot=%s' % sysroot,
                   '-B%s' % toolchain_bin,
-                  '-L%s' % toolchain_builtins,
-                  # Bug: http://b/35402623 Clang warns that the -L... above is
-                  # unused in compile-only invocations.
-                  '-Wno-unused-command-line-argument',
                   extra_flags,
                  ]
         yield (arch, llvm_triple, defines, cflags)
@@ -271,6 +289,11 @@ def build_libfuzzers(stage2_install, clang_version):
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
 
+        # lib/Fuzzer/CMakeLists.txt does not call cmake_minimum_required() to
+        # set a minimum version.  Explicitly request a policy that'll pass
+        # CMAKE_*_LINKER_FLAGS to the trycompile() step.
+        libfuzzer_defines['CMAKE_POLICY_DEFAULT_CMP0056'] = 'NEW'
+
         libfuzzer_cmake_path = utils.llvm_path('lib', 'Fuzzer')
         libfuzzer_env = dict(ORIG_ENV)
         rm_cmake_cache(libfuzzer_path)
@@ -295,7 +318,8 @@ def build_libfuzzers(stage2_install, clang_version):
             shutil.copy2(os.path.join(header_src, f), header_dst)
 
 
-def build_llvm(targets, build_dir, install_dir, extra_defines=None):
+def build_llvm(targets, build_dir, install_dir, extra_defines=None,
+               extra_env=None):
     cmake_defines = base_cmake_defines()
     cmake_defines['CMAKE_INSTALL_PREFIX'] = install_dir
     cmake_defines['LLVM_TARGETS_TO_BUILD'] = targets
@@ -305,6 +329,8 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None):
         cmake_defines.update(extra_defines)
 
     env = dict(ORIG_ENV)
+    if extra_env is not None:
+        env.update(extra_env)
 
     invoke_cmake(out_path=build_dir, defines=cmake_defines, env=env,
                  cmake_path=utils.llvm_path())
@@ -374,11 +400,41 @@ def build_stage1():
 
     stage1_extra_defines = dict()
     stage1_extra_defines['LLVM_BUILD_TOOLS'] = 'OFF'
-    stage1_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
+    stage1_extra_defines['LLVM_BUILD_RUNTIME'] = 'ON'
     stage1_extra_defines['CLANG_ENABLE_ARCMT'] = 'OFF'
     stage1_extra_defines['CLANG_ENABLE_STATIC_ANALYZER'] = 'OFF'
+    stage1_extra_defines['CMAKE_C_COMPILER'] = os.path.join(
+            clang_prebuilt_bin_dir(), 'clang')
+    stage1_extra_defines['CMAKE_CXX_COMPILER'] = os.path.join(
+            clang_prebuilt_bin_dir(), 'clang++')
     stage1_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'OFF'
     stage1_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
+
+    # Have clang use libc++, ...
+    stage1_extra_defines['LLVM_ENABLE_LIBCXX'] = 'ON'
+
+    # ... and point CMake to the libc++.so from the prebuilts.  Install an rpath
+    # to prevent linking with the newly-built libc++.so
+    ldflags = ['-Wl,-rpath,' + clang_prebuilt_lib_dir()]
+    stage1_extra_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
+    stage1_extra_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
+    stage1_extra_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
+
+    # Make libc++.so a symlink to libc++.so.x instead of a linker script that
+    # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
+    # necessary to pass -lc++abi explicitly.  This is needed only for Linux.
+    if build_os_type() == 'linux-x86':
+        stage1_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
+        stage1_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
+
+    # Do not build compiler-rt for Darwin.  We don't ship host (or any
+    # prebuilt) runtimes for Darwin anyway.  Attempting to build these will
+    # fail compilation of lib/builtins/atomic_*.c that only get built for
+    # Darwin and fail compilation due to us using the bionic version of
+    # stdatomic.h.
+    if build_os_type() == 'darwin-x86':
+          stage1_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
+
     build_llvm(targets=stage1_targets, build_dir=stage1_path,
                install_dir=stage1_install, extra_defines=stage1_extra_defines)
     return stage1_install
@@ -396,9 +452,36 @@ def build_stage2(stage1_install, stage2_targets):
     stage2_extra_defines = dict()
     stage2_extra_defines['CMAKE_C_COMPILER'] = stage2_cc
     stage2_extra_defines['CMAKE_CXX_COMPILER'] = stage2_cxx
+    stage2_extra_defines['LLVM_BUILD_RUNTIME'] = 'ON'
+    stage2_extra_defines['LLVM_ENABLE_LIBCXX'] = 'ON'
+    stage2_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
+    stage2_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
+
+    # Make libc++.so a symlink to libc++.so.x instead of a linker script that
+    # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
+    # necessary to pass -lc++abi explicitly.  This is needed only for Linux.
+    if build_os_type() == 'linux-x86':
+        stage2_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
+        stage2_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
+
+    # Do not build compiler-rt for Darwin.  We don't ship host (or any
+    # prebuilt) runtimes for Darwin anyway.  Attempting to build these will
+    # fail compilation of lib/builtins/atomic_*.c that only get built for
+    # Darwin and fail compilation due to us using the bionic version of
+    # stdatomic.h.
+    if build_os_type == 'darwin-x86':
+        stage2_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
+
+    # Point CMake to the libc++ from stage1.  It is possible that once built,
+    # the newly-built libc++ may override this because of the rpath pointing to
+    # $ORIGIN/../lib64.  That'd be fine because both libraries are built from
+    # the same sources.
+    stage2_extra_env = dict()
+    stage2_extra_env['LD_LIBRARY_PATH'] = os.path.join(stage1_install, 'lib64')
 
     build_llvm(targets=stage2_targets, build_dir=stage2_path,
-               install_dir=stage2_install, extra_defines=stage2_extra_defines)
+               install_dir=stage2_install, extra_defines=stage2_extra_defines,
+               extra_env=stage2_extra_env)
     return stage2_install
 
 
