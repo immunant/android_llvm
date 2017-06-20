@@ -93,8 +93,7 @@ def base_cmake_defines():
     defines = {}
 
     defines['CMAKE_BUILD_TYPE'] = 'Release'
-    # Disable for http://b/62726401.
-    # defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
+    defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
     defines['LLVM_ENABLE_THREADS'] = 'OFF'
     defines['LLVM_LIBDIR_SUFFIX'] = '64'
     return defines
@@ -355,10 +354,6 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
 
     # Extra cmake defines to use while building for Windows
     windows_extra_defines = dict()
-
-    # Enable assertions for http://b/62787860
-    windows_extra_defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
-
     windows_extra_defines['CMAKE_C_COMPILER'] = mingw_cc
     windows_extra_defines['CMAKE_CXX_COMPILER'] = mingw_cxx
     windows_extra_defines['CMAKE_SYSTEM_NAME'] = 'Windows'
