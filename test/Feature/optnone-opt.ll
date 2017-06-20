@@ -41,6 +41,7 @@ attributes #0 = { optnone noinline }
 ; OPT-O1-DAG: Skipping pass 'Combine redundant instructions'
 ; OPT-O1-DAG: Skipping pass 'Dead Store Elimination'
 ; OPT-O1-DAG: Skipping pass 'Early CSE'
+; OPT-O1-DAG: Skipping pass 'Early GVN Hoisting of Expressions'
 ; OPT-O1-DAG: Skipping pass 'Jump Threading'
 ; OPT-O1-DAG: Skipping pass 'MemCpy Optimization'
 ; OPT-O1-DAG: Skipping pass 'Reassociate expressions'
@@ -58,6 +59,7 @@ attributes #0 = { optnone noinline }
 ; OPT-MORE-DAG: Skipping pass 'Basic-Block Vectorization'
 ; OPT-MORE-DAG: Skipping pass 'Dead Code Elimination'
 ; OPT-MORE-DAG: Skipping pass 'Dead Instruction Elimination'
+; OPT-MORE-DAG: Skipping pass 'Early GVN Hoisting of Expressions'
 ; OPT-MORE-DAG: Skipping pass 'Lower atomic intrinsics
 
 ; Loop IR passes that opt doesn't turn on by default.
