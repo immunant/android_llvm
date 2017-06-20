@@ -24,7 +24,7 @@
 
 #include <sstream>
 
-#define DEBUG_TYPE "legalize-mir"
+#define DEBUG_TYPE "legalizer"
 
 using namespace llvm;
 
@@ -35,24 +35,34 @@ LegalizerHelper::LegalizerHelper(MachineFunction &MF)
 
 LegalizerHelper::LegalizeResult
 LegalizerHelper::legalizeInstrStep(MachineInstr &MI) {
+  DEBUG(dbgs() << "Legalizing: "; MI.print(dbgs()));
+
   auto Action = LI.getAction(MI, MRI);
   switch (std::get<0>(Action)) {
   case LegalizerInfo::Legal:
+    DEBUG(dbgs() << ".. Already legal\n");
     return AlreadyLegal;
   case LegalizerInfo::Libcall:
+    DEBUG(dbgs() << ".. Convert to libcall\n");
     return libcall(MI);
   case LegalizerInfo::NarrowScalar:
+    DEBUG(dbgs() << ".. Narrow scalar\n");
     return narrowScalar(MI, std::get<1>(Action), std::get<2>(Action));
   case LegalizerInfo::WidenScalar:
+    DEBUG(dbgs() << ".. Widen scalar\n");
     return widenScalar(MI, std::get<1>(Action), std::get<2>(Action));
   case LegalizerInfo::Lower:
+    DEBUG(dbgs() << ".. Lower\n");
     return lower(MI, std::get<1>(Action), std::get<2>(Action));
   case LegalizerInfo::FewerElements:
+    DEBUG(dbgs() << ".. Reduce number of elements\n");
     return fewerElementsVector(MI, std::get<1>(Action), std::get<2>(Action));
   case LegalizerInfo::Custom:
+    DEBUG(dbgs() << ".. Custom legalization\n");
     return LI.legalizeCustom(MI, MRI, MIRBuilder) ? Legalized
                                                   : UnableToLegalize;
   default:
+    DEBUG(dbgs() << ".. Unable to legalize\n");
     return UnableToLegalize;
   }
 }
@@ -66,6 +76,18 @@ void LegalizerHelper::extractParts(unsigned Reg, LLT Ty, int NumParts,
 
 static RTLIB::Libcall getRTLibDesc(unsigned Opcode, unsigned Size) {
   switch (Opcode) {
+  case TargetOpcode::G_SDIV:
+    assert(Size == 32 && "Unsupported size");
+    return RTLIB::SDIV_I32;
+  case TargetOpcode::G_UDIV:
+    assert(Size == 32 && "Unsupported size");
+    return RTLIB::UDIV_I32;
+  case TargetOpcode::G_SREM:
+    assert(Size == 32 && "Unsupported size");
+    return RTLIB::SREM_I32;
+  case TargetOpcode::G_UREM:
+    assert(Size == 32 && "Unsupported size");
+    return RTLIB::UREM_I32;
   case TargetOpcode::G_FADD:
     assert((Size == 32 || Size == 64) && "Unsupported size");
     return Size == 64 ? RTLIB::ADD_F64 : RTLIB::ADD_F32;
@@ -77,31 +99,57 @@ static RTLIB::Libcall getRTLibDesc(unsigned Opcode, unsigned Size) {
   llvm_unreachable("Unknown libcall function");
 }
 
+LegalizerHelper::LegalizeResult llvm::replaceWithLibcall(
+    MachineInstr &MI, MachineIRBuilder &MIRBuilder, RTLIB::Libcall Libcall,
+    const CallLowering::ArgInfo &Result, ArrayRef<CallLowering::ArgInfo> Args) {
+  auto &CLI = *MIRBuilder.getMF().getSubtarget().getCallLowering();
+  auto &TLI = *MIRBuilder.getMF().getSubtarget().getTargetLowering();
+  const char *Name = TLI.getLibcallName(Libcall);
+  MIRBuilder.getMF().getFrameInfo().setHasCalls(true);
+  MIRBuilder.setInstr(MI);
+  if (!CLI.lowerCall(MIRBuilder, TLI.getLibcallCallingConv(Libcall),
+                     MachineOperand::CreateES(Name), Result, Args))
+    return LegalizerHelper::UnableToLegalize;
+
+  // We're about to remove MI, so move the insert point after it.
+  MIRBuilder.setInsertPt(MIRBuilder.getMBB(),
+                         std::next(MIRBuilder.getInsertPt()));
+
+  MI.eraseFromParent();
+  return LegalizerHelper::Legalized;
+}
+
+static LegalizerHelper::LegalizeResult
+simpleLibcall(MachineInstr &MI, MachineIRBuilder &MIRBuilder, unsigned Size,
+              Type *OpType) {
+  auto Libcall = getRTLibDesc(MI.getOpcode(), Size);
+  return replaceWithLibcall(MI, MIRBuilder, Libcall,
+                            {MI.getOperand(0).getReg(), OpType},
+                            {{MI.getOperand(1).getReg(), OpType},
+                             {MI.getOperand(2).getReg(), OpType}});
+}
+
 LegalizerHelper::LegalizeResult
 LegalizerHelper::libcall(MachineInstr &MI) {
-  LLT Ty = MRI.getType(MI.getOperand(0).getReg());
-  unsigned Size = Ty.getSizeInBits();
-  MIRBuilder.setInstr(MI);
+  LLT LLTy = MRI.getType(MI.getOperand(0).getReg());
+  unsigned Size = LLTy.getSizeInBits();
+  auto &Ctx = MIRBuilder.getMF().getFunction()->getContext();
 
   switch (MI.getOpcode()) {
   default:
     return UnableToLegalize;
+  case TargetOpcode::G_SDIV:
+  case TargetOpcode::G_UDIV:
+  case TargetOpcode::G_SREM:
+  case TargetOpcode::G_UREM: {
+    Type *HLTy = Type::getInt32Ty(Ctx);
+    return simpleLibcall(MI, MIRBuilder, Size, HLTy);
+  }
   case TargetOpcode::G_FADD:
   case TargetOpcode::G_FPOW:
   case TargetOpcode::G_FREM: {
-    auto &Ctx = MIRBuilder.getMF().getFunction()->getContext();
-    Type *Ty = Size == 64 ? Type::getDoubleTy(Ctx) : Type::getFloatTy(Ctx);
-    auto &CLI = *MIRBuilder.getMF().getSubtarget().getCallLowering();
-    auto &TLI = *MIRBuilder.getMF().getSubtarget().getTargetLowering();
-    auto Libcall = getRTLibDesc(MI.getOpcode(), Size);
-    const char *Name = TLI.getLibcallName(Libcall);
-    MIRBuilder.getMF().getFrameInfo().setHasCalls(true);
-    CLI.lowerCall(
-        MIRBuilder, TLI.getLibcallCallingConv(Libcall),
-        MachineOperand::CreateES(Name), {MI.getOperand(0).getReg(), Ty},
-        {{MI.getOperand(1).getReg(), Ty}, {MI.getOperand(2).getReg(), Ty}});
-    MI.eraseFromParent();
-    return Legalized;
+    Type *HLTy = Size == 64 ? Type::getDoubleTy(Ctx) : Type::getFloatTy(Ctx);
+    return simpleLibcall(MI, MIRBuilder, Size, HLTy);
   }
   }
 }
@@ -209,17 +257,18 @@ LegalizerHelper::LegalizeResult LegalizerHelper::narrowScalar(MachineInstr &MI,
     unsigned NarrowSize = NarrowTy.getSizeInBits();
     int NumParts =
         MRI.getType(MI.getOperand(0).getReg()).getSizeInBits() / NarrowSize;
-    LLT NarrowPtrTy = LLT::pointer(
-        MRI.getType(MI.getOperand(1).getReg()).getAddressSpace(), NarrowSize);
+    LLT OffsetTy = LLT::scalar(
+        MRI.getType(MI.getOperand(1).getReg()).getScalarSizeInBits());
 
     SmallVector<unsigned, 2> DstRegs;
     for (int i = 0; i < NumParts; ++i) {
       unsigned DstReg = MRI.createGenericVirtualRegister(NarrowTy);
-      unsigned SrcReg = MRI.createGenericVirtualRegister(NarrowPtrTy);
-      unsigned Offset = MRI.createGenericVirtualRegister(LLT::scalar(64));
+      unsigned SrcReg = 0;
+      unsigned Adjustment = i * NarrowSize / 8;
 
-      MIRBuilder.buildConstant(Offset, i * NarrowSize / 8);
-      MIRBuilder.buildGEP(SrcReg, MI.getOperand(1).getReg(), Offset);
+      MIRBuilder.materializeGEP(SrcReg, MI.getOperand(1).getReg(), OffsetTy,
+                                Adjustment);
+
       // TODO: This is conservatively correct, but we probably want to split the
       // memory operands in the future.
       MIRBuilder.buildLoad(DstReg, SrcReg, **MI.memoperands_begin());
@@ -235,17 +284,19 @@ LegalizerHelper::LegalizeResult LegalizerHelper::narrowScalar(MachineInstr &MI,
     unsigned NarrowSize = NarrowTy.getSizeInBits();
     int NumParts =
         MRI.getType(MI.getOperand(0).getReg()).getSizeInBits() / NarrowSize;
-    LLT NarrowPtrTy = LLT::pointer(
-        MRI.getType(MI.getOperand(1).getReg()).getAddressSpace(), NarrowSize);
+    LLT OffsetTy = LLT::scalar(
+        MRI.getType(MI.getOperand(1).getReg()).getScalarSizeInBits());
 
     SmallVector<unsigned, 2> SrcRegs;
     extractParts(MI.getOperand(0).getReg(), NarrowTy, NumParts, SrcRegs);
 
     for (int i = 0; i < NumParts; ++i) {
-      unsigned DstReg = MRI.createGenericVirtualRegister(NarrowPtrTy);
-      unsigned Offset = MRI.createGenericVirtualRegister(LLT::scalar(64));
-      MIRBuilder.buildConstant(Offset, i * NarrowSize / 8);
-      MIRBuilder.buildGEP(DstReg, MI.getOperand(1).getReg(), Offset);
+      unsigned DstReg = 0;
+      unsigned Adjustment = i * NarrowSize / 8;
+
+      MIRBuilder.materializeGEP(DstReg, MI.getOperand(1).getReg(), OffsetTy,
+                                Adjustment);
+
       // TODO: This is conservatively correct, but we probably want to split the
       // memory operands in the future.
       MIRBuilder.buildStore(SrcRegs[i], DstReg, **MI.memoperands_begin());

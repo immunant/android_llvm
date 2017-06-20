@@ -10,15 +10,15 @@
 /// This is the AMGPU address space based alias analysis pass.
 //===----------------------------------------------------------------------===//
 
-#include "AMDGPU.h"
 #include "AMDGPUAliasAnalysis.h"
+#include "AMDGPU.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Analysis/Passes.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -137,9 +137,9 @@ bool AMDGPUAAResult::pointsToConstantMemory(const MemoryLocation &Loc,
        not dereference that pointer argument, even though it may read or write
        the memory that the pointer points to if accessed through other pointers.
      */
-    if (F->getAttributes().hasAttribute(ArgNo + 1, Attribute::NoAlias) &&
-          (F->getAttributes().hasAttribute(ArgNo + 1, Attribute::ReadNone) ||
-           F->getAttributes().hasAttribute(ArgNo + 1, Attribute::ReadOnly))) {
+    if (F->hasParamAttribute(ArgNo, Attribute::NoAlias) &&
+        (F->hasParamAttribute(ArgNo, Attribute::ReadNone) ||
+         F->hasParamAttribute(ArgNo, Attribute::ReadOnly))) {
       return true;
     }
   }

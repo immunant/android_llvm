@@ -14,6 +14,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/Analysis/MemorySSA.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -24,12 +25,11 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormattedStream.h"
-#include "llvm/Analysis/MemorySSA.h"
 #include <algorithm>
 
 #define DEBUG_TYPE "memoryssa"
 using namespace llvm;
-namespace llvm {
+
 // This is the marker algorithm from "Simple and Efficient Construction of
 // Static Single Assignment Form"
 // The simple, non-marker algorithm places phi nodes at any join
@@ -124,17 +124,12 @@ MemoryAccess *MemorySSAUpdater::getPreviousDefInBlock(MemoryAccess *MA) {
         return &*Iter;
     } else {
       // Otherwise, have to walk the all access iterator.
-      auto Iter = MA->getReverseIterator();
-      ++Iter;
-      while (&*Iter != &*Defs->begin()) {
-        if (!isa<MemoryUse>(*Iter))
-          return &*Iter;
-        --Iter;
-      }
-      // At this point it must be pointing at firstdef
-      assert(&*Iter == &*Defs->begin() &&
-             "Should have hit first def walking backwards");
-      return &*Iter;
+      auto End = MSSA->getWritableBlockAccesses(MA->getBlock())->rend();
+      for (auto &U : make_range(++MA->getReverseIterator(), End))
+        if (!isa<MemoryUse>(U))
+          return cast<MemoryAccess>(&U);
+      // Note that if MA comes before Defs->begin(), we won't hit a def.
+      return nullptr;
     }
   }
   return nullptr;
@@ -211,8 +206,8 @@ void MemorySSAUpdater::insertUse(MemoryUse *MU) {
 }
 
 // Set every incoming edge {BB, MP->getBlock()} of MemoryPhi MP to NewDef.
-void setMemoryPhiValueForBlock(MemoryPhi *MP, const BasicBlock *BB,
-                               MemoryAccess *NewDef) {
+static void setMemoryPhiValueForBlock(MemoryPhi *MP, const BasicBlock *BB,
+                                      MemoryAccess *NewDef) {
   // Replace any operand with us an incoming block with the new defining
   // access.
   int i = MP->getBasicBlockIndex(BB);
@@ -415,6 +410,7 @@ static MemoryAccess *onlySingleValue(MemoryPhi *MP) {
   }
   return MA;
 }
+
 void MemorySSAUpdater::removeMemoryAccess(MemoryAccess *MA) {
   assert(!MSSA->isLiveOnEntryDef(MA) &&
          "Trying to remove the live on entry def");
@@ -490,5 +486,3 @@ MemoryUseOrDef *MemorySSAUpdater::createMemoryAccessAfter(
                               ++InsertPt->getIterator());
   return NewAccess;
 }
-
-} // namespace llvm

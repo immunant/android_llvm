@@ -12,8 +12,8 @@
 //===----------------------------------------------------------------------===//
 //
 
-#include "MCTargetDesc/MipsFixupKinds.h"
 #include "MCTargetDesc/MipsAsmBackend.h"
+#include "MCTargetDesc/MipsFixupKinds.h"
 #include "MCTargetDesc/MipsMCExpr.h"
 #include "MCTargetDesc/MipsMCTargetDesc.h"
 #include "llvm/MC/MCAsmBackend.h"
@@ -366,6 +366,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_MICROMIPS_TLS_LDM",         0,     16,   0 },
     { "fixup_MICROMIPS_TLS_DTPREL_HI16", 0,     16,   0 },
     { "fixup_MICROMIPS_TLS_DTPREL_LO16", 0,     16,   0 },
+    { "fixup_MICROMIPS_GOTTPREL",        0,     16,   0 },
     { "fixup_MICROMIPS_TLS_TPREL_HI16",  0,     16,   0 },
     { "fixup_MICROMIPS_TLS_TPREL_LO16",  0,     16,   0 },
     { "fixup_Mips_SUB",                  0,     64,   0 },
@@ -437,6 +438,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
     { "fixup_MICROMIPS_TLS_LDM",         16,     16,   0 },
     { "fixup_MICROMIPS_TLS_DTPREL_HI16", 16,     16,   0 },
     { "fixup_MICROMIPS_TLS_DTPREL_LO16", 16,     16,   0 },
+    { "fixup_MICROMIPS_GOTTPREL",        16,     16,   0 },
     { "fixup_MICROMIPS_TLS_TPREL_HI16",  16,     16,   0 },
     { "fixup_MICROMIPS_TLS_TPREL_LO16",  16,     16,   0 },
     { "fixup_Mips_SUB",                   0,     64,   0 },

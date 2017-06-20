@@ -19,7 +19,6 @@
 // The rest is handled by the run-time library.
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
@@ -42,6 +41,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/EscapeEnumerator.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -272,7 +272,7 @@ static bool isVtableAccess(Instruction *I) {
 
 // Do not instrument known races/"benign races" that come from compiler
 // instrumentatin. The user has no way of suppressing them.
-static bool shouldInstrumentReadWriteFromAddress(Value *Addr) {
+static bool shouldInstrumentReadWriteFromAddress(const Module *M, Value *Addr) {
   // Peel off GEPs and BitCasts.
   Addr = Addr->stripInBoundsOffsets();
 
@@ -280,8 +280,9 @@ static bool shouldInstrumentReadWriteFromAddress(Value *Addr) {
     if (GV->hasSection()) {
       StringRef SectionName = GV->getSection();
       // Check if the global is in the PGO counters section.
-      if (SectionName.endswith(getInstrProfCountersSectionName(
-            /*AddSegment=*/false)))
+      auto OF = Triple(M->getTargetTriple()).getObjectFormat();
+      if (SectionName.endswith(
+              getInstrProfSectionName(IPSK_cnts, OF, /*AddSegmentInfo=*/false)))
         return false;
     }
 
@@ -343,13 +344,13 @@ void ThreadSanitizer::chooseInstructionsToInstrument(
   for (Instruction *I : reverse(Local)) {
     if (StoreInst *Store = dyn_cast<StoreInst>(I)) {
       Value *Addr = Store->getPointerOperand();
-      if (!shouldInstrumentReadWriteFromAddress(Addr))
+      if (!shouldInstrumentReadWriteFromAddress(I->getModule(), Addr))
         continue;
       WriteTargets.insert(Addr);
     } else {
       LoadInst *Load = cast<LoadInst>(I);
       Value *Addr = Load->getPointerOperand();
-      if (!shouldInstrumentReadWriteFromAddress(Addr))
+      if (!shouldInstrumentReadWriteFromAddress(I->getModule(), Addr))
         continue;
       if (WriteTargets.count(Addr)) {
         // We will write to this temp, so no reason to analyze the read.

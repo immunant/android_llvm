@@ -1245,6 +1245,7 @@ static int computeHostNumPhysicalCores() {
   if (std::error_code EC = Text.getError()) {
     llvm::errs() << "Can't read "
                  << "/proc/cpuinfo: " << EC.message() << "\n";
+    return -1;
   }
   SmallVector<StringRef, 8> strs;
   (*Text)->getBuffer().split(strs, "\n", /*MaxSplit=*/-1,
@@ -1362,6 +1363,7 @@ bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
   Features["sse4a"] = HasExtLeaf1 && ((ECX >> 6) & 1);
   Features["prfchw"] = HasExtLeaf1 && ((ECX >> 8) & 1);
   Features["xop"] = HasExtLeaf1 && ((ECX >> 11) & 1) && HasAVXSave;
+  Features["lwp"] = HasExtLeaf1 && ((ECX >> 15) & 1);
   Features["fma4"] = HasExtLeaf1 && ((ECX >> 16) & 1) && HasAVXSave;
   Features["tbm"] = HasExtLeaf1 && ((ECX >> 21) & 1);
   Features["mwaitx"] = HasExtLeaf1 && ((ECX >> 29) & 1);
@@ -1399,6 +1401,7 @@ bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
 
   Features["prefetchwt1"] = HasLeaf7 && (ECX & 1);
   Features["avx512vbmi"] = HasLeaf7 && ((ECX >> 1) & 1) && HasAVX512Save;
+  Features["avx512vpopcntdq"] = HasLeaf7 && ((ECX >> 14) & 1) && HasAVX512Save;  
   // Enable protection keys
   Features["pku"] = HasLeaf7 && ((ECX >> 4) & 1);
 

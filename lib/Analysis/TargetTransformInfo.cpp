@@ -83,6 +83,12 @@ int TargetTransformInfo::getIntrinsicCost(
   return Cost;
 }
 
+unsigned
+TargetTransformInfo::getEstimatedNumberOfCaseClusters(const SwitchInst &SI,
+                                                      unsigned &JTSize) const {
+  return TTIImpl->getEstimatedNumberOfCaseClusters(SI, JTSize);
+}
+
 int TargetTransformInfo::getUserCost(const User *U) const {
   int Cost = TTIImpl->getUserCost(U);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
@@ -95,6 +101,10 @@ bool TargetTransformInfo::hasBranchDivergence() const {
 
 bool TargetTransformInfo::isSourceOfDivergence(const Value *V) const {
   return TTIImpl->isSourceOfDivergence(V);
+}
+
+bool llvm::TargetTransformInfo::isAlwaysUniform(const Value *V) const {
+  return TTIImpl->isAlwaysUniform(V);
 }
 
 unsigned TargetTransformInfo::getFlatAddressSpace() const {
@@ -127,6 +137,10 @@ bool TargetTransformInfo::isLegalAddressingMode(Type *Ty, GlobalValue *BaseGV,
                                         Scale, AddrSpace);
 }
 
+bool TargetTransformInfo::isLSRCostLess(LSRCost &C1, LSRCost &C2) const {
+  return TTIImpl->isLSRCostLess(C1, C2);
+}
+
 bool TargetTransformInfo::isLegalMaskedStore(Type *DataType) const {
   return TTIImpl->isLegalMaskedStore(DataType);
 }
@@ -141,6 +155,10 @@ bool TargetTransformInfo::isLegalMaskedGather(Type *DataType) const {
 
 bool TargetTransformInfo::isLegalMaskedScatter(Type *DataType) const {
   return TTIImpl->isLegalMaskedGather(DataType);
+}
+
+bool TargetTransformInfo::prefersVectorizedAddressing() const {
+  return TTIImpl->prefersVectorizedAddressing();
 }
 
 int TargetTransformInfo::getScalingFactorCost(Type *Ty, GlobalValue *BaseGV,
@@ -203,6 +221,10 @@ bool TargetTransformInfo::supportsEfficientVectorElementLoadStore() const {
 
 bool TargetTransformInfo::enableAggressiveInterleaving(bool LoopHasReductions) const {
   return TTIImpl->enableAggressiveInterleaving(LoopHasReductions);
+}
+
+bool TargetTransformInfo::expandMemCmp(Instruction *I, unsigned &MaxLoadSize) const {
+  return TTIImpl->expandMemCmp(I, MaxLoadSize);
 }
 
 bool TargetTransformInfo::enableInterleavedAccessVectorization() const {
@@ -271,6 +293,10 @@ unsigned TargetTransformInfo::getNumberOfRegisters(bool Vector) const {
 
 unsigned TargetTransformInfo::getRegisterBitWidth(bool Vector) const {
   return TTIImpl->getRegisterBitWidth(Vector);
+}
+
+unsigned TargetTransformInfo::getMinVectorRegisterBitWidth() const {
+  return TTIImpl->getMinVectorRegisterBitWidth();
 }
 
 bool TargetTransformInfo::shouldConsiderAddressTypePromotion(
@@ -446,6 +472,10 @@ bool TargetTransformInfo::getTgtMemIntrinsic(IntrinsicInst *Inst,
   return TTIImpl->getTgtMemIntrinsic(Inst, Info);
 }
 
+unsigned TargetTransformInfo::getAtomicMemIntrinsicMaxElementSize() const {
+  return TTIImpl->getAtomicMemIntrinsicMaxElementSize();
+}
+
 Value *TargetTransformInfo::getOrCreateResultFromMemIntrinsic(
     IntrinsicInst *Inst, Type *ExpectedType) const {
   return TTIImpl->getOrCreateResultFromMemIntrinsic(Inst, ExpectedType);
@@ -492,6 +522,15 @@ unsigned TargetTransformInfo::getStoreVectorFactor(unsigned VF,
                                                    unsigned ChainSizeInBytes,
                                                    VectorType *VecTy) const {
   return TTIImpl->getStoreVectorFactor(VF, StoreSize, ChainSizeInBytes, VecTy);
+}
+
+bool TargetTransformInfo::useReductionIntrinsic(unsigned Opcode,
+                                                Type *Ty, ReductionFlags Flags) const {
+  return TTIImpl->useReductionIntrinsic(Opcode, Ty, Flags);
+}
+
+bool TargetTransformInfo::shouldExpandReduction(const IntrinsicInst *II) const {
+  return TTIImpl->shouldExpandReduction(II);
 }
 
 TargetTransformInfo::Concept::~Concept() {}

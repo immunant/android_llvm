@@ -17,6 +17,8 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/BinaryFormat/COFF.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
@@ -39,10 +41,8 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ARMBuildAttributes.h"
 #include "llvm/Support/ARMEHABI.h"
-#include "llvm/Support/COFF.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/ELF.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetParser.h"
@@ -66,6 +66,9 @@ static cl::opt<ImplicitItModeTy> ImplicitItMode(
                           "Accept in ARM, reject in Thumb"),
                clEnumValN(ImplicitItModeTy::ThumbOnly, "thumb",
                           "Warn in ARM, emit implicit ITs in Thumb")));
+
+static cl::opt<bool> AddBuildAttributes("arm-add-build-attributes",
+                                        cl::init(false));
 
 class ARMOperand;
 
@@ -539,6 +542,10 @@ public:
 
     // Initialize the set of available features.
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
+
+    // Add build attributes based on the selected target.
+    if (AddBuildAttributes)
+      getTargetStreamer().emitTargetAttributes(STI);
 
     // Not in an ITBlock to start with.
     ITState.CurPosition = ~0U;
@@ -1019,6 +1026,15 @@ public:
             ARM_AM::getSOImmVal(-Value) != -1);
   }
   bool isT2SOImm() const {
+    // If we have an immediate that's not a constant, treat it as an expression
+    // needing a fixup.
+    if (isImm() && !isa<MCConstantExpr>(getImm())) {
+      // We want to avoid matching :upper16: and :lower16: as we want these
+      // expressions to match in isImm0_65535Expr()
+      const ARMMCExpr *ARM16Expr = dyn_cast<ARMMCExpr>(getImm());
+      return (!ARM16Expr || (ARM16Expr->getKind() != ARMMCExpr::VK_ARM_HI16 &&
+                             ARM16Expr->getKind() != ARMMCExpr::VK_ARM_LO16));
+    }
     if (!isImm()) return false;
     const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm());
     if (!CE) return false;
@@ -8397,7 +8413,8 @@ bool ARMAsmParser::processInstruction(MCInst &Inst,
     // wide encoding wasn't explicit.
     if (Inst.getOperand(0).getReg() != Inst.getOperand(1).getReg() ||
         !isARMLowRegister(Inst.getOperand(0).getReg()) ||
-        (unsigned)Inst.getOperand(2).getImm() > 255 ||
+        (Inst.getOperand(2).isImm() &&
+         (unsigned)Inst.getOperand(2).getImm() > 255) ||
         ((!inITBlock() && Inst.getOperand(5).getReg() != ARM::CPSR) ||
          (inITBlock() && Inst.getOperand(5).getReg() != 0)) ||
         (static_cast<ARMOperand &>(*Operands[3]).isToken() &&
@@ -8549,7 +8566,8 @@ bool ARMAsmParser::processInstruction(MCInst &Inst,
     // If we can use the 16-bit encoding and the user didn't explicitly
     // request the 32-bit variant, transform it here.
     if (isARMLowRegister(Inst.getOperand(0).getReg()) &&
-        (unsigned)Inst.getOperand(1).getImm() <= 255 &&
+        (Inst.getOperand(1).isImm() &&
+         (unsigned)Inst.getOperand(1).getImm() <= 255) &&
         ((!inITBlock() && Inst.getOperand(2).getImm() == ARMCC::AL &&
           Inst.getOperand(4).getReg() == ARM::CPSR) ||
          (inITBlock() && Inst.getOperand(4).getReg() == 0)) &&
@@ -10189,8 +10207,8 @@ static const struct {
   { ARM::AEK_CRYPTO,  Feature_HasV8,
     {ARM::FeatureCrypto, ARM::FeatureNEON, ARM::FeatureFPARMv8} },
   { ARM::AEK_FP, Feature_HasV8, {ARM::FeatureFPARMv8} },
-  { (ARM::AEK_HWDIV | ARM::AEK_HWDIVARM), Feature_HasV7 | Feature_IsNotMClass,
-    {ARM::FeatureHWDiv, ARM::FeatureHWDivARM} },
+  { (ARM::AEK_HWDIVTHUMB | ARM::AEK_HWDIVARM), Feature_HasV7 | Feature_IsNotMClass,
+    {ARM::FeatureHWDivThumb, ARM::FeatureHWDivARM} },
   { ARM::AEK_MP, Feature_HasV7 | Feature_IsNotMClass, {ARM::FeatureMP} },
   { ARM::AEK_SIMD, Feature_HasV8, {ARM::FeatureNEON, ARM::FeatureFPARMv8} },
   { ARM::AEK_SEC, Feature_HasV6K, {ARM::FeatureTrustZone} },

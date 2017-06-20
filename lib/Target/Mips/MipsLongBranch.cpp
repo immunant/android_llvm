@@ -75,9 +75,8 @@ namespace {
   public:
     static char ID;
 
-    MipsLongBranch(TargetMachine &tm)
-        : MachineFunctionPass(ID), TM(tm), IsPIC(TM.isPositionIndependent()),
-          ABI(static_cast<const MipsTargetMachine &>(TM).getABI()) {}
+    MipsLongBranch()
+        : MachineFunctionPass(ID), ABI(MipsABIInfo::Unknown()) {}
 
     StringRef getPassName() const override { return "Mips Long Branch"; }
 
@@ -96,7 +95,6 @@ namespace {
                        MachineBasicBlock *MBBOpnd);
     void expandToLongBranch(MBBInfo &Info);
 
-    const TargetMachine &TM;
     MachineFunction *MF;
     SmallVector<MBBInfo, 16> MBBInfos;
     bool IsPIC;
@@ -276,8 +274,8 @@ void MipsLongBranch::expandToLongBranch(MBBInfo &I) {
   if (IsPIC) {
     MachineBasicBlock *BalTgtMBB = MF->CreateMachineBasicBlock(BB);
     MF->insert(FallThroughMBB, BalTgtMBB);
-    LongBrMBB->addSuccessor(BalTgtMBB);
-    BalTgtMBB->addSuccessor(TgtMBB);
+    LongBrMBB->addSuccessor(BalTgtMBB, BranchProbability::getOne());
+    BalTgtMBB->addSuccessor(&*FallThroughMBB, BranchProbability::getOne());
 
     // We must select between the MIPS32r6/MIPS64r6 BAL (which is a normal
     // instruction) and the pre-MIPS32r6/MIPS64r6 definition (which is an
@@ -344,8 +342,8 @@ void MipsLongBranch::expandToLongBranch(MBBInfo &I) {
           .addReg(Mips::SP).addImm(8);
 
       if (Subtarget.hasMips32r6())
-        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR))
-          .addReg(Mips::ZERO).addReg(Mips::AT);
+        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR), Mips::ZERO)
+            .addReg(Mips::AT);
       else
         BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JR)).addReg(Mips::AT);
 
@@ -417,8 +415,8 @@ void MipsLongBranch::expandToLongBranch(MBBInfo &I) {
         .addReg(Mips::SP_64).addImm(0);
 
       if (Subtarget.hasMips64r6())
-        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR64))
-          .addReg(Mips::ZERO_64).addReg(Mips::AT_64);
+        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR64), Mips::ZERO_64)
+            .addReg(Mips::AT_64);
       else
         BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JR64)).addReg(Mips::AT_64);
 
@@ -469,6 +467,12 @@ bool MipsLongBranch::runOnMachineFunction(MachineFunction &F) {
       static_cast<const MipsSubtarget &>(F.getSubtarget());
   const MipsInstrInfo *TII =
       static_cast<const MipsInstrInfo *>(STI.getInstrInfo());
+
+
+  const TargetMachine& TM = F.getTarget();
+  IsPIC = TM.isPositionIndependent();
+  ABI = static_cast<const MipsTargetMachine &>(TM).getABI();
+
   LongBranchSeqSize =
       !IsPIC ? 2 : (ABI.IsN64() ? 10 : (!STI.isTargetNaCl() ? 9 : 10));
 
@@ -541,6 +545,4 @@ bool MipsLongBranch::runOnMachineFunction(MachineFunction &F) {
 
 /// createMipsLongBranchPass - Returns a pass that converts branches to long
 /// branches.
-FunctionPass *llvm::createMipsLongBranchPass(MipsTargetMachine &tm) {
-  return new MipsLongBranch(tm);
-}
+FunctionPass *llvm::createMipsLongBranchPass() { return new MipsLongBranch(); }

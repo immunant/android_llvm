@@ -88,18 +88,6 @@ class DS_1A1D_NORET<string opName, RegisterClass rc = VGPR_32>
   let has_vdst = 0;
 }
 
-class DS_1A_Off8_NORET<string opName> : DS_Pseudo<opName,
-  (outs),
-  (ins VGPR_32:$addr, offset0:$offset0, offset1:$offset1, gds:$gds),
-  "$addr $offset0$offset1$gds"> {
-
-  let has_data0 = 0;
-  let has_data1 = 0;
-  let has_vdst  = 0;
-  let has_offset = 0;
-  let AsmMatchConverter = "cvtDSOffset01";
-}
-
 class DS_1A2D_NORET<string opName, RegisterClass rc = VGPR_32>
 : DS_Pseudo<opName,
   (outs),
@@ -157,10 +145,10 @@ class DS_1A2D_Off8_RET<string opName,
   let hasPostISelHook = 1;
 }
 
-class DS_1A_RET<string opName, RegisterClass rc = VGPR_32>
+class DS_1A_RET<string opName, RegisterClass rc = VGPR_32, Operand ofs = offset>
 : DS_Pseudo<opName,
   (outs rc:$vdst),
-  (ins VGPR_32:$addr, offset:$offset, gds:$gds),
+  (ins VGPR_32:$addr, ofs:$offset, gds:$gds),
   "$vdst, $addr$offset$gds"> {
 
   let has_data0 = 0;
@@ -266,8 +254,6 @@ class DS_1A1D_PERMUTE <string opName, SDPatternOperator node = null_frag>
   "$vdst, $addr, $data0$offset",
   [(set i32:$vdst,
    (node (DS1Addr1Offset i32:$addr, i16:$offset), i32:$data0))] > {
-
-  let LGKM_CNT = 0;
 
   let mayLoad = 0;
   let mayStore = 0;
@@ -450,11 +436,11 @@ def DS_XOR_SRC2_B64   : DS_1A<"ds_xor_src2_b64">;
 def DS_MIN_SRC2_F64   : DS_1A<"ds_min_src2_f64">;
 def DS_MAX_SRC2_F64   : DS_1A<"ds_max_src2_f64">;
 
-def DS_WRITE_SRC2_B32 : DS_1A_Off8_NORET<"ds_write_src2_b32">;
-def DS_WRITE_SRC2_B64 : DS_1A_Off8_NORET<"ds_write_src2_b64">;
+def DS_WRITE_SRC2_B32 : DS_1A<"ds_write_src2_b32">;
+def DS_WRITE_SRC2_B64 : DS_1A<"ds_write_src2_b64">;
 
 let Uses = [EXEC], mayLoad = 0, mayStore = 0, isConvergent = 1 in {
-def DS_SWIZZLE_B32 : DS_1A_RET <"ds_swizzle_b32">;
+def DS_SWIZZLE_B32 : DS_1A_RET <"ds_swizzle_b32", VGPR_32, SwizzleImm>;
 }
 
 let mayStore = 0 in {

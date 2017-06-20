@@ -45,21 +45,6 @@ define <4 x i32> @test5(<4 x i32> %A) {
   ret <4 x i32> %2
 }
 
-; Check that we combine "if x!=0 && x!=-1" into "if x+1u>1"
-define i32 @test6(i64 %x) nounwind {
-; CHECK-LABEL: @test6(
-; CHECK-NEXT:    [[X_OFF:%.*]] = add i64 %x, 1
-; CHECK-NEXT:    [[X_CMP:%.*]] = icmp ugt i64 [[X_OFF]], 1
-; CHECK-NEXT:    [[LAND_EXT:%.*]] = zext i1 [[X_CMP]] to i32
-; CHECK-NEXT:    ret i32 [[LAND_EXT]]
-;
-  %cmp1 = icmp ne i64 %x, -1
-  %not.cmp = icmp ne i64 %x, 0
-  %.cmp1 = and i1 %cmp1, %not.cmp
-  %land.ext = zext i1 %.cmp1 to i32
-  ret i32 %land.ext
-}
-
 define i1 @test7(i32 %i, i1 %b) {
 ; CHECK-LABEL: @test7(
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i32 %i, 0
@@ -108,6 +93,18 @@ define i64 @test9(i64 %x) {
   %sub = sub nsw i64 0, %x
   %and = and i64 %sub, 1
   ret i64 %and
+}
+
+; combine -x & 1 into x & 1
+define <2 x i64> @test9vec(<2 x i64> %x) {
+; CHECK-LABEL: @test9vec(
+; CHECK-NEXT:    [[SUB:%.*]] = sub nsw <2 x i64> zeroinitializer, [[X:%.*]]
+; CHECK-NEXT:    [[AND:%.*]] = and <2 x i64> [[SUB]], <i64 1, i64 1>
+; CHECK-NEXT:    ret <2 x i64> [[AND]]
+;
+  %sub = sub nsw <2 x i64> <i64 0, i64 0>, %x
+  %and = and <2 x i64> %sub, <i64 1, i64 1>
+  ret <2 x i64> %and
 }
 
 define i64 @test10(i64 %x) {
@@ -171,7 +168,7 @@ define i32 @test13(i32 %a, i32 %b) {
 define i32 @test14(i32 %a, i32 %b) {
 ; CHECK-LABEL: @test14(
 ; CHECK-NEXT:    [[X:%.*]] = shl i32 [[A:%.*]], 8
-; CHECK-NEXT:    [[Y:%.*]] = sub i32 [[X]], [[B:%.*]]
+; CHECK-NEXT:    [[Y:%.*]] = sub i32 0, [[B:%.*]]
 ; CHECK-NEXT:    [[Z:%.*]] = and i32 [[Y]], 128
 ; CHECK-NEXT:    [[W:%.*]] = mul i32 [[Z]], [[X]]
 ; CHECK-NEXT:    ret i32 [[W]]

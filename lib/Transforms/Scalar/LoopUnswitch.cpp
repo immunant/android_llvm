@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This pass transforms loops that contain branches on loop-invariant conditions
-// to have multiple loops.  For example, it turns the left into the right code:
+// to multiple loops.  For example, it turns the left into the right code:
 //
 //  for (...)                  if (lic)
 //    A                          for (...)
@@ -26,34 +26,34 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Scalar.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/Analysis/BlockFrequencyInfo.h"
+#include "llvm/Analysis/BlockFrequencyInfoImpl.h"
+#include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/CodeMetrics.h"
 #include "llvm/Analysis/DivergenceAnalysis.h"
+#include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/BlockFrequencyInfoImpl.h"
-#include "llvm/Analysis/BlockFrequencyInfo.h"
-#include "llvm/Analysis/BranchProbabilityInfo.h"
-#include "llvm/Support/BranchProbability.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/IR/Module.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/MDBuilder.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/BranchProbability.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -831,7 +831,12 @@ bool LoopUnswitch::UnswitchIfProfitable(Value *LoopCond, Constant *Val,
 /// mapping the blocks with the specified map.
 static Loop *CloneLoop(Loop *L, Loop *PL, ValueToValueMapTy &VM,
                        LoopInfo *LI, LPPassManager *LPM) {
-  Loop &New = LPM->addLoop(PL);
+  Loop &New = *new Loop();
+  if (PL)
+    PL->addChildLoop(&New);
+  else
+    LI->addTopLevelLoop(&New);
+  LPM->addLoop(New);
 
   // Add all of the blocks in L to the new loop.
   for (Loop::block_iterator I = L->block_begin(), E = L->block_end();
@@ -1231,11 +1236,12 @@ void LoopUnswitch::UnswitchNontrivialCondition(Value *LIC, Constant *Val,
   LoopProcessWorklist.push_back(NewLoop);
   redoLoop = true;
 
-  // Keep a WeakVH holding onto LIC.  If the first call to RewriteLoopBody
+  // Keep a WeakTrackingVH holding onto LIC.  If the first call to
+  // RewriteLoopBody
   // deletes the instruction (for example by simplifying a PHI that feeds into
   // the condition that we're unswitching on), we don't rewrite the second
   // iteration.
-  WeakVH LICHandle(LIC);
+  WeakTrackingVH LICHandle(LIC);
 
   // Now we rewrite the original code to know that the condition is true and the
   // new code to know that the condition is false.
@@ -1262,7 +1268,7 @@ static void RemoveFromWorklist(Instruction *I,
 static void ReplaceUsesOfWith(Instruction *I, Value *V,
                               std::vector<Instruction*> &Worklist,
                               Loop *L, LPPassManager *LPM) {
-  DEBUG(dbgs() << "Replace with '" << *V << "': " << *I);
+  DEBUG(dbgs() << "Replace with '" << *V << "': " << *I << "\n");
 
   // Add uses to the worklist, which may be dead now.
   for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
@@ -1275,7 +1281,8 @@ static void ReplaceUsesOfWith(Instruction *I, Value *V,
   LPM->deleteSimpleAnalysisValue(I, L);
   RemoveFromWorklist(I, Worklist);
   I->replaceAllUsesWith(V);
-  I->eraseFromParent();
+  if (!I->mayHaveSideEffects())
+    I->eraseFromParent();
   ++NumSimplify;
 }
 
@@ -1431,7 +1438,7 @@ void LoopUnswitch::SimplifyCode(std::vector<Instruction*> &Worklist, Loop *L) {
 
     // Simple DCE.
     if (isInstructionTriviallyDead(I)) {
-      DEBUG(dbgs() << "Remove dead instruction '" << *I);
+      DEBUG(dbgs() << "Remove dead instruction '" << *I << "\n");
 
       // Add uses to the worklist, which may be dead now.
       for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)

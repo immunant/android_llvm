@@ -59,6 +59,7 @@ public:
     mips64,         // MIPS64: mips64
     mips64el,       // MIPS64EL: mips64el
     msp430,         // MSP430: msp430
+    nios2,          // NIOSII: nios2
     ppc,            // PPC: powerpc
     ppc64,          // PPC64: powerpc64, ppu
     ppc64le,        // PPC64LE: powerpc64le
@@ -140,7 +141,8 @@ public:
     Myriad,
     AMD,
     Mesa,
-    LastVendorType = Mesa
+    SUSE,
+    LastVendorType = SUSE
   };
   enum OSType {
     UnknownOS,
@@ -237,7 +239,9 @@ public:
 
   /// Default constructor is the same as an empty string and leaves all
   /// triple fields unknown.
-  Triple() : Data(), Arch(), Vendor(), OS(), Environment(), ObjectFormat() {}
+  Triple()
+      : Data(), Arch(), SubArch(), Vendor(), OS(), Environment(),
+        ObjectFormat() {}
 
   explicit Triple(const Twine &Str);
   Triple(const Twine &ArchStr, const Twine &VendorStr, const Twine &OSStr);
@@ -249,6 +253,10 @@ public:
            Vendor == Other.Vendor && OS == Other.OS &&
            Environment == Other.Environment &&
            ObjectFormat == Other.ObjectFormat;
+  }
+
+  bool operator!=(const Triple &Other) const {
+    return !(*this == Other);
   }
 
   /// @}
@@ -720,6 +728,12 @@ public:
   ///
   /// \returns true if the triple is little endian, false otherwise.
   bool isLittleEndian() const;
+
+  /// Test whether target triples are compatible.
+  bool isCompatibleWith(const Triple &Other) const;
+
+  /// Merge target triples.
+  std::string merge(const Triple &Other) const;
 
   /// @}
   /// @name Static helpers for IDs.

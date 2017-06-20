@@ -31,7 +31,7 @@ struct coff_section;
 namespace pdb {
 class DbiStream;
 struct DbiStreamHeader;
-class ModInfoBuilder;
+class DbiModuleDescriptorBuilder;
 class PDBFile;
 
 class DbiStreamBuilder {
@@ -49,7 +49,6 @@ public:
   void setPdbDllRbld(uint16_t R);
   void setFlags(uint16_t F);
   void setMachineType(PDB_Machine M);
-  void setSectionContribs(ArrayRef<SectionContrib> SecMap);
   void setSectionMap(ArrayRef<SecMapEntry> SecMap);
 
   // Add given bytes as a new stream.
@@ -57,17 +56,16 @@ public:
 
   uint32_t calculateSerializedLength() const;
 
-  Expected<ModInfoBuilder &> addModuleInfo(StringRef ModuleName);
+  Expected<DbiModuleDescriptorBuilder &> addModuleInfo(StringRef ModuleName);
   Error addModuleSourceFile(StringRef Module, StringRef File);
+  Expected<uint32_t> getSourceFileNameIndex(StringRef FileName);
 
   Error finalizeMsfLayout();
 
   Error commit(const msf::MSFLayout &Layout, WritableBinaryStreamRef MsfBuffer);
 
-  // A helper function to create Section Contributions from COFF input
-  // section headers.
-  static std::vector<SectionContrib>
-  createSectionContribs(ArrayRef<llvm::object::coff_section> SecHdrs);
+  void addSectionContrib(DbiModuleDescriptorBuilder *ModuleDbi,
+                         const llvm::object::coff_section *SecHdr);
 
   // A helper function to create a Section Map from a COFF section header.
   static std::vector<SecMapEntry>
@@ -81,6 +79,7 @@ private:
 
   Error finalize();
   uint32_t calculateModiSubstreamSize() const;
+  uint32_t calculateNamesOffset() const;
   uint32_t calculateSectionContribsStreamSize() const;
   uint32_t calculateSectionMapStreamSize() const;
   uint32_t calculateFileInfoSubstreamSize() const;
@@ -103,14 +102,14 @@ private:
 
   const DbiStreamHeader *Header;
 
-  StringMap<std::unique_ptr<ModInfoBuilder>> ModiMap;
-  std::vector<ModInfoBuilder *> ModiList;
+  StringMap<std::unique_ptr<DbiModuleDescriptorBuilder>> ModiMap;
+  std::vector<DbiModuleDescriptorBuilder *> ModiList;
 
   StringMap<uint32_t> SourceFileNames;
 
   WritableBinaryStreamRef NamesBuffer;
   MutableBinaryByteStream FileInfoBuffer;
-  ArrayRef<SectionContrib> SectionContribs;
+  std::vector<SectionContrib> SectionContribs;
   ArrayRef<SecMapEntry> SectionMap;
   llvm::SmallVector<DebugStream, (int)DbgHeaderType::Max> DbgStreams;
 };

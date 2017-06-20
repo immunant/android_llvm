@@ -13,8 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Hexagon.h"
 #include "HexagonAsmPrinter.h"
+#include "Hexagon.h"
 #include "HexagonMachineFunctionInfo.h"
 #include "HexagonSubtarget.h"
 #include "HexagonTargetMachine.h"
@@ -23,6 +23,7 @@
 #include "MCTargetDesc/HexagonMCShuffler.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/ConstantFolding.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -43,7 +44,6 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/ELF.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -286,9 +286,9 @@ void HexagonAsmPrinter::HexagonProcessInstruction(MCInst &Inst,
   const MCRegisterInfo *RI = OutStreamer->getContext().getRegisterInfo();
   const MachineFunction &MF = *MI.getParent()->getParent();
   const auto &HST = MF.getSubtarget<HexagonSubtarget>();
-  unsigned VectorSize = HST.useHVXSglOps()
-                            ? Hexagon::VectorRegsRegClass.getSize()
-                            : Hexagon::VectorRegs128BRegClass.getSize();
+  const auto &VecRC = HST.useHVXSglOps() ? Hexagon::VectorRegsRegClass
+                                         : Hexagon::VectorRegs128BRegClass;
+  unsigned VectorSize = HST.getRegisterInfo()->getSpillSize(VecRC);
 
   switch (Inst.getOpcode()) {
   default: return;
@@ -298,7 +298,7 @@ void HexagonAsmPrinter::HexagonProcessInstruction(MCInst &Inst,
     MCOperand Reg = Inst.getOperand(0);
     MCOperand S16 = Inst.getOperand(1);
     HexagonMCInstrInfo::setMustNotExtend(*S16.getExpr());
-    HexagonMCInstrInfo::setS23_2_reloc(*S16.getExpr());
+    HexagonMCInstrInfo::setS27_2_reloc(*S16.getExpr());
     Inst.clear();
     Inst.addOperand(Reg);
     Inst.addOperand(MCOperand::createReg(Hexagon::R0));

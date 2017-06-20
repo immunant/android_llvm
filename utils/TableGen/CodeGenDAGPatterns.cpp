@@ -893,7 +893,9 @@ std::string PatternToMatch::getPredicateCheck() const {
   for (Record *Pred : PredicateRecs) {
     if (!PredicateCheck.empty())
       PredicateCheck += " && ";
-    PredicateCheck += "(" + Pred->getValueAsString("CondString") + ")";
+    PredicateCheck += "(";
+    PredicateCheck += Pred->getValueAsString("CondString");
+    PredicateCheck += ")";
   }
 
   return PredicateCheck.str();
@@ -2450,7 +2452,7 @@ void CodeGenDAGPatterns::ParseNodeTransforms() {
   while (!Xforms.empty()) {
     Record *XFormNode = Xforms.back();
     Record *SDNode = XFormNode->getValueAsDef("Opcode");
-    std::string Code = XFormNode->getValueAsString("XFormFunction");
+    StringRef Code = XFormNode->getValueAsString("XFormFunction");
     SDNodeXForms.insert(std::make_pair(XFormNode, NodeXForm(SDNode, Code)));
 
     Xforms.pop_back();
@@ -2828,7 +2830,8 @@ public:
       if (IntInfo->ModRef & CodeGenIntrinsic::MR_Mod)
         mayStore = true;// Intrinsics that can write to memory are 'mayStore'.
 
-      if (IntInfo->ModRef >= CodeGenIntrinsic::ReadWriteMem)
+      if (IntInfo->ModRef >= CodeGenIntrinsic::ReadWriteMem ||
+          IntInfo->hasSideEffects)
         // ReadWriteMem intrinsics can have other strange effects.
         hasSideEffects = true;
     }
@@ -3805,9 +3808,7 @@ void CodeGenDAGPatterns::GenerateVariants() {
                        DepVars);
 
     assert(!Variants.empty() && "Must create at least original variant!");
-    Variants.erase(Variants.begin());  // Remove the original pattern.
-
-    if (Variants.empty())  // No variants for this pattern.
+    if (Variants.size() == 1)  // No additional variants for this pattern.
       continue;
 
     DEBUG(errs() << "FOUND VARIANTS OF: ";

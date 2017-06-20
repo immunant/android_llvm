@@ -51,13 +51,13 @@ namespace {
     ScalarEvolution  *SE;
     DominatorTree    *DT;
 
-    SmallVectorImpl<WeakVH> &DeadInsts;
+    SmallVectorImpl<WeakTrackingVH> &DeadInsts;
 
     bool Changed;
 
   public:
     SimplifyIndvar(Loop *Loop, ScalarEvolution *SE, DominatorTree *DT,
-                   LoopInfo *LI,SmallVectorImpl<WeakVH> &Dead)
+                   LoopInfo *LI, SmallVectorImpl<WeakTrackingVH> &Dead)
         : L(Loop), LI(LI), SE(SE), DT(DT), DeadInsts(Dead), Changed(false) {
       assert(LI && "IV simplification requires LoopInfo");
     }
@@ -352,7 +352,7 @@ bool SimplifyIndvar::eliminateOverflowIntrinsic(CallInst *CI) {
     return false;
 
   typedef const SCEV *(ScalarEvolution::*OperationFunctionTy)(
-      const SCEV *, const SCEV *, SCEV::NoWrapFlags);
+      const SCEV *, const SCEV *, SCEV::NoWrapFlags, unsigned);
   typedef const SCEV *(ScalarEvolution::*ExtensionFunctionTy)(
       const SCEV *, Type *);
 
@@ -406,10 +406,11 @@ bool SimplifyIndvar::eliminateOverflowIntrinsic(CallInst *CI) {
     IntegerType::get(NarrowTy->getContext(), NarrowTy->getBitWidth() * 2);
 
   const SCEV *A =
-      (SE->*Extension)((SE->*Operation)(LHS, RHS, SCEV::FlagAnyWrap), WideTy);
+      (SE->*Extension)((SE->*Operation)(LHS, RHS, SCEV::FlagAnyWrap, 0u),
+                       WideTy);
   const SCEV *B =
       (SE->*Operation)((SE->*Extension)(LHS, WideTy),
-                       (SE->*Extension)(RHS, WideTy), SCEV::FlagAnyWrap);
+                       (SE->*Extension)(RHS, WideTy), SCEV::FlagAnyWrap, 0u);
 
   if (A != B)
     return false;
@@ -530,8 +531,7 @@ bool SimplifyIndvar::strengthenOverflowingOperation(BinaryOperator *BO,
     return false;
 
   const SCEV *(ScalarEvolution::*GetExprForBO)(const SCEV *, const SCEV *,
-                                               SCEV::NoWrapFlags);
-
+                                               SCEV::NoWrapFlags, unsigned);
   switch (BO->getOpcode()) {
   default:
     return false;
@@ -560,7 +560,7 @@ bool SimplifyIndvar::strengthenOverflowingOperation(BinaryOperator *BO,
     const SCEV *ExtendAfterOp = SE->getZeroExtendExpr(SE->getSCEV(BO), WideTy);
     const SCEV *OpAfterExtend = (SE->*GetExprForBO)(
       SE->getZeroExtendExpr(LHS, WideTy), SE->getZeroExtendExpr(RHS, WideTy),
-      SCEV::FlagAnyWrap);
+      SCEV::FlagAnyWrap, 0u);
     if (ExtendAfterOp == OpAfterExtend) {
       BO->setHasNoUnsignedWrap();
       SE->forgetValue(BO);
@@ -572,7 +572,7 @@ bool SimplifyIndvar::strengthenOverflowingOperation(BinaryOperator *BO,
     const SCEV *ExtendAfterOp = SE->getSignExtendExpr(SE->getSCEV(BO), WideTy);
     const SCEV *OpAfterExtend = (SE->*GetExprForBO)(
       SE->getSignExtendExpr(LHS, WideTy), SE->getSignExtendExpr(RHS, WideTy),
-      SCEV::FlagAnyWrap);
+      SCEV::FlagAnyWrap, 0u);
     if (ExtendAfterOp == OpAfterExtend) {
       BO->setHasNoSignedWrap();
       SE->forgetValue(BO);
@@ -701,7 +701,7 @@ void IVVisitor::anchor() { }
 /// Simplify instructions that use this induction variable
 /// by using ScalarEvolution to analyze the IV's recurrence.
 bool simplifyUsersOfIV(PHINode *CurrIV, ScalarEvolution *SE, DominatorTree *DT,
-                       LoopInfo *LI, SmallVectorImpl<WeakVH> &Dead,
+                       LoopInfo *LI, SmallVectorImpl<WeakTrackingVH> &Dead,
                        IVVisitor *V) {
   SimplifyIndvar SIV(LI->getLoopFor(CurrIV->getParent()), SE, DT, LI, Dead);
   SIV.simplifyUsers(CurrIV, V);
@@ -711,7 +711,7 @@ bool simplifyUsersOfIV(PHINode *CurrIV, ScalarEvolution *SE, DominatorTree *DT,
 /// Simplify users of induction variables within this
 /// loop. This does not actually change or add IVs.
 bool simplifyLoopIVs(Loop *L, ScalarEvolution *SE, DominatorTree *DT,
-                     LoopInfo *LI, SmallVectorImpl<WeakVH> &Dead) {
+                     LoopInfo *LI, SmallVectorImpl<WeakTrackingVH> &Dead) {
   bool Changed = false;
   for (BasicBlock::iterator I = L->getHeader()->begin(); isa<PHINode>(I); ++I) {
     Changed |= simplifyUsersOfIV(cast<PHINode>(I), SE, DT, LI, Dead);
