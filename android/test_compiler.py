@@ -112,6 +112,20 @@ def build_target(android_base, clang_version, target, max_jobs,
     fallback_path = build.clang_prebuilt_bin_dir()
     env[compiler_wrapper.PREBUILT_COMPILER_PATH_KEY] = fallback_path
 
+    # http://b/62869798, we need to invoke cpp-define-generator manually to
+    # avoid potential build failure. This should be removed when
+    # art/runtime/generated/asm_support_gen.h is updated.
+    subprocess.check_call(['/bin/bash', '-c',
+                           'make cpp-define-generator-data ' + jobs +
+                           ' dist LLVM_PREBUILTS_VERSION=clang-dev' +
+                           (' LLVM_RELEASE_VERSION=%s' %
+                            clang_version.short_version())], cwd=android_base,
+                          env=env)
+    asm_support_path = os.path.join(android_base, 'art', 'tools',
+                                    'cpp-define-generator')
+    subprocess.check_call(['./generate-asm-support'], cwd=asm_support_path,
+                          env=env)
+
     print('Start building %s.' % target)
     subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' dist'
                            ' LLVM_PREBUILTS_VERSION=clang-dev' +
