@@ -25,6 +25,10 @@ import time
 STDERR_REDIRECT_KEY = 'ANDROID_LLVM_STDERR_REDIRECT'
 PREBUILT_COMPILER_PATH_KEY = 'ANDROID_LLVM_PREBUILT_COMPILER_PATH'
 
+# We may introduce some new warnings after rebasing and we need to disable
+# them before we fix those warnings.
+DISABLED_WARNINGS = ['-Wno-zero-as-null-pointer-constant',
+                     '-Wno-unknown-warning-option']
 
 def real_compiler_path():
     return os.path.realpath(__file__) + '.real'
@@ -51,7 +55,8 @@ def write_log(path, command, log):
 
 
 def exec_clang(redirect_path, argv):
-    command = [real_compiler_path()] + argv[1:] + ["-fno-color-diagnostics"]
+    command = [real_compiler_path()] + argv[1:] + ["-fno-color-diagnostics"] +\
+              DISABLED_WARNINGS
     p = subprocess.Popen(command,
                          stderr=subprocess.PIPE)
     (_, err) = p.communicate()
@@ -67,7 +72,8 @@ def main(argv):
         redirect_path = os.environ[STDERR_REDIRECT_KEY]
         sys.exit(exec_clang(redirect_path, argv))
     else:
-        os.execv(real_compiler_path(), [argv[0] + '.real'] + argv[1:])
+        os.execv(real_compiler_path(),
+                 [argv[0] + '.real'] + argv[1:] + DISABLED_WARNINGS)
 
 
 if __name__ == '__main__':
