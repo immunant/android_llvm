@@ -27,8 +27,8 @@ PREBUILT_COMPILER_PATH_KEY = 'ANDROID_LLVM_PREBUILT_COMPILER_PATH'
 
 # We may introduce some new warnings after rebasing and we need to disable
 # them before we fix those warnings.
-DISABLED_WARNINGS = ['-Wno-zero-as-null-pointer-constant',
-                     '-Wno-unknown-warning-option']
+DISABLED_WARNINGS = ['-Wno-error=zero-as-null-pointer-constant',
+                     '-Wno-error=unknown-warning-option']
 
 def real_compiler_path():
     return os.path.realpath(__file__) + '.real'
