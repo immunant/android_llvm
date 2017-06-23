@@ -60,9 +60,9 @@ def exec_clang(redirect_path, argv):
     p = subprocess.Popen(command,
                          stderr=subprocess.PIPE)
     (_, err) = p.communicate()
-    if len(err) > 0:
-        write_log(redirect_path, command, err)
+    sys.stderr.write(err)
     if p.returncode != 0:
+        write_log(redirect_path, command, err)
         os.execv(fallback_compiler_path(), argv)
     return p.returncode
 

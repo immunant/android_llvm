@@ -66,7 +66,7 @@ def parse_args():
     redirect_stderr_group.add_argument(
         '--redirect-stderr', action='store_true', default=True,
         help='Redirect clang stderr to $OUT/clang-error.log.')
-    clean_built_target_group.add_argument(
+    redirect_stderr_group.add_argument(
         '--no-redirect-stderr', action='store_false',
         dest='redirect_stderr', help='Do not redirect clang stderr.')
     return parser.parse_args()
@@ -113,9 +113,13 @@ def build_target(android_base, clang_version, target, max_jobs,
 
     if redirect_stderr:
         redirect_key = compiler_wrapper.STDERR_REDIRECT_KEY
-        redirect_path = os.path.abspath(os.path.join(android_base, 'out',
-                                                     'clang-error.log'))
-        utils.remove(redirect_path)
+        if 'DIST_DIR' in env:
+            redirect_path = os.path.join(env['DIST_DIR'], 'logs',
+                                         'clang-error.log')
+        else:
+            redirect_path = os.path.abspath(os.path.join(android_base, 'out',
+                                                         'clang-error.log'))
+            utils.remove(redirect_path)
         env[redirect_key] = redirect_path
 
     fallback_path = build.clang_prebuilt_bin_dir()
