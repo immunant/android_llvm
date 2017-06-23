@@ -149,8 +149,9 @@ ARMConstantPoolConstant::ARMConstantPoolConstant(const Constant *C,
 ARMConstantPoolConstant::ARMConstantPoolConstant(const GlobalVariable *GV,
                                                  const Constant *C)
     : ARMConstantPoolValue((Type *)C->getType(), 0, ARMCP::CPPromotedGlobal, 0,
-                           ARMCP::no_modifier, false),
-      CVal(C), GVar(GV) {}
+                           ARMCP::no_modifier, false), CVal(C) {
+  GVars.insert(GV);
+}
 
 ARMConstantPoolConstant *
 ARMConstantPoolConstant::Create(const Constant *C, unsigned ID) {
@@ -198,7 +199,14 @@ const BlockAddress *ARMConstantPoolConstant::getBlockAddress() const {
 
 int ARMConstantPoolConstant::getExistingMachineCPValue(MachineConstantPool *CP,
                                                        unsigned Alignment) {
-  return getExistingMachineCPValueImpl<ARMConstantPoolConstant>(CP, Alignment);
+  int index = getExistingMachineCPValueImpl<ARMConstantPoolConstant>(CP, Alignment);
+  if (index != -1) {
+    ARMConstantPoolValue *CPV =
+      (ARMConstantPoolValue*)CP->getConstants()[index].Val.MachineCPVal;
+    auto *Constant = cast<ARMConstantPoolConstant>(CPV);
+    Constant->GVars.insert(GVars.begin(), GVars.end());
+  }
+  return index;
 }
 
 bool ARMConstantPoolConstant::hasSameValue(ARMConstantPoolValue *ACPV) {
@@ -208,6 +216,8 @@ bool ARMConstantPoolConstant::hasSameValue(ARMConstantPoolValue *ACPV) {
 
 void ARMConstantPoolConstant::addSelectionDAGCSEId(FoldingSetNodeID &ID) {
   ID.AddPointer(CVal);
+  for (auto GV : GVars)
+    ID.AddPointer(GV);
   ARMConstantPoolValue::addSelectionDAGCSEId(ID);
 }
 

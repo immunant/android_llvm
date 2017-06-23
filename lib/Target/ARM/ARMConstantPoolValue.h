@@ -15,6 +15,7 @@
 #define LLVM_LIB_TARGET_ARM_ARMCONSTANTPOOLVALUE_H
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/Support/Casting.h"
 #include <string>
@@ -146,7 +147,7 @@ inline raw_ostream &operator<<(raw_ostream &O, const ARMConstantPoolValue &V) {
 /// Functions, and BlockAddresses.
 class ARMConstantPoolConstant : public ARMConstantPoolValue {
   const Constant *CVal;         // Constant being loaded.
-  const GlobalVariable *GVar = nullptr;
+  SmallPtrSet<const GlobalVariable*, 1> GVars;
 
   ARMConstantPoolConstant(const Constant *C,
                           unsigned ID,
@@ -180,8 +181,12 @@ public:
   const GlobalValue *getGV() const;
   const BlockAddress *getBlockAddress() const;
 
-  const GlobalVariable *getPromotedGlobal() const {
-    return dyn_cast_or_null<GlobalVariable>(GVar);
+  typedef SmallPtrSet<const GlobalVariable *, 1>::iterator promoted_iterator;
+  typedef iterator_range<promoted_iterator> promoted_iterator_range;
+  promoted_iterator promoted_begin() const { return GVars.begin(); }
+  promoted_iterator promoted_end() const { return GVars.end(); }
+  promoted_iterator_range promotedGlobals() {
+    return promoted_iterator_range(promoted_begin(), promoted_end());
   }
 
   const Constant *getPromotedGlobalInit() const {
