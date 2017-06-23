@@ -25,6 +25,13 @@ import shutil
 import subprocess
 
 TARGETS = ('aosp_angler-eng', 'aosp_bullhead-eng', 'aosp_marlin-eng')
+DEFAULT_TIDY_CHECKS = ('*',
+                       '-readability-*',
+                       '-google-readability-*',
+                       '-google-runtime-references',
+                       '-cppcoreguidelines-*',
+                       '-modernize-*',
+                       '-clang-analyzer-alpha*')
 
 
 def parse_args():
@@ -46,6 +53,8 @@ def parse_args():
     parser.add_argument('-t', '--target', nargs='?', help='Build for specified '
                         'target. This will work only when --build-only is '
                         'enabled.')
+    parser.add_argument('--with-tidy', action='store_true', default=False,
+                        help='Enable clang tidy for Android build.')
     clean_built_target_group = parser.add_mutually_exclusive_group()
     clean_built_target_group.add_argument(
         '--clean-built-target', action='store_true', default=True,
@@ -88,7 +97,7 @@ def rm_current_product_out():
 
 
 def build_target(android_base, clang_version, target, max_jobs,
-                 redirect_stderr):
+                 redirect_stderr, with_tidy):
     jobs = '-j{}'.format(
             max(1, min(max_jobs, multiprocessing.cpu_count())))
     result = True
@@ -111,31 +120,33 @@ def build_target(android_base, clang_version, target, max_jobs,
 
     fallback_path = build.clang_prebuilt_bin_dir()
     env[compiler_wrapper.PREBUILT_COMPILER_PATH_KEY] = fallback_path
+    env['LLVM_PREBUILTS_VERSION'] = 'clang-dev'
+    env['LLVM_RELEASE_VERSION'] = clang_version.short_version()
 
     # http://b/62869798, we need to invoke cpp-define-generator manually to
     # avoid potential build failure. This should be removed when
     # art/runtime/generated/asm_support_gen.h is updated.
-    subprocess.check_call(['/bin/bash', '-c',
-                           'make cpp-define-generator-data ' + jobs +
-                           ' dist LLVM_PREBUILTS_VERSION=clang-dev' +
-                           (' LLVM_RELEASE_VERSION=%s' %
-                            clang_version.short_version())], cwd=android_base,
-                          env=env)
+    subprocess.check_call(['/bin/bash', '-c', 'make cpp-define-generator-data '
+                           + jobs + ' dist'],
+                          cwd=android_base, env=env)
     asm_support_path = os.path.join(android_base, 'art', 'tools',
                                     'cpp-define-generator')
     subprocess.check_call(['./generate-asm-support'], cwd=asm_support_path,
                           env=env)
 
+    if with_tidy:
+        env['WITH_TIDY'] = '1'
+        if 'DEFAULT_GLOBAL_TIDY_CHECKS' not in env:
+            env['DEFAULT_GLOBAL_TIDY_CHECKS'] = ','.join(DEFAULT_TIDY_CHECKS)
+
+
     print('Start building %s.' % target)
-    subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' dist'
-                           ' LLVM_PREBUILTS_VERSION=clang-dev' +
-                           (' LLVM_RELEASE_VERSION=%s' %
-                            clang_version.short_version())], cwd=android_base,
-                          env=env)
+    subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' dist'],
+                          cwd=android_base, env=env)
 
 
 def test_device(android_base, clang_version, device, max_jobs, clean_output,
-                flashall_path, redirect_stderr):
+                flashall_path, redirect_stderr, with_tidy):
     [label, target] = device[-1].split(':')
     # If current device is not connected correctly we will just skip it.
     if label != 'device':
@@ -145,7 +156,7 @@ def test_device(android_base, clang_version, device, max_jobs, clean_output,
         target = 'aosp_' + target + '-eng'
     try:
         build_target(android_base, clang_version, target, max_jobs,
-                     redirect_stderr)
+                     redirect_stderr, with_tidy)
         if flashall_path is None:
             bin_path = os.path.join(android_base, 'out', 'host',
                                     utils.build_os_type(), 'bin')
@@ -205,7 +216,7 @@ def main():
         targets = [args.target] if args.target else TARGETS
         for target in targets:
             build_target(args.android_path, clang_version, target,
-                         args.jobs, args.redirect_stderr)
+                         args.jobs, args.redirect_stderr, args.with_tidy)
     else:
         devices = get_connected_device_list()
         if len(devices) == 0:
@@ -213,7 +224,8 @@ def main():
         for device in devices:
             result = test_device(args.android_path, clang_version, device,
                                  args.jobs, args.clean_built_target,
-                                 args.flashall_path, args.redirect_stderr)
+                                 args.flashall_path, args.redirect_stderr,
+                                 args.with_tidy)
             if not result and not args.keep_going:
                 break
 
