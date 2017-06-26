@@ -978,8 +978,10 @@ static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
     return LDPS_OK;
 
   unsigned int count;
-  if (get_input_section_count(file->handle, &count) != LDPS_OK)
-    message(LDPL_FATAL, "Failed to get input section count");
+  if (get_input_section_count(file->handle, &count) != LDPS_OK) {
+    // Not an ELF file
+    return LDPS_OK;
+  }
 
   struct ld_plugin_section cur_section;
   cur_section.handle = file->handle;
