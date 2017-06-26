@@ -171,7 +171,7 @@ bool TargetMachine::shouldAssumeDSOLocal(const Module &M,
 TLSModel::Model TargetMachine::getTLSModel(const GlobalValue *GV) const {
   bool IsPIE = GV->getParent()->getPIELevel() != PIELevel::Default;
   Reloc::Model RM = getRelocationModel();
-  bool IsSharedLibrary = RM == Reloc::PIC_ && !IsPIE;
+  bool IsSharedLibrary = (RM == Reloc::PIC_ || RM == Reloc::PIP) && !IsPIE;
   bool IsLocal = shouldAssumeDSOLocal(*GV->getParent(), GV);
 
   TLSModel::Model Model;
