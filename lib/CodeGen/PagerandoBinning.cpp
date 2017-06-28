@@ -27,15 +27,13 @@ using namespace llvm;
 
 namespace {
 struct Bin {
+  static constexpr unsigned Size = 4096;
+
   unsigned Number;
   unsigned FreeSpace;
 
-  static const unsigned Size;
-
   Bin(unsigned Number) : Number(Number), FreeSpace(Size) { }
 };
-
-const unsigned Bin::Size = 4096;
 
 class PagerandoBinning : public ModulePass {
 public:
