@@ -28,35 +28,35 @@ using namespace llvm;
 #define ARM_PGLT_OPT_NAME "ARM PGLT interwork optimization pass"
 
 namespace {
-  class ARMPGLTOpt : public MachineFunctionPass {
-  public:
-    static char ID;
-    explicit ARMPGLTOpt() : MachineFunctionPass(ID) {}
+class ARMPGLTOpt : public MachineFunctionPass {
+public:
+  static char ID;
+  explicit ARMPGLTOpt() : MachineFunctionPass(ID) {}
 
-    bool runOnMachineFunction(MachineFunction &Fn) override;
+  bool runOnMachineFunction(MachineFunction &Fn) override;
 
-    MachineFunctionProperties getRequiredProperties() const override {
-      return MachineFunctionProperties().set(
-          MachineFunctionProperties::Property::TracksLiveness);
-    }
+  MachineFunctionProperties getRequiredProperties() const override {
+    return MachineFunctionProperties().set(
+        MachineFunctionProperties::Property::TracksLiveness);
+  }
 
-    StringRef getPassName() const override { return ARM_PGLT_OPT_NAME; }
+  StringRef getPassName() const override { return ARM_PGLT_OPT_NAME; }
 
-  private:
-    MachineFunction *MF;
-    const MachineModuleInfo *MMI;
-    const TargetInstrInfo *TII;
-    const TargetLowering *TLI;
-    ARMFunctionInfo *AFI;
-    const ARMSubtarget *Subtarget;
-    unsigned CurBin;
-    MachineConstantPool *ConstantPool;
-    bool isThumb2;
-    
-    bool isSameBin(const GlobalValue *GV);
-    void replacePGLTUses(SmallVectorImpl<int> &CPEntries);
-    void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
-  };
+private:
+  MachineFunction *MF;
+  const MachineModuleInfo *MMI;
+  const TargetInstrInfo *TII;
+  const TargetLowering *TLI;
+  ARMFunctionInfo *AFI;
+  const ARMSubtarget *Subtarget;
+  unsigned CurBin;
+  MachineConstantPool *ConstantPool;
+  bool isThumb2;
+
+  bool isSameBin(const GlobalValue *GV);
+  void replacePGLTUses(SmallVectorImpl<int> &CPEntries);
+  void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
+};
 } // end anonymous namespace
 
 char ARMPGLTOpt::ID = 0;
