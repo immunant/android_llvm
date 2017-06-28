@@ -45,10 +45,10 @@ public:
   bool runOnModule(Module &M) override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
+    ModulePass::getAnalysisUsage(AU);
     AU.addRequired<MachineModuleInfo>();
     AU.addPreserved<MachineModuleInfo>();
     AU.setPreservesAll();
-    ModulePass::getAnalysisUsage(AU);
   }
 
 private:
