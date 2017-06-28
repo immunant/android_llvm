@@ -72,7 +72,10 @@ ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
 }
 
-static unsigned GetFunctionSizeInBytes(const MachineFunction &MF, const TargetInstrInfo *TII) {
+static unsigned GetFunctionSizeInBytes(const Function &F, MachineModuleInfo &MMI) {
+  const MachineFunction &MF = MMI.getMachineFunction(F);
+  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+
   unsigned FnSize = 0;
   for (auto &MBB : MF)
     for (auto &MI : MBB)
@@ -91,17 +94,14 @@ bool PagerandoBinning::runOnModule(Module &M) {
       continue;
     }
 
-    MachineFunction &MF = MMI.getMachineFunction(F);
-    const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
-
-    unsigned FnSize = GetFunctionSizeInBytes(MF, TII);
+    unsigned FnSize = GetFunctionSizeInBytes(F, MMI);
 
     auto I = Bins.lower_bound(FnSize);
     if (I == Bins.end())
       I = Bins.emplace(Bin::BinSize, BinCount++);
 
     // Add the function to the given bin
-    DEBUG(dbgs() << "Putting function '" << MF.getName() << "' with size " << FnSize << " in bin " << I->second.Number << " with free space " << I->second.FreeSpace << '\n');
+    DEBUG(dbgs() << "Putting function '" << F.getName() << "' with size " << FnSize << " in bin " << I->second.Number << " with free space " << I->second.FreeSpace << '\n');
     MMI.setBin(&F, I->second.Number);
     if (FnSize <= I->second.FreeSpace)
       I->second.FreeSpace -= FnSize;
@@ -113,4 +113,3 @@ bool PagerandoBinning::runOnModule(Module &M) {
 
   return true;
 }
-
