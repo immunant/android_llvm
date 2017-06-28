@@ -39,7 +39,8 @@ def extract_clang_version(stage2_install):
 
 
 def ndk_path():
-    # TODO Switch to r13 from the toolchain/prebuilts/ndk/r13 branch
+    # TODO Switch to r15 from the toolchain/prebuilts/ndk/r15 branch (once it is
+    # created)
     ndk_version = 'r10'
     platform_level = 'android-23'
     return utils.android_path('prebuilts/ndk', ndk_version, 'platforms',
