@@ -22,16 +22,18 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "pglt"
+
 static const char *const kOrigFnSuffix = "$$orig";
 static const char *const kOrigVAFnSuffix = "$$origva";
 
 namespace {
 class PGLTEntryWrappers : public ModulePass {
 public:
-  static char ID; // Pass identification, replacement for typeid
+  static char ID;
   explicit PGLTEntryWrappers() : ModulePass(ID) {
     initializePGLTEntryWrappersPass(*PassRegistry::getPassRegistry());
   }
+
   bool runOnModule(Module &M) override;
 
   StringRef getPassName() const override { return "PGLT Base Address entry point wrapper pass"; }
@@ -47,6 +49,14 @@ private:
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
+
+char PGLTEntryWrappers::ID = 0;
+INITIALIZE_PASS(PGLTEntryWrappers, "pglt-entry-wrappers",
+                "PGLT Entry Wrappers", false, false)
+
+ModulePass *llvm::createPGLTEntryWrappersPass() {
+  return new PGLTEntryWrappers();
+}
 
 bool PGLTEntryWrappers::runOnModule(Module &M) {
   bool Changed = false;
@@ -420,12 +430,4 @@ void PGLTEntryWrappers::CreatePGLT(Module &M) {
                          ConstantArray::get(ATy, MergedVars), "llvm.used");
 
   LLVMUsed->setSection("llvm.metadata");
-}
-
-char PGLTEntryWrappers::ID = 0;
-INITIALIZE_PASS(PGLTEntryWrappers, "pglt-entry-wrappers",
-                "PGLT Entry Wrappers", false, false)
-
-ModulePass *llvm::createPGLTEntryWrappersPass() {
-  return new PGLTEntryWrappers();
 }

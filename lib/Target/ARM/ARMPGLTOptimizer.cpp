@@ -20,6 +20,7 @@
 #include "ARMSubtarget.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+
 using namespace llvm;
 
 #define DEBUG_TYPE "arm-pglt-opt"
@@ -27,9 +28,10 @@ using namespace llvm;
 #define ARM_PGLT_OPT_NAME "ARM PGLT interwork optimization pass"
 
 namespace {
-  struct ARMPGLTOpt : public MachineFunctionPass {
+  class ARMPGLTOpt : public MachineFunctionPass {
+  public:
     static char ID;
-    ARMPGLTOpt() : MachineFunctionPass(ID) {}
+    explicit ARMPGLTOpt() : MachineFunctionPass(ID) {}
 
     bool runOnMachineFunction(MachineFunction &Fn) override;
 
@@ -55,11 +57,14 @@ namespace {
     void replacePGLTUses(SmallVectorImpl<int> &CPEntries);
     void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
   };
-  char ARMPGLTOpt::ID = 0;
-}
+} // end anonymous namespace
 
-INITIALIZE_PASS(ARMPGLTOpt, "arm-pglt-opt", ARM_PGLT_OPT_NAME, false,
-                false)
+char ARMPGLTOpt::ID = 0;
+INITIALIZE_PASS(ARMPGLTOpt, "arm-pglt-opt", ARM_PGLT_OPT_NAME, false, false)
+
+FunctionPass *llvm::createARMPGLTOptimizationPass() {
+  return new ARMPGLTOpt();
+}
 
 bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
   if (!Fn.getFunction()->isRandPage() || skipFunction(*Fn.getFunction()))
@@ -273,9 +278,4 @@ bool ARMPGLTOpt::isSameBin(const GlobalValue *GV) {
     return MMI->getBin(F) == CurBin;
 
   return false;
-}
-
-/// Returns an instance of the load / store optimization pass.
-FunctionPass *llvm::createARMPGLTOptimizationPass() {
-  return new ARMPGLTOpt();
 }

@@ -20,6 +20,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
+
 using namespace llvm;
 
 #define DEBUG_TYPE "pagerando"
@@ -37,14 +38,9 @@ struct Bin {
 const unsigned Bin::BinSize = 4096;
 
 class PagerandoBinning : public ModulePass {
-  // Map from free space -> Bin
-  typedef std::multimap<unsigned, Bin> BinMap;
-  BinMap Bins;
-  unsigned BinCount;
-
 public:
-  static char ID; // Pass identification, replacement for typeid
-  PagerandoBinning() : ModulePass(ID), BinCount(1) {
+  static char ID;
+  explicit PagerandoBinning() : ModulePass(ID), BinCount(1) {
     initializePagerandoBinningPass(*PassRegistry::getPassRegistry());
   }
 
@@ -56,20 +52,25 @@ public:
     AU.setPreservesAll();
     ModulePass::getAnalysisUsage(AU);
   }
+
+private:
+  // Map from free space -> Bin
+  typedef std::multimap<unsigned, Bin> BinMap;
+  BinMap Bins;
+  unsigned BinCount;
 };
-}
+} // end anonymous namespace
 
 char PagerandoBinning::ID = 0;
-
-namespace llvm {
-ModulePass *createPagerandoBinningPass() { return new PagerandoBinning(); }
-}
-
 INITIALIZE_PASS_BEGIN(PagerandoBinning, "pagerando-binning",
                       "Pagerando binning", false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineModuleInfo);
 INITIALIZE_PASS_END(PagerandoBinning, "pagerando-binning",
                     "Pagerando binning", false, false)
+
+ModulePass *llvm::createPagerandoBinningPass() {
+  return new PagerandoBinning();
+}
 
 static unsigned GetFunctionSizeInBytes(const MachineFunction &MF, const TargetInstrInfo *TII) {
   unsigned FnSize = 0;
