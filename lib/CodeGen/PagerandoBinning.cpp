@@ -30,12 +30,12 @@ struct Bin {
   unsigned Number;
   unsigned FreeSpace;
 
-  static const unsigned BinSize;
+  static const unsigned Size;
 
-  Bin(unsigned number) : Number(number), FreeSpace(BinSize) { }
+  Bin(unsigned Number) : Number(Number), FreeSpace(Size) { }
 };
 
-const unsigned Bin::BinSize = 4096;
+const unsigned Bin::Size = 4096;
 
 class PagerandoBinning : public ModulePass {
 public:
@@ -72,15 +72,16 @@ ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
 }
 
-static unsigned GetFunctionSizeInBytes(const Function &F, MachineModuleInfo &MMI) {
+static unsigned ComputeFunctionSize(const Function &F, MachineModuleInfo &MMI) {
   const MachineFunction &MF = MMI.getMachineFunction(F);
   const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
 
-  unsigned FnSize = 0;
+  unsigned Size = 0;
   for (auto &MBB : MF)
     for (auto &MI : MBB)
-      FnSize += TII->getInstSizeInBytes(MI);
-  return FnSize;
+      Size += TII->getInstSizeInBytes(MI);
+
+  return Size;
 }
 
 bool PagerandoBinning::runOnModule(Module &M) {
@@ -94,11 +95,11 @@ bool PagerandoBinning::runOnModule(Module &M) {
       continue;
     }
 
-    unsigned FnSize = GetFunctionSizeInBytes(F, MMI);
+    unsigned FnSize = ComputeFunctionSize(F, MMI);
 
     auto I = Bins.lower_bound(FnSize);
     if (I == Bins.end())
-      I = Bins.emplace(Bin::BinSize, BinCount++);
+      I = Bins.emplace(Bin::Size, BinCount++);
 
     // Add the function to the given bin
     DEBUG(dbgs() << "Putting function '" << F.getName() << "' with size " << FnSize << " in bin " << I->second.Number << " with free space " << I->second.FreeSpace << '\n');
@@ -106,7 +107,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
     if (FnSize <= I->second.FreeSpace)
       I->second.FreeSpace -= FnSize;
     else
-      I->second.FreeSpace = (FnSize - I->second.FreeSpace) % Bin::BinSize;
+      I->second.FreeSpace = (FnSize - I->second.FreeSpace) % Bin::Size;
     Bins.insert(std::make_pair(I->second.FreeSpace, I->second));
     Bins.erase(I);
   }
