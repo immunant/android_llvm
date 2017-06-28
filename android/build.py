@@ -169,8 +169,7 @@ def cross_compile_configs(stage2_install):
         defines['CMAKE_C_COMPILER'] = cc
         defines['CMAKE_CXX_COMPILER'] = cxx
 
-        # Bug: http://b/35402623: Manually include the directory with libgcc.a.
-        # For some reason, it is not found automatically
+        # Include the directory with libgcc.a to the linker search path.
         toolchain_builtins = os.path.join(toolchain_root, toolchain_path, '..',
                                           'lib', 'gcc',
                                           os.path.basename(toolchain_path),
