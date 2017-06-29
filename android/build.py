@@ -443,8 +443,6 @@ def build_stage2(stage1_install, stage2_targets):
     stage2_extra_defines['CMAKE_CXX_COMPILER'] = stage2_cxx
     stage2_extra_defines['LLVM_BUILD_RUNTIME'] = 'ON'
     stage2_extra_defines['LLVM_ENABLE_LIBCXX'] = 'ON'
-    stage2_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
-    stage2_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
 
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
