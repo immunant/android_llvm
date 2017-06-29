@@ -91,27 +91,19 @@ bool PagerandoBinning::runOnModule(Module &M) {
     auto I = Bins.lower_bound(FnSize);
     if (I == Bins.end()) {  // No bin with enough free space
       Bin = BinCount++;
-      FreeSpace = BinSize;
+      FreeSpace = BinSize - (FnSize % BinSize);
     } else {                // Found eligible bin
       Bin = I->second;
-      FreeSpace = I->first;
+      FreeSpace = I->first - FnSize;
       Bins.erase(I);
     }
 
     DEBUG(dbgs() << "Putting function '" << F.getName()
                  << "' with size " << FnSize
-                 << " in bin " << Bin
-                 << " with free space " << FreeSpace << '\n');
+                 << " in bin #" << Bin
+                 << " with remaining free space " << FreeSpace << '\n');
 
     MMI.setBin(&F, Bin);
-
-    // Update <free space -> bin numbers> mapping
-    if (FnSize <= FreeSpace) {
-      FreeSpace -= FnSize;
-    } else {
-      // TODO(yln): I don't think this works
-      FreeSpace = (FnSize - FreeSpace) % BinSize;
-    }
     Bins.emplace(FreeSpace, Bin);
   }
 
