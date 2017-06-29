@@ -26,15 +26,6 @@ using namespace llvm;
 #define DEBUG_TYPE "pagerando"
 
 namespace {
-struct Bin {
-  static constexpr unsigned Size = 4096;
-
-  unsigned Number;
-  unsigned FreeSpace;
-
-  Bin(unsigned Number) : Number(Number), FreeSpace(Size) { }
-};
-
 class PagerandoBinning : public ModulePass {
 public:
   static char ID;
@@ -52,8 +43,9 @@ public:
   }
 
 private:
-  // Map from free space -> Bin
-  typedef std::multimap<unsigned, Bin> BinMap;
+  static constexpr unsigned BinSize = 4096;
+  // Map <free space -> bin numbers>
+  typedef std::multimap<unsigned, unsigned> BinMap;
   BinMap Bins;
   unsigned BinCount;
 };
@@ -85,7 +77,7 @@ static unsigned ComputeFunctionSize(const Function &F, MachineModuleInfo &MMI) {
 bool PagerandoBinning::runOnModule(Module &M) {
   MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
 
-  // Bin all functions
+  // Assign all functions to a bin
   for (auto &F : M) {
     if (!F.isRandPage()) {
       // Put all normal functions (and wrappers) into bin 0.
@@ -94,20 +86,33 @@ bool PagerandoBinning::runOnModule(Module &M) {
     }
 
     unsigned FnSize = ComputeFunctionSize(F, MMI);
+    unsigned Bin, FreeSpace;
 
     auto I = Bins.lower_bound(FnSize);
-    if (I == Bins.end())
-      I = Bins.emplace(Bin::Size, BinCount++);
+    if (I == Bins.end()) {  // No bin with enough free space
+      Bin = BinCount++;
+      FreeSpace = BinSize;
+    } else {                // Found eligible bin
+      Bin = I->second;
+      FreeSpace = I->first;
+      Bins.erase(I);
+    }
 
-    // Add the function to the given bin
-    DEBUG(dbgs() << "Putting function '" << F.getName() << "' with size " << FnSize << " in bin " << I->second.Number << " with free space " << I->second.FreeSpace << '\n');
-    MMI.setBin(&F, I->second.Number);
-    if (FnSize <= I->second.FreeSpace)
-      I->second.FreeSpace -= FnSize;
-    else
-      I->second.FreeSpace = (FnSize - I->second.FreeSpace) % Bin::Size;
-    Bins.insert(std::make_pair(I->second.FreeSpace, I->second));
-    Bins.erase(I);
+    DEBUG(dbgs() << "Putting function '" << F.getName()
+                 << "' with size " << FnSize
+                 << " in bin " << Bin
+                 << " with free space " << FreeSpace << '\n');
+
+    MMI.setBin(&F, Bin);
+
+    // Update <free space -> bin numbers> mapping
+    if (FnSize <= FreeSpace) {
+      FreeSpace -= FnSize;
+    } else {
+      // TODO(yln): I don't think this works
+      FreeSpace = (FnSize - FreeSpace) % BinSize;
+    }
+    Bins.emplace(FreeSpace, Bin);
   }
 
   return true;
