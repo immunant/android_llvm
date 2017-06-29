@@ -55,6 +55,9 @@ private:
   // Map <free space -> bin numbers>
   std::multimap<unsigned, unsigned> Bins;
   unsigned BinCount;
+
+  unsigned AssignToBin(const Function &F);
+  unsigned ComputeFunctionSize(const Function &F);
 };
 } // end anonymous namespace
 
@@ -69,8 +72,49 @@ ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
 }
 
-static unsigned ComputeFunctionSize(const Function &F, MachineModuleInfo &MMI) {
-  const MachineFunction &MF = MMI.getMachineFunction(F);
+bool PagerandoBinning::runOnModule(Module &M) {
+  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
+
+  for (auto &F : M) {
+    unsigned Bin = F.isRandPage() ? AssignToBin(F) : DefaultBin;
+    MMI.setBin(&F, Bin);
+  }
+
+  return true;
+}
+
+unsigned PagerandoBinning::AssignToBin(const Function &F) {
+  unsigned FnSize = ComputeFunctionSize(F);
+  unsigned Bin, FreeSpace;
+
+  auto I = Bins.lower_bound(FnSize);
+  if (I == Bins.end()) {  // No bin with enough free space
+    Bin = BinCount++;
+    if (FnSize % BinSize == 0) { // Function size is a multiple of bin size
+      FreeSpace = 0;
+    } else {
+      FreeSpace = BinSize - (FnSize % BinSize);
+    }
+  } else {                // Found eligible bin
+    Bin = I->second;
+    FreeSpace = I->first - FnSize;
+    Bins.erase(I);
+  }
+
+  if (FreeSpace >= MinFreeSpace) {
+    Bins.emplace(FreeSpace, Bin);
+  }
+
+  DEBUG(dbgs() << "Assigning function '" << F.getName()
+               << "' with size " << FnSize
+               << " to bin #" << Bin
+               << " with remaining free space " << FreeSpace << '\n');
+
+  return Bin;
+}
+
+unsigned PagerandoBinning::ComputeFunctionSize(const Function &F) {
+  const MachineFunction &MF = getAnalysis<MachineModuleInfo>().getMachineFunction(F);
   const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
 
   unsigned Size = 0;
@@ -78,49 +122,6 @@ static unsigned ComputeFunctionSize(const Function &F, MachineModuleInfo &MMI) {
     for (auto &MI : MBB)
       Size += TII->getInstSizeInBytes(MI);
 
-  assert(Size > 0 && "Function size is assumed to be non-zero.");
+  assert(Size > 0 && "Function size is assumed to be greater than zero.");
   return Size;
-}
-
-bool PagerandoBinning::runOnModule(Module &M) {
-  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
-
-  // Assign all functions to a bin
-  for (auto &F : M) {
-    if (!F.isRandPage()) {
-      // Put normal functions (and wrappers) into default bin
-      MMI.setBin(&F, DefaultBin);
-      continue;
-    }
-
-    unsigned FnSize = ComputeFunctionSize(F, MMI);
-    unsigned Bin, FreeSpace;
-
-    auto I = Bins.lower_bound(FnSize);
-    if (I == Bins.end()) {  // No bin with enough free space
-      Bin = BinCount++;
-      if (FnSize % BinSize == 0) { // Function size is a multiple of bin size
-        FreeSpace = 0;
-      } else {
-        FreeSpace = BinSize - (FnSize % BinSize);
-      }
-    } else {                // Found eligible bin
-      Bin = I->second;
-      FreeSpace = I->first - FnSize;
-      Bins.erase(I);
-    }
-
-    DEBUG(dbgs() << "Putting function '" << F.getName()
-                 << "' with size " << FnSize
-                 << " in bin #" << Bin
-                 << " with remaining free space " << FreeSpace << '\n');
-
-    MMI.setBin(&F, Bin);
-
-    if (FreeSpace >= MinFreeSpace) {
-      Bins.emplace(FreeSpace, Bin);
-    }
-  }
-
-  return true;
 }
