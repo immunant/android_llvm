@@ -12,12 +12,11 @@
 // (and pagerando wrappers) are put into to the default bin #0.
 // Function sizes are estimated by adding up the size of all instructions
 // inside the corresponding MachineFunction. The default bin size is 4KB.
-// Functions that are larger than the default bin size are still assigned to a
-// bin which forces the expansion of said bin.
 // The current bin allocation strategy is a greedy algorithm that, for every
 // function, picks the bin with the smallest remaining free space that still
 // accommodates the function. If such a bin does not exist, a new one is
-// created.
+// created. Functions that are larger than the default bin size are assigned to
+// a new bin which forces the expansion of said bin.
 //
 //===----------------------------------------------------------------------===//
 
@@ -50,7 +49,9 @@ public:
 
 private:
   static constexpr unsigned DefaultBin = 0;
-  static constexpr unsigned BinSize = 4096;
+  static constexpr unsigned BinSize = 4096;     // one page
+  static constexpr unsigned MinFreeSpace = 64;  // cache line (32 or 64 on ARM)
+
   // Map <free space -> bin numbers>
   std::multimap<unsigned, unsigned> Bins;
   unsigned BinCount;
@@ -111,9 +112,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
 
     MMI.setBin(&F, Bin);
 
-    if (FreeSpace > 0) {
-      // TODO(yln): 1,2,3 bytes of free space is probably not that useful either
-      // think about a MinFreeSpace constant
+    if (FreeSpace >= MinFreeSpace) {
       Bins.emplace(FreeSpace, Bin);
     }
   }
