@@ -23,10 +23,7 @@
 
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/IR/Module.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
