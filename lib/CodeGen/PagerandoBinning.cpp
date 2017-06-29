@@ -99,7 +99,11 @@ bool PagerandoBinning::runOnModule(Module &M) {
     auto I = Bins.lower_bound(FnSize);
     if (I == Bins.end()) {  // No bin with enough free space
       Bin = BinCount++;
-      FreeSpace = BinSize - (FnSize % BinSize);
+      if (FnSize % BinSize == 0) { // Function size is a multiple of bin size
+        FreeSpace = 0;
+      } else {
+        FreeSpace = BinSize - (FnSize % BinSize);
+      }
     } else {                // Found eligible bin
       Bin = I->second;
       FreeSpace = I->first - FnSize;
