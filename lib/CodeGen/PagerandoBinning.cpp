@@ -8,7 +8,16 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//
+// This pass assigns pagerando-enabled functions to bins. Normal functions
+// (and pagerando wrappers) are put into to the default bin #0.
+// Function sizes are estimated by adding up the size of all instructions
+// inside the corresponding MachineFunction. The default bin size is 4KB.
+// Functions that are larger than the default bin size are still assigned to a
+// bin which forces the expansion of said bin.
+// The current bin allocation strategy is a greedy algorithm that, for every
+// function, picks the bin with the smallest remaining free space that still
+// accommodates the function. If such a bin does not exist, a new one is
+// created.
 //
 //===----------------------------------------------------------------------===//
 
@@ -43,6 +52,7 @@ public:
   }
 
 private:
+  static constexpr unsigned DefaultBin = 0;
   static constexpr unsigned BinSize = 4096;
   // Map <free space -> bin numbers>
   std::multimap<unsigned, unsigned> Bins;
@@ -79,8 +89,8 @@ bool PagerandoBinning::runOnModule(Module &M) {
   // Assign all functions to a bin
   for (auto &F : M) {
     if (!F.isRandPage()) {
-      // Put all normal functions (and wrappers) into bin 0.
-      MMI.setBin(&F, 0);
+      // Put normal functions (and wrappers) into default bin
+      MMI.setBin(&F, DefaultBin);
       continue;
     }
 
