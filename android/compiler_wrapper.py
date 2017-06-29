@@ -55,15 +55,19 @@ def write_log(path, command, log):
 
 
 def exec_clang(redirect_path, argv):
-    command = [real_compiler_path()] + argv[1:] + ["-fno-color-diagnostics"] +\
-              DISABLED_WARNINGS
+    command = [real_compiler_path()] + argv[1:]
+
+    # We only want to pass extra flags to clang and clang++.
+    if os.path.basename(__file__) in ['clang', 'clang++']:
+        command += ["-fno-color-diagnostics"] + DISABLED_WARNINGS
     p = subprocess.Popen(command,
                          stderr=subprocess.PIPE)
     (_, err) = p.communicate()
     sys.stderr.write(err)
     if p.returncode != 0:
         write_log(redirect_path, command, err)
-        os.execv(fallback_compiler_path(), argv)
+        os.execv(fallback_compiler_path(),
+                 [fallback_compiler_path()] + argv[1:])
     return p.returncode
 
 
