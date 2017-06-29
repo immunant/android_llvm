@@ -78,6 +78,7 @@ static unsigned ComputeFunctionSize(const Function &F, MachineModuleInfo &MMI) {
     for (auto &MI : MBB)
       Size += TII->getInstSizeInBytes(MI);
 
+  assert(Size > 0 && "Function size is assumed to be non-zero.");
   return Size;
 }
 
