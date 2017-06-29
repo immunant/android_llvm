@@ -110,7 +110,12 @@ bool PagerandoBinning::runOnModule(Module &M) {
                  << " with remaining free space " << FreeSpace << '\n');
 
     MMI.setBin(&F, Bin);
-    Bins.emplace(FreeSpace, Bin);
+
+    if (FreeSpace > 0) {
+      // TODO(yln): 1,2,3 bytes of free space is probably not that useful either
+      // think about a MinFreeSpace constant
+      Bins.emplace(FreeSpace, Bin);
+    }
   }
 
   return true;
