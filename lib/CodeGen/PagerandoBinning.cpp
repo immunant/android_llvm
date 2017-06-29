@@ -45,8 +45,7 @@ public:
 private:
   static constexpr unsigned BinSize = 4096;
   // Map <free space -> bin numbers>
-  typedef std::multimap<unsigned, unsigned> BinMap;
-  BinMap Bins;
+  std::multimap<unsigned, unsigned> Bins;
   unsigned BinCount;
 };
 } // end anonymous namespace
