@@ -49,8 +49,8 @@ public:
 
 private:
   static constexpr unsigned DefaultBin = 0;
-  static constexpr unsigned BinSize = 4096;     // one page
-  static constexpr unsigned MinFreeSpace = 64;  // cache line (32 or 64 on ARM)
+  static constexpr unsigned BinSize = 4096; // one page
+  static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thump
 
   // Map <free space -> bin numbers>
   std::multimap<unsigned, unsigned> Bins;
@@ -113,7 +113,7 @@ unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
     Bins.erase(I);
   }
 
-  if (FreeSpace >= MinFreeSpace) {
+  if (FreeSpace >= MinFnSize) {
     Bins.emplace(FreeSpace, Bin);
   }
 
