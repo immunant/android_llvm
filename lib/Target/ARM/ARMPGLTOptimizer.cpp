@@ -143,6 +143,9 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
         for (int i : CPEntries) {
           if (i == CPIndex) {
             const MachineConstantPoolEntry &Entry = ConstantPool->getConstants()[i];
+            // TODO(yln): should the cast below be a dynamic_cast?
+            // If not, then ACPC should probably defined here and there is not reason
+            // UsesToReplace.emplace_back needs to be done outside the loop.
             ACPC = static_cast<const ARMConstantPoolConstant*>(Entry.Val.MachineCPVal);
             break;
           }
