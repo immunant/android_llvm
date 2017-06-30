@@ -70,11 +70,11 @@ static bool SkipFunction(const Function &F) {
 bool PGLTEntryWrappers::runOnModule(Module &M) {
   bool Changed = false;
 
-  std::vector<Function*> Functions;
+  std::vector<Function*> Worklist;
   for (auto &F : M)
-    Functions.push_back(&F);
+    Worklist.push_back(&F);
 
-  for (auto F : Functions)
+  for (auto F : Worklist)
     Changed |= ProcessFn(*F);
 
   if (Changed)
