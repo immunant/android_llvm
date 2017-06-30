@@ -56,8 +56,7 @@ private:
   std::multimap<unsigned, unsigned> Bins;
   unsigned BinCount;
 
-  unsigned AssignToBin(const Function &F);
-  unsigned ComputeFunctionSize(const Function &F);
+  unsigned AssignToBin(const Function &F, MachineModuleInfo &MMI);
 };
 } // end anonymous namespace
 
@@ -76,15 +75,28 @@ bool PagerandoBinning::runOnModule(Module &M) {
   MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
 
   for (auto &F : M) {
-    unsigned Bin = F.isRandPage() ? AssignToBin(F) : DefaultBin;
+    unsigned Bin = F.isRandPage() ? AssignToBin(F, MMI) : DefaultBin;
     MMI.setBin(&F, Bin);
   }
 
   return true;
 }
 
-unsigned PagerandoBinning::AssignToBin(const Function &F) {
-  unsigned FnSize = ComputeFunctionSize(F);
+static unsigned ComputeFunctionSize(const Function &F, MachineModuleInfo &MMI) {
+  const MachineFunction &MF = MMI.getMachineFunction(F);
+  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+
+  unsigned Size = 0;
+  for (auto &MBB : MF)
+    for (auto &MI : MBB)
+      Size += TII->getInstSizeInBytes(MI);
+
+  assert(Size > 0 && "Function size is assumed to be greater than zero.");
+  return Size;
+}
+
+unsigned PagerandoBinning::AssignToBin(const Function &F, MachineModuleInfo &MMI) {
+  unsigned FnSize = ComputeFunctionSize(F, MMI);
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -111,17 +123,4 @@ unsigned PagerandoBinning::AssignToBin(const Function &F) {
                << " with remaining free space " << FreeSpace << '\n');
 
   return Bin;
-}
-
-unsigned PagerandoBinning::ComputeFunctionSize(const Function &F) {
-  const MachineFunction &MF = getAnalysis<MachineModuleInfo>().getMachineFunction(F);
-  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
-
-  unsigned Size = 0;
-  for (auto &MBB : MF)
-    for (auto &MI : MBB)
-      Size += TII->getInstSizeInBytes(MI);
-
-  assert(Size > 0 && "Function size is assumed to be greater than zero.");
-  return Size;
 }
