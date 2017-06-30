@@ -8,16 +8,21 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//
+// This pass assigns pagerando-enabled functions to bins. Normal functions
+// (and pagerando wrappers) are put into to the default bin #0.
+// Function sizes are estimated by adding up the size of all instructions
+// inside the corresponding MachineFunction. The default bin size is 4KB.
+// The current bin allocation strategy is a greedy algorithm that, for every
+// function, picks the bin with the smallest remaining free space that still
+// accommodates the function. If such a bin does not exist, a new one is
+// created. Functions that are larger than the default bin size are assigned to
+// a new bin which forces the expansion of said bin.
 //
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/IR/Module.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
@@ -26,17 +31,6 @@ using namespace llvm;
 #define DEBUG_TYPE "pagerando"
 
 namespace {
-struct Bin {
-  unsigned Number;
-  unsigned FreeSpace;
-
-  static const unsigned BinSize;
-
-  Bin(unsigned number) : Number(number), FreeSpace(BinSize) { }
-};
-
-const unsigned Bin::BinSize = 4096;
-
 class PagerandoBinning : public ModulePass {
 public:
   static char ID;
@@ -48,16 +42,20 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<MachineModuleInfo>();
-    AU.addPreserved<MachineModuleInfo>();
     AU.setPreservesAll();
     ModulePass::getAnalysisUsage(AU);
   }
 
 private:
-  // Map from free space -> Bin
-  typedef std::multimap<unsigned, Bin> BinMap;
-  BinMap Bins;
+  static constexpr unsigned DefaultBin = 0;
+  static constexpr unsigned BinSize = 4096; // one page
+  static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thump
+
+  // Map <free space -> bin numbers>
+  std::multimap<unsigned, unsigned> Bins;
   unsigned BinCount;
+
+  unsigned AssignToBin(const MachineFunction &MF);
 };
 } // end anonymous namespace
 
@@ -72,45 +70,56 @@ ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
 }
 
-static unsigned GetFunctionSizeInBytes(const MachineFunction &MF, const TargetInstrInfo *TII) {
-  unsigned FnSize = 0;
-  for (auto &MBB : MF)
-    for (auto &MI : MBB)
-      FnSize += TII->getInstSizeInBytes(MI);
-  return FnSize;
-}
-
 bool PagerandoBinning::runOnModule(Module &M) {
   MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
 
-  // Bin all functions
   for (auto &F : M) {
-    if (!F.isRandPage()) {
-      // Put all normal functions (and wrappers) into bin 0.
-      MMI.setBin(&F, 0);
-      continue;
-    }
-
-    MachineFunction &MF = MMI.getMachineFunction(F);
-    const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
-
-    unsigned FnSize = GetFunctionSizeInBytes(MF, TII);
-
-    auto I = Bins.lower_bound(FnSize);
-    if (I == Bins.end())
-      I = Bins.emplace(Bin::BinSize, BinCount++);
-
-    // Add the function to the given bin
-    DEBUG(dbgs() << "Putting function '" << MF.getName() << "' with size " << FnSize << " in bin " << I->second.Number << " with free space " << I->second.FreeSpace << '\n');
-    MMI.setBin(&F, I->second.Number);
-    if (FnSize <= I->second.FreeSpace)
-      I->second.FreeSpace -= FnSize;
-    else
-      I->second.FreeSpace = (FnSize - I->second.FreeSpace) % Bin::BinSize;
-    Bins.insert(std::make_pair(I->second.FreeSpace, I->second));
-    Bins.erase(I);
+    const MachineFunction &MF = MMI.getMachineFunction(F);
+    unsigned Bin = F.isRandPage() ? AssignToBin(MF) : DefaultBin;
+    MMI.setBin(&F, Bin);
   }
 
   return true;
 }
 
+static unsigned ComputeFunctionSize(const MachineFunction &MF) {
+  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+
+  unsigned Size = 0;
+  for (auto &MBB : MF)
+    for (auto &MI : MBB)
+      Size += TII->getInstSizeInBytes(MI);
+
+  assert(Size > 0 && "Function size is assumed to be greater than zero.");
+  return Size;
+}
+
+unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
+  unsigned FnSize = ComputeFunctionSize(MF);
+  unsigned Bin, FreeSpace;
+
+  auto I = Bins.lower_bound(FnSize);
+  if (I == Bins.end()) {  // No bin with enough free space
+    Bin = BinCount++;
+    if (FnSize % BinSize == 0) { // Function size is a multiple of bin size
+      FreeSpace = 0;
+    } else {
+      FreeSpace = BinSize - (FnSize % BinSize);
+    }
+  } else {                // Found eligible bin
+    Bin = I->second;
+    FreeSpace = I->first - FnSize;
+    Bins.erase(I);
+  }
+
+  if (FreeSpace >= MinFnSize) {
+    Bins.emplace(FreeSpace, Bin);
+  }
+
+  DEBUG(dbgs() << "Assigning function '" << MF.getName()
+               << "' with size " << FnSize
+               << " to bin #" << Bin
+               << " with remaining free space " << FreeSpace << '\n');
+
+  return Bin;
+}
