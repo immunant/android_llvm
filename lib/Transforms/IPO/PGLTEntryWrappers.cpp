@@ -44,7 +44,7 @@ public:
   }
 
 private:
-  void ProcessFn(Function &F);
+  void ProcessFunction(Function &F);
   Function* CreateWrapper(Function &F);
   Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
@@ -73,18 +73,18 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
     if (!SkipFunction(F)) Worklist.push_back(&F);
   }
 
-  for (auto F : Worklist)
-    ProcessFn(*F);
+  for (auto F : Worklist) {
+    ProcessFunction(*F);
+  }
 
-  if (!Worklist.empty())
+  if (!Worklist.empty()) {
     CreatePGLT(M);
-
-  // DEBUG(M.dump());
+  }
 
   return !Worklist.empty();
 }
 
-void PGLTEntryWrappers::ProcessFn(Function &F) {
+void PGLTEntryWrappers::ProcessFunction(Function &F) {
   F.addFnAttr(Attribute::RandPage);
 
   std::vector<Use *> AddressUses;
