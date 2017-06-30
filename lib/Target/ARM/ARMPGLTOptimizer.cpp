@@ -32,6 +32,7 @@ class ARMPGLTOpt : public MachineFunctionPass {
 public:
   static char ID;
   explicit ARMPGLTOpt() : MachineFunctionPass(ID) {}
+  // TODO(yln): why not self-registering
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
@@ -113,6 +114,22 @@ bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
   return true;
 }
 
+static bool IsIndirectCall(unsigned Opc) {
+  return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
+}
+
+static unsigned NormalizeCallOpcode(unsigned Opc) {
+  switch (Opc) {
+  case ARM::TCRETURNri: return ARM::TCRETURNdi;
+  case ARM::BLX:        return ARM::BL;
+  case ARM::tBLXr:      return ARM::tBL;
+  case ARM::BX_CALL:    return Opc;
+  case ARM::tBX_CALL:   return Opc;
+  default:
+    llvm_unreachable("Unhandled ARM call opcode.");
+  }
+}
+
 void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
   MachineRegisterInfo &MRI = MF->getRegInfo();
 
@@ -148,27 +165,7 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
       MachineInstr *User = InstrQueue.back();
       InstrQueue.pop_back();
       if (User->isCall()) {
-        unsigned CallOpc = User->getOpcode();
-        bool isIndirect = false;
-        switch (User->getOpcode()) {
-        case ARM::TCRETURNri:
-          CallOpc = ARM::TCRETURNdi;
-          break;
-        case ARM::BLX:
-          CallOpc = ARM::BL;
-          break;
-        case ARM::tBLXr:
-          CallOpc = ARM::tBL;
-          break;
-        case ARM::BX_CALL:
-        case ARM::tBX_CALL:
-          isIndirect = true;
-          break;
-        default:
-          llvm_unreachable("Unhandled ARM call opcode.");
-        }
-
-        if (isIndirect) {
+        if (IsIndirectCall(User->getOpcode())) {
           // Replace indirect register operand with more efficient local
           // PC-relative access
 
@@ -208,6 +205,7 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
           // Replace register operand
           User->getOperand(0).setReg(DestReg);
         } else {
+          unsigned CallOpc = NormalizeCallOpcode(User->getOpcode());
           MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
                                             User->getDebugLoc(), TII->get(CallOpc));
           int OpNum = 1;
