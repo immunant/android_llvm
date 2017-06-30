@@ -1,4 +1,4 @@
-//===-- PGLTEntryWrappers.cpp: PGLT base address entry wrapper pass -------===//
+//===-- PGLTEntryWrappers.cpp - PGLT base address entry wrapper pass ------===//
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
