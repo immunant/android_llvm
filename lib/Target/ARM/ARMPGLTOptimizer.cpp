@@ -164,7 +164,13 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
     while (!InstrQueue.empty()) {
       MachineInstr *User = InstrQueue.back();
       InstrQueue.pop_back();
-      if (User->isCall()) {
+      if (!User->isCall()) {
+        for (auto Op : User->defs()) {
+          for (auto &User : MRI.use_instructions(Op.getReg()))
+            InstrQueue.push_back(&User);
+        }
+        User->eraseFromParent();
+      } else {
         if (IsIndirectCall(User->getOpcode())) {
           // Replace indirect register operand with more efficient local
           // PC-relative access
@@ -218,12 +224,6 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
             MIB.add(User->getOperand(OpNum));
           User->eraseFromParent();
         }
-      } else {
-        for (auto Op : User->defs()) {
-          for (auto &User : MRI.use_instructions(Op.getReg()))
-            InstrQueue.push_back(&User);
-        }
-        User->eraseFromParent();
       }
     }
   }
