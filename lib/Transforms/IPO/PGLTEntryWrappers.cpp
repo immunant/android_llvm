@@ -71,8 +71,9 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   bool Changed = false;
 
   std::vector<Function*> Worklist;
-  for (auto &F : M)
-    Worklist.push_back(&F);
+  for (auto &F : M) {
+    if (!SkipFunction(F)) Worklist.push_back(&F);
+  }
 
   for (auto F : Worklist)
     Changed |= ProcessFn(*F);
@@ -86,9 +87,6 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 }
 
 bool PGLTEntryWrappers::ProcessFn(Function &F) {
-  if (SkipFunction(F))
-    return false;
-
   F.addFnAttr(Attribute::RandPage);
 
   std::vector<Use *> AddressUses;
