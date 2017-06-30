@@ -60,6 +60,13 @@ ModulePass *llvm::createPGLTEntryWrappersPass() {
   return new PGLTEntryWrappers();
 }
 
+static bool SkipFunction(const Function &F) {
+  return F.isDeclaration()
+      || F.hasAvailableExternallyLinkage()
+      || F.hasComdat()  // TODO: Support COMDAT
+      || isa<UnreachableInst>(F.getEntryBlock().getTerminator()); // TODO(yln) does not return?
+}
+
 bool PGLTEntryWrappers::runOnModule(Module &M) {
   bool Changed = false;
 
@@ -79,11 +86,7 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 }
 
 bool PGLTEntryWrappers::ProcessFn(Function &F) {
-  if (F.isDeclaration() || F.hasAvailableExternallyLinkage() ||
-      F.hasComdat()) // TODO: Support COMDAT
-    return false;
-
-  if (isa<UnreachableInst>(F.getEntryBlock().getTerminator()))
+  if (SkipFunction(F))
     return false;
 
   F.addFnAttr(Attribute::RandPage);
