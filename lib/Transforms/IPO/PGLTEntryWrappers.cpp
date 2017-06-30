@@ -39,6 +39,8 @@ public:
   StringRef getPassName() const override { return "PGLT Base Address entry point wrapper pass"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
+    // Requires nothing, preserves nothing
+    ModulePass::getAnalysisUsage(AU);
   }
 
 private:
