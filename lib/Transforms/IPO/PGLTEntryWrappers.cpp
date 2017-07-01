@@ -84,9 +84,7 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   return !Worklist.empty();
 }
 
-void PGLTEntryWrappers::ProcessFunction(Function &F) {
-  F.addFnAttr(Attribute::RandPage);
-
+static std::vector<Use*> CollectAddressUses(Function &F) {
   std::vector<Use *> AddressUses;
   SmallSet<User*, 5> Users;
   for (Use &U : F.uses()) {
@@ -139,6 +137,13 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
     AddressUses.push_back(&U);
     Users.insert(FU);
   }
+  return AddressUses;
+}
+
+void PGLTEntryWrappers::ProcessFunction(Function &F) {
+  F.addFnAttr(Attribute::RandPage);
+
+  std::vector<Use*> AddressUses = CollectAddressUses(F);
 
   std::sort(AddressUses.begin(), AddressUses.end());
   std::unique(AddressUses.begin(), AddressUses.end());
