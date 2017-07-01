@@ -32,6 +32,7 @@ class ARMPGLTOpt : public MachineFunctionPass {
 public:
   static char ID;
   explicit ARMPGLTOpt() : MachineFunctionPass(ID) {}
+  // TODO(yln): why not self-registering
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
@@ -113,6 +114,22 @@ bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
   return true;
 }
 
+static bool IsIndirectCall(unsigned Opc) {
+  return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
+}
+
+static unsigned NormalizeCallOpcode(unsigned Opc) {
+  switch (Opc) {
+  case ARM::TCRETURNri: return ARM::TCRETURNdi;
+  case ARM::BLX:        return ARM::BL;
+  case ARM::tBLXr:      return ARM::tBL;
+  case ARM::BX_CALL:    return Opc;
+  case ARM::tBX_CALL:   return Opc;
+  default:
+    llvm_unreachable("Unhandled ARM call opcode.");
+  }
+}
+
 void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
   MachineRegisterInfo &MRI = MF->getRegInfo();
 
@@ -126,6 +143,9 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
         for (int i : CPEntries) {
           if (i == CPIndex) {
             const MachineConstantPoolEntry &Entry = ConstantPool->getConstants()[i];
+            // TODO(yln): should the cast below be a dynamic_cast?
+            // If not, then ACPC should probably defined here and there is not reason
+            // UsesToReplace.emplace_back needs to be done outside the loop.
             ACPC = static_cast<const ARMConstantPoolConstant*>(Entry.Val.MachineCPVal);
             break;
           }
@@ -147,84 +167,67 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
     while (!InstrQueue.empty()) {
       MachineInstr *User = InstrQueue.back();
       InstrQueue.pop_back();
-      if (User->isCall()) {
-        unsigned CallOpc = User->getOpcode();
-        bool isIndirect = false;
-        switch (User->getOpcode()) {
-        case ARM::TCRETURNri:
-          CallOpc = ARM::TCRETURNdi;
-          break;
-        case ARM::BLX:
-          CallOpc = ARM::BL;
-          break;
-        case ARM::tBLXr:
-          CallOpc = ARM::tBL;
-          break;
-        case ARM::BX_CALL:
-        case ARM::tBX_CALL:
-          isIndirect = true;
-          break;
-        default:
-          llvm_unreachable("Unhandled ARM call opcode.");
-        }
 
-        if (isIndirect) {
-          // Replace indirect register operand with more efficient local
-          // PC-relative access
-
-          // Note that GV can't be GOT_PREL because it is in the same
-          // (anonymous) bin
-          LLVMContext *Context = &MF->getFunction()->getContext();
-          unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
-          unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
-          ARMConstantPoolConstant *CPV = ARMConstantPoolConstant::Create(
-              GV, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
-              ARMCP::no_modifier, false);
-
-          unsigned ConstAlign =
-            MF->getDataLayout().getPrefTypeAlignment(Type::getInt32PtrTy(*Context));
-          unsigned Idx = MF->getConstantPool()->getConstantPoolIndex(CPV, ConstAlign);
-
-          unsigned TempReg = MF->getRegInfo().createVirtualRegister(&ARM::rGPRRegClass);
-          unsigned Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
-          MachineInstrBuilder MIB =
-            BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), TempReg)
-            .addConstantPoolIndex(Idx);
-          if (Opc == ARM::LDRcp)
-            MIB.addImm(0);
-          MIB.add(predOps(ARMCC::AL));
-
-          // Fix the address by adding pc.
-          // FIXME: this is ugly
-          unsigned DestReg = MRI.createVirtualRegister(
-              TLI->getRegClassFor(TLI->getPointerTy(MF->getDataLayout())));
-          Opc = Subtarget->isThumb() ? ARM::tPICADD : ARM::PICADD;
-          MIB = BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), DestReg)
-            .addReg(TempReg)
-            .addImm(ARMPCLabelIndex);
-          if (!Subtarget->isThumb())
-            MIB.add(predOps(ARMCC::AL));
-
-          // Replace register operand
-          User->getOperand(0).setReg(DestReg);
-        } else {
-          MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
-                                            User->getDebugLoc(), TII->get(CallOpc));
-          int OpNum = 1;
-          if (CallOpc == ARM::tBL) {
-            MIB.add(predOps(ARMCC::AL));
-            OpNum += 2;
-          }
-          MIB.addGlobalAddress(GV, 0, 0);
-          for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
-            MIB.add(User->getOperand(OpNum));
-          User->eraseFromParent();
-        }
-      } else {
+      if (!User->isCall()) {
         for (auto Op : User->defs()) {
           for (auto &User : MRI.use_instructions(Op.getReg()))
             InstrQueue.push_back(&User);
         }
+        User->eraseFromParent();
+        continue;
+      }
+
+      if (IsIndirectCall(User->getOpcode())) {
+        // Replace indirect register operand with more efficient local
+        // PC-relative access
+
+        // Note that GV can't be GOT_PREL because it is in the same
+        // (anonymous) bin
+        LLVMContext *Context = &MF->getFunction()->getContext();
+        unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
+        unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
+        ARMConstantPoolConstant *CPV = ARMConstantPoolConstant::Create(
+            GV, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
+            ARMCP::no_modifier, false);
+
+        unsigned ConstAlign =
+          MF->getDataLayout().getPrefTypeAlignment(Type::getInt32PtrTy(*Context));
+        unsigned Idx = MF->getConstantPool()->getConstantPoolIndex(CPV, ConstAlign);
+
+        unsigned TempReg = MF->getRegInfo().createVirtualRegister(&ARM::rGPRRegClass);
+        unsigned Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
+        MachineInstrBuilder MIB =
+          BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), TempReg)
+          .addConstantPoolIndex(Idx);
+        if (Opc == ARM::LDRcp)
+          MIB.addImm(0);
+        MIB.add(predOps(ARMCC::AL));
+
+        // Fix the address by adding pc.
+        // FIXME: this is ugly
+        unsigned DestReg = MRI.createVirtualRegister(
+            TLI->getRegClassFor(TLI->getPointerTy(MF->getDataLayout())));
+        Opc = Subtarget->isThumb() ? ARM::tPICADD : ARM::PICADD;
+        MIB = BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), DestReg)
+          .addReg(TempReg)
+          .addImm(ARMPCLabelIndex);
+        if (!Subtarget->isThumb())
+          MIB.add(predOps(ARMCC::AL));
+
+        // Replace register operand
+        User->getOperand(0).setReg(DestReg);
+      } else {
+        unsigned CallOpc = NormalizeCallOpcode(User->getOpcode());
+        MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
+                                          User->getDebugLoc(), TII->get(CallOpc));
+        int OpNum = 1;
+        if (CallOpc == ARM::tBL) {
+          MIB.add(predOps(ARMCC::AL));
+          OpNum += 2;
+        }
+        MIB.addGlobalAddress(GV, 0, 0);
+        for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
+          MIB.add(User->getOperand(OpNum));
         User->eraseFromParent();
       }
     }
