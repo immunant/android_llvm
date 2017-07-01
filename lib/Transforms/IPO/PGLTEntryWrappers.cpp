@@ -153,7 +153,16 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
   std::sort(AddressUses.begin(), AddressUses.end());
   std::unique(AddressUses.begin(), AddressUses.end());
 
-  if (!AddressUses.empty() || !F.hasLocalLinkage()) {
+  bool SkipWrapper = AddressUses.empty() && F.hasLocalLinkage();
+  if (SkipWrapper) {
+    // No wrapper, but ensure that the function doesn't have an explicit section
+    if (F.hasSection()) {
+      F.setSection("");
+    }
+    return;
+  }
+
+  if (!SkipWrapper) {
     Function* WrapperFn = CreateWrapper(F);
 
     if (WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg()) {
@@ -174,12 +183,6 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
           U->set(WrapperFn);
         }
       }
-    }
-  } else {
-    // Even if we don't need a wrapper, we still need to ensure that the
-    // function doesn't have an explicit section.
-    if (F.hasSection()) {
-      F.setSection("");
     }
   }
 }
