@@ -168,20 +168,18 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
   std::sort(AddressUses.begin(), AddressUses.end());
   std::unique(AddressUses.begin(), AddressUses.end());
 
-  bool SkipWrapper = AddressUses.empty() && F.hasLocalLinkage();
-  if (SkipWrapper) {
+  bool RequiresWrapper = !AddressUses.empty() || !F.hasLocalLinkage();
+  if (RequiresWrapper) {
+    Function *WrapperFn = CreateWrapper(F);
+    bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg(); // TODO(yln): why investigate properties of wrapper function instead of original function?
+    if (ReplaceAddressUses) {
+      for (auto U : AddressUses) {
+        ReplaceAddressTakenUse(U, &F, WrapperFn);
+      }
+    }
+  } else { // No wrapper
     if (F.hasSection()) {
       F.setSection(""); // Ensure function doesn't have an explicit section
-    }
-    return;
-  }
-
-  Function* WrapperFn = CreateWrapper(F);
-
-  bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg();
-  if (ReplaceAddressUses) {
-    for (auto U : AddressUses) {
-      ReplaceAddressTakenUse(U, &F, WrapperFn);
     }
   }
 }
