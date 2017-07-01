@@ -87,6 +87,9 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 static std::vector<Use*> CollectAddressUses(Function &F) {
   std::vector<Use *> AddressUses;
   SmallSet<User*, 5> Users;
+
+  // TODO(yln): my understanding: look at all uses, try to find a reason to
+  // ignore them... if no reason is found, add them to worklist
   for (Use &U : F.uses()) {
     User *FU = U.getUser();
     if (isa<BlockAddress>(FU)) {
@@ -114,7 +117,7 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
               if (CS.isCallee(&CEU)) {
                 continue;
               }
-            }
+            } // TODO(yln): CallInst and GlobalAlias mutually exclusive?
             if (isa<GlobalAlias>(ParentUs))
               continue;
           }
@@ -126,7 +129,7 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
         if (UserFn->getPersonalityFn() == &F)
           continue;
       }
-    }
+    } // TODO(yln): should be 'else if' since Constant and CallInst/InvokeInst are mutually exclusive?
 
     if (isa<CallInst>(FU) || isa<InvokeInst>(FU)) {
       ImmutableCallSite CS(cast<Instruction>(FU));
@@ -134,6 +137,7 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
         continue;
     }
 
+    // TODO(yln): Main part of loop, actually collects uses?!
     AddressUses.push_back(&U);
     Users.insert(FU);
   }
@@ -145,6 +149,7 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
 
   std::vector<Use*> AddressUses = CollectAddressUses(F);
 
+  // TODO(yln): why sort + unique instead of set?
   std::sort(AddressUses.begin(), AddressUses.end());
   std::unique(AddressUses.begin(), AddressUses.end());
 
