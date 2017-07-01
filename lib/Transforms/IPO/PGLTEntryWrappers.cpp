@@ -144,6 +144,21 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
   return AddressUses;
 }
 
+void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn) {
+  if (!U->get()) return; // Already replaced this use?
+
+  if (auto GA = dyn_cast<GlobalAlias>(U->getUser())) {
+    GA->setAliasee(WrapperFn);
+  } else if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
+    assert(GV->getInitializer() == F);
+    GV->setInitializer(WrapperFn);
+  } else if (auto C = dyn_cast<Constant>(U->getUser())) {
+    C->handleOperandChange(F, WrapperFn);
+  } else {
+    U->set(WrapperFn);
+  }
+}
+
 void PGLTEntryWrappers::ProcessFunction(Function &F) {
   F.addFnAttr(Attribute::RandPage);
 
@@ -155,32 +170,18 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
 
   bool SkipWrapper = AddressUses.empty() && F.hasLocalLinkage();
   if (SkipWrapper) {
-    // No wrapper, but ensure that the function doesn't have an explicit section
     if (F.hasSection()) {
-      F.setSection("");
+      F.setSection(""); // Ensure function doesn't have an explicit section
     }
     return;
   }
 
   Function* WrapperFn = CreateWrapper(F);
 
-  if (WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg()) {
-    // Any address-taken uses may escape the module, so we need to replace them
-    // with the wrapper.
+  bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg();
+  if (ReplaceAddressUses) {
     for (auto U : AddressUses) {
-      // Have we replaced this use?
-      if (!U->get()) continue;
-
-      if (auto GA = dyn_cast<GlobalAlias>(U->getUser())) {
-        GA->setAliasee(WrapperFn);
-      } else if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
-        assert(GV->getInitializer() == &F);
-        GV->setInitializer(WrapperFn);
-      } else if (Constant *C = dyn_cast<Constant>(U->getUser())) {
-        C->handleOperandChange(&F, WrapperFn);
-      } else {
-        U->set(WrapperFn);
-      }
+      ReplaceAddressTakenUse(U, &F, WrapperFn);
     }
   }
 }
