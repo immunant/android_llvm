@@ -162,26 +162,24 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
     return;
   }
 
-  if (!SkipWrapper) {
-    Function* WrapperFn = CreateWrapper(F);
+  Function* WrapperFn = CreateWrapper(F);
 
-    if (WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg()) {
-      // Any address-taken uses may escape the module, so we need to replace them
-      // with the wrapper.
-      for (auto U : AddressUses) {
-        // Have we replaced this use?
-        if (!U->get()) continue;
+  if (WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg()) {
+    // Any address-taken uses may escape the module, so we need to replace them
+    // with the wrapper.
+    for (auto U : AddressUses) {
+      // Have we replaced this use?
+      if (!U->get()) continue;
 
-        if (auto GA = dyn_cast<GlobalAlias>(U->getUser())) {
-          GA->setAliasee(WrapperFn);
-        } else if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
-          assert(GV->getInitializer() == &F);
-          GV->setInitializer(WrapperFn);
-        } else if (Constant *C = dyn_cast<Constant>(U->getUser())) {
-          C->handleOperandChange(&F, WrapperFn);
-        } else {
-          U->set(WrapperFn);
-        }
+      if (auto GA = dyn_cast<GlobalAlias>(U->getUser())) {
+        GA->setAliasee(WrapperFn);
+      } else if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
+        assert(GV->getInitializer() == &F);
+        GV->setInitializer(WrapperFn);
+      } else if (Constant *C = dyn_cast<Constant>(U->getUser())) {
+        C->handleOperandChange(&F, WrapperFn);
+      } else {
+        U->set(WrapperFn);
       }
     }
   }
