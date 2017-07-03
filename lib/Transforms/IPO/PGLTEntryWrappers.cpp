@@ -228,10 +228,8 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
     std::string OldName = F.getName();
     WrapperFn->takeName(&F);
     F.replaceAllUsesWith(WrapperFn);
-    if (F.isVarArg())
-      F.setName(OldName + kOrigVAFnSuffix);
-    else
-      F.setName(OldName + kOrigFnSuffix);
+    auto Suffix = F.isVarArg() ? kOrigVAFnSuffix : kOrigFnSuffix;
+    F.setName(OldName + Suffix);
 
     if (!F.hasLocalLinkage())
       F.setVisibility(GlobalValue::HiddenVisibility);
