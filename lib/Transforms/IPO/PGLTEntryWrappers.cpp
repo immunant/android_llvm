@@ -23,9 +23,6 @@ using namespace llvm;
 
 #define DEBUG_TYPE "pglt"
 
-static const char *const kOrigFnSuffix = "$$orig";
-static const char *const kOrigVAFnSuffix = "$$origva";
-
 namespace {
 class PGLTEntryWrappers : public ModulePass {
 public:
@@ -44,6 +41,9 @@ public:
   }
 
 private:
+  static constexpr const char *kOrigFnSuffix = "$$orig";
+  static constexpr const char *kOrigVAFnSuffix = "$$origva";
+
   void ProcessFunction(Function &F);
   Function* CreateWrapper(Function &F);
   Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList);
