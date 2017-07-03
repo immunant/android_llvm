@@ -144,9 +144,7 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
 void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn) {
   if (!U->get()) return; // Already replaced this use?
 
-  if (auto GA = dyn_cast<GlobalAlias>(U->getUser())) {
-    GA->setAliasee(WrapperFn);
-  } else if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
+  if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
     assert(GV->getInitializer() == F);
     GV->setInitializer(WrapperFn);
   } else if (auto C = dyn_cast<Constant>(U->getUser())) {
