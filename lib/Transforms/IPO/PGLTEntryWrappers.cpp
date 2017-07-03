@@ -83,6 +83,12 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   return !Worklist.empty();
 }
 
+static bool SkipAddressUse(const Use &U) {
+  const User *FU = U.getUser();
+  return false;
+}
+
+// TODO(yln): function maybe const?
 static std::vector<Use*> CollectAddressUses(Function &F) {
   std::vector<Use *> AddressUses;
   SmallSet<User*, 8> Users;
@@ -90,6 +96,9 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
   // TODO(yln): my understanding: look at all uses, try to find a reason to
   // ignore them... if no reason is found, add them to worklist
   for (Use &U : F.uses()) {
+    if (SkipAddressUse(U)) {
+      continue;
+    }
     User *FU = U.getUser();
     if (isa<BlockAddress>(FU)) {
       // This is handled in AsmPrinter::EmitBasicBlockStart
