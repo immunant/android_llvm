@@ -172,13 +172,9 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
         ReplaceAddressTakenUse(U, &F, WrapperFn);
       }
     }
-  } else { // No wrapper
-    if (F.hasSection()) {
-      F.setSection(""); // Ensure function doesn't have an explicit section
-    }
   }
 
-  // TODO(yln): F should never be in a special section
+  F.setSection(""); // Ensure function does not have an explicit section
 }
 
 Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
@@ -213,7 +209,6 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
 
   if (F.hasSection()) {
     WrapperFn->setSection(F.getSection());
-    F.setSection(""); // TODO(yln): same as in the no-wrapper else branch above
   }
 
   // We can't put the wrapper function in an explicitely named section becuase
