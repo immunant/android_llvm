@@ -64,7 +64,9 @@ static bool SkipFunction(const Function &F) {
   return F.isDeclaration()
       || F.hasAvailableExternallyLinkage()
       || F.hasComdat()  // TODO: Support COMDAT
-      || isa<UnreachableInst>(F.getEntryBlock().getTerminator()); // TODO(yln): this is needed, not the same as F.doesNotReturn, add comment
+      || isa<UnreachableInst>(F.getEntryBlock().getTerminator());
+      // Above condition is different from F.doesNotReturn(), which we do not
+      // include (at least for now).
 }
 
 bool PGLTEntryWrappers::runOnModule(Module &M) {
