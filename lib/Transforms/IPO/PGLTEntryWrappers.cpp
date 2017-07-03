@@ -85,8 +85,12 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 
 static bool SkipAddressUse(const Use &U) {
   const User *FU = U.getUser();
-  return isa<GlobalAlias>(FU)   // No need to indirect
-      || isa<BlockAddress>(FU); // Handled in AsmPrinter::EmitBasicBlockStart
+  ImmutableCallSite CS(U.getUser());
+
+  return (CS && CS.isCallee(&U))  // Used as the callee
+      || isa<GlobalAlias>(FU)     // No need to indirect
+      || isa<BlockAddress>(FU)    // Handled in AsmPrinter::EmitBasicBlockStart
+      ;
 }
 
 // TODO(yln): function maybe const?
@@ -94,8 +98,6 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
   std::vector<Use *> AddressUses;
   SmallSet<User*, 8> Users;
 
-  // TODO(yln): my understanding: look at all uses, try to find a reason to
-  // ignore them... if no reason is found, add them to worklist
   for (Use &U : F.uses()) {
     if (SkipAddressUse(U)) {
       continue;
@@ -134,13 +136,6 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
           continue;
       }
       // return true; // TODO(yln)
-    }
-
-    if (isa<CallInst>(FU) || isa<InvokeInst>(FU)) {
-      ImmutableCallSite CS(cast<Instruction>(FU));
-      if (CS.isCallee(&U))
-        continue;
-      //return true;
     }
 
     // TODO(yln): Main part of loop, actually collects uses?!
