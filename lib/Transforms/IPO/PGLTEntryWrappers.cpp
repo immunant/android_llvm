@@ -38,9 +38,9 @@ public:
   }
 
 private:
-  static constexpr const char *kOrigFnSuffix = "$$orig";
-  static constexpr const char *kOrigVAFnSuffix = "$$origva";
-  static constexpr const char *kWrapperFnSuffix = "_$wrap";
+  static constexpr const char *OrigSuffix = "$$orig";
+  static constexpr const char *OrigVASuffix = "$$origva";
+  static constexpr const char *WrapperSuffix = "_$wrap";  // TODO(yln): different format
 
   void ProcessFunction(Function &F);
   Function* CreateWrapper(Function &F);
@@ -181,7 +181,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
 
-  Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + kWrapperFnSuffix, M);
+  Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + WrapperSuffix, M);
   BasicBlock *BB = BasicBlock::Create(F.getContext(), "", WrapperFn);
 
   WrapperFn->setCallingConv(F.getCallingConv());
@@ -215,7 +215,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
     std::string OldName = F.getName();
     WrapperFn->takeName(&F);
     F.replaceAllUsesWith(WrapperFn);
-    auto Suffix = F.isVarArg() ? kOrigVAFnSuffix : kOrigFnSuffix;
+    auto Suffix = F.isVarArg() ? OrigVASuffix : OrigSuffix;
     F.setName(OldName + Suffix);
 
     if (!F.hasLocalLinkage())
