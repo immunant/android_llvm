@@ -40,6 +40,7 @@ public:
 private:
   static constexpr const char *kOrigFnSuffix = "$$orig";
   static constexpr const char *kOrigVAFnSuffix = "$$origva";
+  static constexpr const char *kWrapperFnSuffix = "_$wrap";
 
   void ProcessFunction(Function &F);
   Function* CreateWrapper(Function &F);
@@ -180,7 +181,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
 
-  Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + "_$wrap", M);
+  Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + kWrapperFnSuffix, M);
   BasicBlock *BB = BasicBlock::Create(F.getContext(), "", WrapperFn);
 
   WrapperFn->setCallingConv(F.getCallingConv());
