@@ -203,13 +203,8 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   // TODO: Verify the above. This should not be the case unless functions are not
   // WrapperFn->setSection("");
 
-  if (F.hasComdat()) {
-    WrapperFn->setComdat(F.getComdat());
-  }
-
-  if (F.hasSection()) {
-    WrapperFn->setSection(F.getSection());
-  }
+  WrapperFn->setComdat(F.getComdat());
+  WrapperFn->setSection(F.getSection());
 
   // We can't put the wrapper function in an explicitely named section becuase
   // it then does not get a per-function section, which we need to properly
