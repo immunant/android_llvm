@@ -85,7 +85,8 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 
 static bool SkipAddressUse(const Use &U) {
   const User *FU = U.getUser();
-  return false;
+  return isa<GlobalAlias>(FU)   // No need to indirect
+      || isa<BlockAddress>(FU); // Handled in AsmPrinter::EmitBasicBlockStart
 }
 
 // TODO(yln): function maybe const?
@@ -100,14 +101,6 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
       continue;
     }
     User *FU = U.getUser();
-    if (isa<BlockAddress>(FU)) {
-      // This is handled in AsmPrinter::EmitBasicBlockStart
-      continue;
-    }
-    if (isa<GlobalAlias>(FU)) {
-      // These do not need to be indirected
-      continue;
-    }
     if (isa<Constant>(FU)) {
       if (Users.count(FU) == 1) // Later when we replace uses, we do not want to deal with multiple constant uses.
         continue; // we will replace all uses in this user at once
