@@ -155,8 +155,6 @@ void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn) {
 }
 
 void PGLTEntryWrappers::ProcessFunction(Function &F) {
-  F.addFnAttr(Attribute::RandPage);
-
   std::vector<Use*> AddressUses = CollectAddressUses(F);
 
   // TODO(yln): faster than sorted set
@@ -175,6 +173,7 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
   }
 
   F.setSection(""); // Ensure function does not have an explicit section
+  F.addFnAttr(Attribute::RandPage);
 }
 
 Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
@@ -192,7 +191,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
 
   // TODO: SJC can we place wrappers on randomly located pages? I don't see why
   // not, but this is safer for now
-  WrapperFn->removeFnAttr(Attribute::RandPage); // TODO(yln): add attribute after calling CreateWrapper? Even if wrappers should have RandPage later, I think being more explicit and adding it twice is better than adding it to the original function before cloning
+  // F.addFnAttr(Attribute::RandPage);
   WrapperFn->addFnAttr(Attribute::RandWrapper);
 
   // Ensure that the wrapper is not placed in an explicitly named section. If it
