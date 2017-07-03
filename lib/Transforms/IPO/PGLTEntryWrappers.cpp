@@ -64,7 +64,7 @@ static bool SkipFunction(const Function &F) {
   return F.isDeclaration()
       || F.hasAvailableExternallyLinkage()
       || F.hasComdat()  // TODO: Support COMDAT
-      || isa<UnreachableInst>(F.getEntryBlock().getTerminator()); // TODO(yln) does not return?
+      || isa<UnreachableInst>(F.getEntryBlock().getTerminator()); // TODO(yln): this is needed, not the same as F.doesNotReturn, add comment
 }
 
 bool PGLTEntryWrappers::runOnModule(Module &M) {
@@ -86,7 +86,7 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 
 static std::vector<Use*> CollectAddressUses(Function &F) {
   std::vector<Use *> AddressUses;
-  SmallSet<User*, 5> Users;
+  SmallSet<User*, 8> Users;
 
   // TODO(yln): my understanding: look at all uses, try to find a reason to
   // ignore them... if no reason is found, add them to worklist
@@ -101,7 +101,7 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
       continue;
     }
     if (isa<Constant>(FU)) {
-      if (Users.count(FU) == 1)
+      if (Users.count(FU) == 1) // Later when we replace uses, we do not want to deal with multiple constant uses.
         continue; // we will replace all uses in this user at once
 
       // Don't replace calls to bitcasts of function symbols, since they get
@@ -110,15 +110,18 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
         if (CE->getOpcode() == Instruction::BitCast) {
           // This bitcast must have exactly one user.
           if (CE->user_begin() != CE->user_end()) {
-            User *ParentUs = *CE->user_begin();
-            if (CallInst *CI = dyn_cast<CallInst>(ParentUs)) {
-              CallSite CS(CI);
+            User *ParentUse = *CE->user_begin();
+            if (CallInst *CI = dyn_cast<CallInst>(ParentUse)) {
+              // TODO(yln): ImmutableCallSite
+              CallSite CS(CI); // TODO(yln): also handle InvokeInst, create callsite with ParentUse, ask if valid CS
+              // TODO(yln): add test with InvokeInst, confirm it points to wrapper, then make sure it gets optimized
+//              if (CS)
               Use &CEU = *CE->use_begin();
               if (CS.isCallee(&CEU)) {
                 continue;
               }
-            } // TODO(yln): CallInst and GlobalAlias mutually exclusive?
-            if (isa<GlobalAlias>(ParentUs))
+            }
+            if (isa<GlobalAlias>(ParentUse))
               continue;
           }
         }
@@ -129,12 +132,14 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
         if (UserFn->getPersonalityFn() == &F)
           continue;
       }
-    } // TODO(yln): should be 'else if' since Constant and CallInst/InvokeInst are mutually exclusive?
+      // return true; // TODO(yln)
+    }
 
     if (isa<CallInst>(FU) || isa<InvokeInst>(FU)) {
       ImmutableCallSite CS(cast<Instruction>(FU));
       if (CS.isCallee(&U))
         continue;
+      //return true;
     }
 
     // TODO(yln): Main part of loop, actually collects uses?!
@@ -164,14 +169,14 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
 
   std::vector<Use*> AddressUses = CollectAddressUses(F);
 
-  // TODO(yln): why sort + unique instead of set?
+  // TODO(yln): faster than sorted set
   std::sort(AddressUses.begin(), AddressUses.end());
   std::unique(AddressUses.begin(), AddressUses.end());
 
   bool RequiresWrapper = !AddressUses.empty() || !F.hasLocalLinkage();
   if (RequiresWrapper) {
     Function *WrapperFn = CreateWrapper(F);
-    bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg(); // TODO(yln): why investigate properties of wrapper function instead of original function?
+    bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg(); // TODO(yln): Move up, investigate F
     if (ReplaceAddressUses) {
       for (auto U : AddressUses) {
         ReplaceAddressTakenUse(U, &F, WrapperFn);
@@ -182,6 +187,8 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
       F.setSection(""); // Ensure function doesn't have an explicit section
     }
   }
+
+  // TODO(yln): F should never be in a special section
 }
 
 Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
@@ -199,7 +206,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
 
   // TODO: SJC can we place wrappers on randomly located pages? I don't see why
   // not, but this is safer for now
-  WrapperFn->removeFnAttr(Attribute::RandPage);
+  WrapperFn->removeFnAttr(Attribute::RandPage); // TODO(yln): add attribute after calling CreateWrapper? Even if wrappers should have RandPage later, I think being more explicit and adding it twice is better than adding it to the original function before cloning
   WrapperFn->addFnAttr(Attribute::RandWrapper);
 
   // Ensure that the wrapper is not placed in an explicitly named section. If it
@@ -216,7 +223,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
 
   if (F.hasSection()) {
     WrapperFn->setSection(F.getSection());
-    F.setSection("");
+    F.setSection(""); // TODO(yln): same as in the no-wrapper else branch above
   }
 
   // We can't put the wrapper function in an explicitely named section becuase
@@ -258,11 +265,9 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   SmallVector<Value *, 16> Args;
   Args.reserve(FFTy->getNumParams());
 
-  unsigned i = 0;
   for (Function::arg_iterator AI = WrapperFn->arg_begin(), AE = WrapperFn->arg_end();
        AI != AE; ++AI) {
     Args.push_back(AI);
-    ++i;
   }
 
   if (VAList)
@@ -288,7 +293,7 @@ static Instruction* findAlloca(Instruction* Use) {
   while (Alloca && !isa<AllocaInst>(Alloca)) {
     Alloca = dyn_cast<Instruction>(Alloca->op_begin());
   }
-  assert(Alloca && "Could not find va_list allloc in a var args functions");
+  assert(Alloca && "Could not find va_list alloc in a var args functions");
   return Alloca;
 }
 
