@@ -84,12 +84,14 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 }
 
 static bool SkipAddressUse(const Use &U) {
-  const User *FU = U.getUser();
-  ImmutableCallSite CS(U.getUser());
+  auto User = U.getUser();
+  auto UserFn = dyn_cast<Function>(User);
+  ImmutableCallSite CS(User);
 
   return (CS && CS.isCallee(&U))  // Used as the callee
-      || isa<GlobalAlias>(FU)     // No need to indirect
-      || isa<BlockAddress>(FU)    // Handled in AsmPrinter::EmitBasicBlockStart
+      || isa<GlobalAlias>(User)   // No need to indirect
+      || isa<BlockAddress>(User)  // Handled in AsmPrinter::EmitBasicBlockStart
+      || (UserFn && UserFn->getPersonalityFn() == U.get()) // Skip pers. fn uses
       ;
 }
 
@@ -128,12 +130,6 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
               continue;
           }
         }
-      }
-
-      // Skip personality function uses
-      if (auto UserFn = dyn_cast<Function>(FU)) {
-        if (UserFn->getPersonalityFn() == &F)
-          continue;
       }
       // return true; // TODO(yln)
     }
