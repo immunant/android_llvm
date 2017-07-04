@@ -84,6 +84,31 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   return !Worklist.empty();
 }
 
+// TODO(yln): const user?
+static bool IsBitcastOfFunction(User *User) {
+  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(User)) {
+    if (CE->getOpcode() == Instruction::BitCast) {
+      // This bitcast must have exactly one user.
+      if (CE->user_begin() != CE->user_end()) {
+        User *ParentUse = *CE->user_begin();
+        if (CallInst *CI = dyn_cast<CallInst>(ParentUse)) {
+          // TODO(yln): ImmutableCallSite
+          CallSite CS(CI); // TODO(yln): also handle InvokeInst, create callsite with ParentUse, ask if valid CS
+          // TODO(yln): add test with InvokeInst, confirm it points to wrapper, then make sure it gets optimized
+//              if (CS)
+          Use &CEU = *CE->use_begin();
+          if (CS.isCallee(&CEU)) {
+            return true;
+          }
+        }
+        if (isa<GlobalAlias>(ParentUse))
+          return true;
+      }
+    }
+  }
+  // return true; // TODO(yln)
+}
+
 static bool SkipAddressUse(const Use &U) {
   auto User = U.getUser();
   auto UserFn = dyn_cast<Function>(User);
@@ -93,6 +118,7 @@ static bool SkipAddressUse(const Use &U) {
       || isa<GlobalAlias>(User)   // No need to indirect
       || isa<BlockAddress>(User)  // Handled in AsmPrinter::EmitBasicBlockStart
       || (UserFn && UserFn->getPersonalityFn() == U.get()) // Skip pers. fn uses
+      || IsBitcastOfFunction(User)  // Bitcasts of functions end up as direct calls
       ;
 }
 
@@ -109,30 +135,6 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
     if (isa<Constant>(FU)) {
       if (Users.count(FU) == 1) // Later when we replace uses, we do not want to deal with multiple constant uses.
         continue; // we will replace all uses in this user at once
-
-      // Don't replace calls to bitcasts of function symbols, since they get
-      // translated to direct calls.
-      if (ConstantExpr *CE = dyn_cast<ConstantExpr>(FU)) {
-        if (CE->getOpcode() == Instruction::BitCast) {
-          // This bitcast must have exactly one user.
-          if (CE->user_begin() != CE->user_end()) {
-            User *ParentUse = *CE->user_begin();
-            if (CallInst *CI = dyn_cast<CallInst>(ParentUse)) {
-              // TODO(yln): ImmutableCallSite
-              CallSite CS(CI); // TODO(yln): also handle InvokeInst, create callsite with ParentUse, ask if valid CS
-              // TODO(yln): add test with InvokeInst, confirm it points to wrapper, then make sure it gets optimized
-//              if (CS)
-              Use &CEU = *CE->use_begin();
-              if (CS.isCallee(&CEU)) {
-                continue;
-              }
-            }
-            if (isa<GlobalAlias>(ParentUse))
-              continue;
-          }
-        }
-      }
-      // return true; // TODO(yln)
     }
 
     // TODO(yln): Main part of loop, actually collects uses?!
