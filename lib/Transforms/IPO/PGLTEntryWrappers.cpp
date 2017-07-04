@@ -128,7 +128,7 @@ void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<C
     assert(GV->getInitializer() == F);
     GV->setInitializer(WrapperFn);
   } else if (auto C = dyn_cast<Constant>(U->getUser())) {
-    if (!Constants.count(C)) {
+    if (!Constants.count(C)) { // TODO(yln): I don't think this is needed
       Constants.insert(C);
       C->handleOperandChange(F, WrapperFn); // Replace all uses at once
     }
