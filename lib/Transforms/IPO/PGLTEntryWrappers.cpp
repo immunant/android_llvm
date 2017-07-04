@@ -158,10 +158,6 @@ void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn) {
 void PGLTEntryWrappers::ProcessFunction(Function &F) {
   std::vector<Use*> AddressUses = CollectAddressUses(F);
 
-  // TODO(yln): faster than sorted set
-  std::sort(AddressUses.begin(), AddressUses.end());
-  std::unique(AddressUses.begin(), AddressUses.end());
-
   bool RequiresWrapper = !AddressUses.empty() || !F.hasLocalLinkage();
   if (RequiresWrapper) {
     Function *WrapperFn = CreateWrapper(F);
