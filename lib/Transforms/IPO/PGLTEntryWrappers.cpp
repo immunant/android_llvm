@@ -109,7 +109,7 @@ static bool IsBitcastOfFunction(User *User) {
   // return true; // TODO(yln)
 }
 
-static bool SkipAddressUse(const Use &U) {
+static bool SkipFunctionUse(const Use &U) {
   auto User = U.getUser();
   auto UserFn = dyn_cast<Function>(User);
   ImmutableCallSite CS(User);
@@ -118,8 +118,7 @@ static bool SkipAddressUse(const Use &U) {
       || isa<GlobalAlias>(User)   // No need to indirect
       || isa<BlockAddress>(User)  // Handled in AsmPrinter::EmitBasicBlockStart
       || (UserFn && UserFn->getPersonalityFn() == U.get()) // Skip pers. fn uses
-      || IsBitcastOfFunction(User)  // Bitcasts of functions end up as direct calls
-      ;
+      || IsBitcastOfFunction(User); // Bitcasts of functions end up as direct calls
 }
 
 void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
@@ -141,7 +140,7 @@ void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<C
 void PGLTEntryWrappers::ProcessFunction(Function &F) {
   std::vector<Use*> AddressUses;
   for (Use &U : F.uses()) {
-    if (!SkipAddressUse(U)) AddressUses.push_back(&U);
+    if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
   }
 
   bool RequiresWrapper = !AddressUses.empty() || !F.hasLocalLinkage();
