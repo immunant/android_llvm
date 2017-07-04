@@ -125,14 +125,8 @@ static bool SkipAddressUse(const Use &U) {
 // TODO(yln): function maybe const?
 static std::vector<Use*> CollectAddressUses(Function &F) {
   std::vector<Use *> AddressUses;
-
   for (Use &U : F.uses()) {
-    if (SkipAddressUse(U)) {
-      continue;
-    }
-
-    // TODO(yln): Main part of loop, actually collects uses?!
-    AddressUses.push_back(&U);
+    if (!SkipAddressUse(U)) AddressUses.push_back(&U);
   }
   return AddressUses;
 }
