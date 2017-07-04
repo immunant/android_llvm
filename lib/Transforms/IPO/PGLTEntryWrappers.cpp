@@ -144,14 +144,17 @@ static std::vector<Use*> CollectAddressUses(Function &F) {
   return AddressUses;
 }
 
-void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn) {
+void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
   if (!U->get()) return; // Already replaced this use?
 
   if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
     assert(GV->getInitializer() == F);
     GV->setInitializer(WrapperFn);
   } else if (auto C = dyn_cast<Constant>(U->getUser())) {
-    C->handleOperandChange(F, WrapperFn);
+    if (!Constants.count(C)) {
+      Constants.insert(C);
+      C->handleOperandChange(F, WrapperFn); // Replace all uses at once
+    }
   } else {
     U->set(WrapperFn);
   }
@@ -165,8 +168,9 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
     Function *WrapperFn = CreateWrapper(F);
     bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg(); // TODO(yln): Move up, investigate F
     if (ReplaceAddressUses) {
+      SmallSet<Constant*, 8> Constants;
       for (auto U : AddressUses) {
-        ReplaceAddressTakenUse(U, &F, WrapperFn);
+        ReplaceAddressTakenUse(U, &F, WrapperFn, Constants);
       }
     }
   }
