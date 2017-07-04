@@ -122,15 +122,6 @@ static bool SkipAddressUse(const Use &U) {
       ;
 }
 
-// TODO(yln): function maybe const?
-static std::vector<Use*> CollectAddressUses(Function &F) {
-  std::vector<Use *> AddressUses;
-  for (Use &U : F.uses()) {
-    if (!SkipAddressUse(U)) AddressUses.push_back(&U);
-  }
-  return AddressUses;
-}
-
 void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
   if (!U->get()) return; // Already replaced this use?
 
@@ -148,7 +139,10 @@ void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<C
 }
 
 void PGLTEntryWrappers::ProcessFunction(Function &F) {
-  std::vector<Use*> AddressUses = CollectAddressUses(F);
+  std::vector<Use*> AddressUses;
+  for (Use &U : F.uses()) {
+    if (!SkipAddressUse(U)) AddressUses.push_back(&U);
+  }
 
   bool RequiresWrapper = !AddressUses.empty() || !F.hasLocalLinkage();
   if (RequiresWrapper) {
