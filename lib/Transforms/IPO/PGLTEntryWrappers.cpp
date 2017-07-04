@@ -125,21 +125,14 @@ static bool SkipAddressUse(const Use &U) {
 // TODO(yln): function maybe const?
 static std::vector<Use*> CollectAddressUses(Function &F) {
   std::vector<Use *> AddressUses;
-  SmallSet<User*, 8> Users;
 
   for (Use &U : F.uses()) {
     if (SkipAddressUse(U)) {
       continue;
     }
-    User *FU = U.getUser();
-    if (isa<Constant>(FU)) {
-      if (Users.count(FU) == 1) // Later when we replace uses, we do not want to deal with multiple constant uses.
-        continue; // we will replace all uses in this user at once
-    }
 
     // TODO(yln): Main part of loop, actually collects uses?!
     AddressUses.push_back(&U);
-    Users.insert(FU);
   }
   return AddressUses;
 }
