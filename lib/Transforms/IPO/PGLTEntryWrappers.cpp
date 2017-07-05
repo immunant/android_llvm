@@ -264,7 +264,6 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
                                             const SmallVector<VAStartInst*, 1> VAStarts) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
-  Function *NewFn = &F;
 
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type
@@ -284,7 +283,7 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
   SmallVector<Type*, 4> Params(FFTy->param_begin(), FFTy->param_end());
   Params.push_back(VAListTy->getPointerTo());
   FunctionType *NonVarArgs = FunctionType::get(FFTy->getReturnType(), Params, false);
-  NewFn = Function::Create(NonVarArgs, F.getLinkage(), "", M);
+  Function* NewFn = Function::Create(NonVarArgs, F.getLinkage(), "", M);
   NewFn->copyAttributesFrom(&F);
   NewFn->setComdat(F.getComdat());
   NewFn->takeName(&F);
