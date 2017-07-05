@@ -40,7 +40,7 @@ public:
 private:
   static constexpr const char *OrigSuffix = "$$orig";
   static constexpr const char *OrigVASuffix = "$$origva";
-  static constexpr const char *WrapperSuffix = "_$wrap";  // TODO(yln): different format
+  static constexpr const char *WrapperSuffix = "_$wrap";  // TODO(yln): different format, allowed to change
 
   void ProcessFunction(Function &F);
   Function* CreateWrapper(Function &F);
@@ -84,13 +84,15 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   return !Worklist.empty();
 }
 
-// TODO(yln): const user?
-static bool IsBitcastOfFunction(User *User) {
-  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(User)) {
+// TODO(yln): const user?, rename to: IsDirectCallOfBitcast
+static bool IsBitcastOfFunction(User *Usr) {
+  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Usr)) {
     if (CE->getOpcode() == Instruction::BitCast) {
       // This bitcast must have exactly one user.
+      // TODO(yln): we want to ensure that all uses of the bitcast are not skippable
       if (CE->user_begin() != CE->user_end()) {
         User *ParentUse = *CE->user_begin();
+        // TOOD(yln): maybe recursive call to SkipFunctionUse
         if (CallInst *CI = dyn_cast<CallInst>(ParentUse)) {
           // TODO(yln): ImmutableCallSite
           CallSite CS(CI); // TODO(yln): also handle InvokeInst, create callsite with ParentUse, ask if valid CS
@@ -106,7 +108,7 @@ static bool IsBitcastOfFunction(User *User) {
       }
     }
   }
-  // return true; // TODO(yln)
+  return false;
 }
 
 static bool SkipFunctionUse(const Use &U) {
@@ -148,7 +150,7 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
     Function *WrapperFn = CreateWrapper(F);
     bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg(); // TODO(yln): Move up, investigate F
     if (ReplaceAddressUses) {
-      SmallSet<Constant*, 8> Constants;
+      SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
       for (auto U : AddressUses) {
         ReplaceAddressTakenUse(U, &F, WrapperFn, Constants);
       }
@@ -164,7 +166,6 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   FunctionType *FFTy = F.getFunctionType();
 
   Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + WrapperSuffix, M);
-  BasicBlock *BB = BasicBlock::Create(F.getContext(), "", WrapperFn);
 
   WrapperFn->setCallingConv(F.getCallingConv());
   WrapperFn->copyAttributesFrom(&F);
@@ -204,6 +205,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
       F.setVisibility(GlobalValue::HiddenVisibility);
   }
 
+  BasicBlock *BB = BasicBlock::Create(F.getContext(), "", WrapperFn);
   IRBuilder<> Builder(BB);
 
   Value *VAList = nullptr;
@@ -214,15 +216,6 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   }
 
   // F may have been deleted at this point. DO NOT USE F!
-
-  // Set the PGLT base address
-  auto PGLTAddress = M->getGlobalVariable("_PGLT_");
-  if (!PGLTAddress) {
-    PGLTAddress = new GlobalVariable(*M, Builder.getInt8Ty(), true,
-                                     GlobalValue::ExternalLinkage,
-                                     nullptr, "_PGLT_");
-    PGLTAddress->setVisibility(GlobalValue::ProtectedVisibility);
-  }
 
   SmallVector<Value *, 16> Args;
   Args.reserve(FFTy->getNumParams());
@@ -404,4 +397,15 @@ void PGLTEntryWrappers::CreatePGLT(Module &M) {
                          ConstantArray::get(ATy, MergedVars), "llvm.used");
 
   LLVMUsed->setSection("llvm.metadata");
+
+
+  // TODO(yln): this can be removed, maybe
+  // Set the PGLT base address
+  auto PGLTAddress = M.getGlobalVariable("_PGLT_");
+  if (!PGLTAddress) {
+    PGLTAddress = new GlobalVariable(M, Type::getInt8Ty(C), true,
+                                     GlobalValue::ExternalLinkage,
+                                     nullptr, "_PGLT_");
+    PGLTAddress->setVisibility(GlobalValue::ProtectedVisibility);
+  }
 }
