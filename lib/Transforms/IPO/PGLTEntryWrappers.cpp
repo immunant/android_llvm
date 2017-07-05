@@ -10,12 +10,11 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-#include "llvm/IR/InstIterator.h"
 
 using namespace llvm;
 
@@ -137,7 +136,7 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
   F.addFnAttr(Attribute::RandPage);
 }
 
-void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
+static void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
   if (!U->get()) return; // Already replaced this use?
 
   if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
