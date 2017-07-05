@@ -124,22 +124,6 @@ static bool SkipFunctionUse(const Use &U) {
       || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
 }
 
-void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
-  if (!U->get()) return; // Already replaced this use?
-
-  if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
-    assert(GV->getInitializer() == F);
-    GV->setInitializer(WrapperFn);
-  } else if (auto C = dyn_cast<Constant>(U->getUser())) {
-    if (!Constants.count(C)) { // TODO(yln): I don't think this is needed
-      Constants.insert(C);
-      C->handleOperandChange(F, WrapperFn); // Replace all uses at once
-    }
-  } else {
-    U->set(WrapperFn);
-  }
-}
-
 void PGLTEntryWrappers::ProcessFunction(Function &F) {
   std::vector<Use*> AddressUses;
   for (Use &U : F.uses()) {
@@ -154,14 +138,20 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
   F.addFnAttr(Attribute::RandPage);
 }
 
-static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
-  SmallVector<VAStartInst*, 1> Insts;
-  for (auto &I : instructions(F)) {
-    if (isa<VAStartInst>(&I)) {
-      Insts.push_back(cast<VAStartInst>(&I));
+void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
+  if (!U->get()) return; // Already replaced this use?
+
+  if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
+    assert(GV->getInitializer() == F);
+    GV->setInitializer(WrapperFn);
+  } else if (auto C = dyn_cast<Constant>(U->getUser())) {
+    if (!Constants.count(C)) { // TODO(yln): I don't think this is needed
+      Constants.insert(C);
+      C->handleOperandChange(F, WrapperFn); // Replace all uses at once
     }
+  } else {
+    U->set(WrapperFn);
   }
-  return Insts;
 }
 
 void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
@@ -206,6 +196,16 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   }
 
   CreateWrapperBody(F, WrapperFn);
+}
+
+static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
+  SmallVector<VAStartInst*, 1> Insts;
+  for (auto &I : instructions(F)) {
+    if (isa<VAStartInst>(&I)) {
+      Insts.push_back(cast<VAStartInst>(&I));
+    }
+  }
+  return Insts;
 }
 
 void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *WrapperFn) {
