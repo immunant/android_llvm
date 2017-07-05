@@ -195,9 +195,9 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
 }
 
 void PGLTEntryWrappers::ReplaceAllUsages(Function &F, Function *Wrapper) {
-  std::string Name = F.getName() + (F.isVarArg() ? OrigVASuffix : OrigSuffix);
+  std::string OldName = F.getName();
   Wrapper->takeName(&F);
-  F.setName(Name);
+  F.setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
 
   F.replaceAllUsesWith(Wrapper);
 
