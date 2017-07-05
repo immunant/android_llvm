@@ -175,6 +175,8 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   Wrapper->addFnAttr(Attribute::NoInline);
   Wrapper->addFnAttr(Attribute::OptimizeForSize);
 
+  CreateWrapperBody(F, Wrapper);
+
   // 1) Calls to a non-local function must go through the wrapper since they
   //    could be ridrected by the dynamic linker (i.e, LD_PRELOAD).
   // 2) Calls to vararg functions must go through the wrapper to ensure that we
@@ -190,8 +192,6 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
       ReplaceAddressTakenUse(U, &F, Wrapper, Constants);
     }
   }
-
-  CreateWrapperBody(F, Wrapper);
 }
 
 void PGLTEntryWrappers::ReplaceAllUsages(Function &F, Function *Wrapper) {
