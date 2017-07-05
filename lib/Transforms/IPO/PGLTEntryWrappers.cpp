@@ -161,6 +161,16 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
   F.addFnAttr(Attribute::RandPage);
 }
 
+static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
+  SmallVector<VAStartInst*, 1> Insts;
+  for (auto &I : instructions(F)) {
+    if (isa<VAStartInst>(&I)) {
+      Insts.push_back(cast<VAStartInst>(&I));
+    }
+  }
+  return Insts;
+}
+
 Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
@@ -211,8 +221,10 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   Value *VAList = nullptr;
   Function *DestFn = &F;
   if (F.isVarArg()) {
-    DEBUG(F.dump());
-    DestFn = RewriteVarargs(F, Builder, VAList);
+    auto VAStarts = FindVAStarts(F);
+    if (!VAStarts.empty()) {
+      DestFn = RewriteVarargs(F, Builder, VAList);
+    }
   }
 
   // F may have been deleted at this point. DO NOT USE F!
@@ -238,16 +250,6 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   return WrapperFn;
 }
 
-static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
-  SmallVector<VAStartInst*, 1> Insts;
-  for (auto &I : instructions(F)) {
-    if (isa<VAStartInst>(&I)) {
-      Insts.push_back(cast<VAStartInst>(&I));
-    }
-  }
-  return Insts;
-}
-
 static Instruction* findAlloca(Instruction* Use) {
   Instruction *Alloca = Use;
   while (Alloca && !isa<AllocaInst>(Alloca)) {
@@ -264,7 +266,6 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
   Function *NewFn = &F;
 
   auto VAStarts = FindVAStarts(F);
-
   if (VAStarts.empty()) {
     return NewFn;
   }
