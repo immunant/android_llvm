@@ -256,6 +256,15 @@ static Instruction* findAlloca(Instruction* Use) {
   return Alloca;
 }
 
+static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
+  auto VAListAlloca = Builder.CreateAlloca(VAListTy);
+  Builder.CreateCall(
+      Intrinsic::getDeclaration(M, Intrinsic::vastart),
+      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
+
+  return VAListAlloca;
+}
+
 Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
                                             Value *&VAList,
                                             const SmallVector<VAStartInst*, 1> VAStarts) {
@@ -271,10 +280,7 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
   auto VAListTy = VAListAlloca->getType()->getPointerElementType();
 
   // in the wrapper
-  auto *NewVAListAlloca = Builder.CreateAlloca(VAListTy);
-  Builder.CreateCall(
-      Intrinsic::getDeclaration(M, Intrinsic::vastart),
-      {Builder.CreateBitCast(NewVAListAlloca, Builder.getInt8PtrTy())});
+  auto *NewVAListAlloca = CreateVAList(M, Builder, VAListTy);
 
   // Create a new function definition
   SmallVector<Type*, 4> Params(FFTy->param_begin(), FFTy->param_end());
