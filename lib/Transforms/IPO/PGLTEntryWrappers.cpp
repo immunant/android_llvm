@@ -44,7 +44,7 @@ private:
   static constexpr const char *WrapperSuffix = "$$wrap";
 
   void ProcessFunction(Function &F);
-  Function* CreateWrapper(Function &F);
+  void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
   void CreateWrapperBody(Function &F, Function *WrapperFn);
   Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList, const SmallVector<VAStartInst*, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
@@ -146,16 +146,8 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
     if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
   }
 
-  bool RequiresWrapper = !AddressUses.empty() || !F.hasLocalLinkage();
-  if (RequiresWrapper) {
-    Function *WrapperFn = CreateWrapper(F);
-    bool ReplaceAddressUses = WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg(); // TODO(yln): Move up, investigate F
-    if (ReplaceAddressUses) {
-      SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
-      for (auto U : AddressUses) {
-        ReplaceAddressTakenUse(U, &F, WrapperFn, Constants);
-      }
-    }
+  if (!F.hasLocalLinkage() || !AddressUses.empty()) {
+    CreateWrapper(F, AddressUses);
   }
 
   F.setSection(""); // Ensure function does not have an explicit section
@@ -172,9 +164,9 @@ static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
   return Insts;
 }
 
-Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
+void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
 
   Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + WrapperSuffix, M);
 
@@ -214,11 +206,15 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
 
     if (!F.hasLocalLinkage())
       F.setVisibility(GlobalValue::HiddenVisibility);
+  } else {  // Local linkage, but has its address taken
+    assert(!AddressUses.empty());
+    SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
+    for (auto U : AddressUses) {
+      ReplaceAddressTakenUse(U, &F, WrapperFn, Constants);
+    }
   }
 
   CreateWrapperBody(F, WrapperFn);
-
-  return WrapperFn;
 }
 
 void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *WrapperFn) {
