@@ -45,6 +45,7 @@ private:
 
   void ProcessFunction(Function &F);
   Function* CreateWrapper(Function &F);
+  void CreateWrapperBody(Function &F, Function *WrapperFn);
   Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList, const SmallVector<VAStartInst*, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
@@ -215,6 +216,12 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
       F.setVisibility(GlobalValue::HiddenVisibility);
   }
 
+  CreateWrapperBody(F, WrapperFn);
+
+  return WrapperFn;
+}
+
+void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *WrapperFn) {
   BasicBlock *BB = BasicBlock::Create(F.getContext(), "", WrapperFn);
   IRBuilder<> Builder(BB);
 
@@ -223,7 +230,7 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   if (F.isVarArg()) {
     auto VAStarts = FindVAStarts(F);
     if (!VAStarts.empty()) {
-      DestFn = RewriteVarargs(F, Builder, VAList);
+      DestFn = RewriteVarargs(F, Builder, VAList, VAStarts);
     }
   }
 
@@ -243,11 +250,6 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   } else {
     Builder.CreateRet(CI);
   }
-
-  DEBUG(WrapperFn->dump());
-  DEBUG(DestFn->dump());
-
-  return WrapperFn;
 }
 
 static Instruction* findAlloca(Instruction* Use) {
