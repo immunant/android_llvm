@@ -6,8 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <llvm/IR/InstIterator.h>
-#include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -15,7 +13,9 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/IR/InstIterator.h"
 
 using namespace llvm;
 
