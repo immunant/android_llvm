@@ -84,8 +84,7 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   return !Worklist.empty();
 }
 
-// TODO(yln): const user?, rename to: IsDirectCallOfBitcast
-static bool IsBitcastOfFunction(User *Usr) {
+static bool IsDirectCallOfBitcast(User *Usr) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Usr)) {
     if (CE->getOpcode() == Instruction::BitCast) {
       // This bitcast must have exactly one user.
@@ -120,7 +119,7 @@ static bool SkipFunctionUse(const Use &U) {
       || isa<GlobalAlias>(User)   // No need to indirect
       || isa<BlockAddress>(User)  // Handled in AsmPrinter::EmitBasicBlockStart
       || (UserFn && UserFn->getPersonalityFn() == U.get()) // Skip pers. fn uses
-      || IsBitcastOfFunction(User); // Bitcasts of functions end up as direct calls
+      || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
 }
 
 void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
