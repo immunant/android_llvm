@@ -43,6 +43,7 @@ private:
 
   void ProcessFunction(Function &F);
   void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
+  void ReplaceAllUsages(Function &F, Function *WrapperFn);
   void CreateWrapperBody(Function &F, Function *WrapperFn);
   Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList, const SmallVector<VAStartInst*, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
@@ -182,16 +183,8 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   // 3) Address-taken uses of local functions might escape, hence we also need
   //    to replace them too.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
-    std::string OldName = F.getName();
-    WrapperFn->takeName(&F);
-    F.replaceAllUsesWith(WrapperFn);
-    auto Suffix = F.isVarArg() ? OrigVASuffix : OrigSuffix;
-    F.setName(OldName + Suffix);
-
-    if (!F.hasLocalLinkage()) {
-      F.setVisibility(GlobalValue::HiddenVisibility);
-    }
-  } else {  // Local linkage, but has its address taken
+    ReplaceAllUsages(F, WrapperFn);
+  } else {
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
     for (auto U : AddressUses) {
@@ -200,6 +193,18 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   }
 
   CreateWrapperBody(F, WrapperFn);
+}
+
+void PGLTEntryWrappers::ReplaceAllUsages(Function &F, Function *WrapperFn) {
+  std::string Name = F.getName() + (F.isVarArg() ? OrigVASuffix : OrigSuffix);
+  WrapperFn->takeName(&F);
+  F.setName(Name);
+
+  F.replaceAllUsesWith(WrapperFn);
+
+  if (!F.hasLocalLinkage()) {
+    F.setVisibility(GlobalValue::HiddenVisibility);
+  }
 }
 
 static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
