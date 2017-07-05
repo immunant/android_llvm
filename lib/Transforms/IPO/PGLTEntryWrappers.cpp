@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <llvm/IR/InstIterator.h>
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/CallSite.h"
@@ -237,6 +238,16 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
   return WrapperFn;
 }
 
+static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
+  SmallVector<VAStartInst*, 1> Insts;
+  for (auto &I : instructions(F)) {
+    if (isa<VAStartInst>(&I)) {
+      Insts.push_back(cast<VAStartInst>(&I));
+    }
+  }
+  return Insts;
+}
+
 static Instruction* findAlloca(Instruction* Use) {
   Instruction *Alloca = Use;
   while (Alloca && !isa<AllocaInst>(Alloca)) {
@@ -252,17 +263,11 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
   FunctionType *FFTy = F.getFunctionType();
   Function *NewFn = &F;
 
-  SmallVector<CallInst*, 1> VAStarts;
-  for (auto &B : F) {
-    for (auto &I : B) {
-      if (isa<VAStartInst>(&I)) {
-        VAStarts.push_back(cast<CallInst>(&I));
-      }
-    }
-  }
+  auto VAStarts = FindVAStarts(F);
 
-  if (VAStarts.empty())
+  if (VAStarts.empty()) {
     return NewFn;
+  }
 
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type
