@@ -44,7 +44,7 @@ private:
   void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
   void ReplaceAllUsages(Function &F, Function *Wrapper);
   void CreateWrapperBody(Function &F, Function *Wrapper);
-  Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList, const SmallVector<VAStartInst*, 1> VAStarts);
+  Function *RewriteVarargs(Function &F, IRBuilder<> &Builder, const SmallVector<VAStartInst *, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
 };
@@ -243,7 +243,17 @@ void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
   if (F.isVarArg()) {
     auto VAStarts = FindVAStarts(F);
     if (!VAStarts.empty()) {
-      DestFn = RewriteVarargs(F, Builder, VAList, VAStarts);
+      DestFn = RewriteVarargs(F, Builder, VAStarts);
+      // return the new wrapper alloca to our caller so it can pass it in the built
+      // call
+      // Find A va_list alloca. This is really only to get the type.
+      // TODO: use a static type
+      Instruction *VAListAlloca = findAlloca(VAStarts[0]);
+
+      // Need to create a new function that takes a va_list parameter but is not
+      // varargs and clone the original function into it.
+      auto VAListTy = VAListAlloca->getType()->getPointerElementType();
+      VAList = CreateVAList(F.getParent(), Builder, VAListTy);
     }
   }
 
@@ -265,9 +275,8 @@ void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
   }
 }
 
-Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
-                                            Value *&VAList,
-                                            const SmallVector<VAStartInst*, 1> VAStarts) {
+Function * PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
+                                             const SmallVector<VAStartInst *, 1> VAStarts) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
 
@@ -278,9 +287,6 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
   // Need to create a new function that takes a va_list parameter but is not
   // varargs and clone the original function into it.
   auto VAListTy = VAListAlloca->getType()->getPointerElementType();
-
-  // in the wrapper
-  auto *NewVAListAlloca = CreateVAList(M, Builder, VAListTy);
 
   // Create a new function definition
   SmallVector<Type*, 4> Params(FFTy->param_begin(), FFTy->param_end());
@@ -313,10 +319,6 @@ Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
       DestI->setName(I->getName()); // Copy the name over...
       VMap[I] = DestI++;        // Add mapping to VMap
     }
-
-  // return the new wrapper alloca to our caller so it can pass it in the built
-  // call
-  VAList = NewVAListAlloca;
 
   // Optimized for a single va_start() call. We can remove the va_list alloca
   // and va_start, and simply use the parameter directly. If there is more than
