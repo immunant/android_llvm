@@ -44,7 +44,7 @@ private:
   void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
   void ReplaceAllUsages(Function &F, Function *Wrapper);
   void CreateWrapperBody(Function &F, Function *Wrapper);
-  Function *RewriteVarargs(Function &F, IRBuilder<> &Builder, const SmallVector<VAStartInst *, 1> VAStarts);
+  Function *RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
 };
@@ -243,7 +243,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
   if (F.isVarArg()) {
     auto VAStarts = FindVAStarts(F);
     if (!VAStarts.empty()) {
-      DestFn = RewriteVarargs(F, Builder, VAStarts);
+      DestFn = RewriteVarargs(F, VAStarts);
       // return the new wrapper alloca to our caller so it can pass it in the built
       // call
       // Find A va_list alloca. This is really only to get the type.
@@ -275,8 +275,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
   }
 }
 
-Function * PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
-                                             const SmallVector<VAStartInst *, 1> VAStarts) {
+Function * PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
 
