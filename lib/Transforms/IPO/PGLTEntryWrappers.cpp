@@ -216,16 +216,11 @@ Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
 
   // F may have been deleted at this point. DO NOT USE F!
 
-  SmallVector<Value *, 16> Args;
-  Args.reserve(FFTy->getNumParams());
-
-  for (Function::arg_iterator AI = WrapperFn->arg_begin(), AE = WrapperFn->arg_end();
-       AI != AE; ++AI) {
-    Args.push_back(AI);
+  SmallVector<Value*, 8> Args;
+  for (auto &A : WrapperFn->args()) {
+    Args.push_back(&A);
   }
-
-  if (VAList)
-    Args.push_back(VAList);
+  if (VAList) Args.push_back(VAList);
 
   CallInst *CI = Builder.CreateCall(DestFn, Args);
   CI->setCallingConv(WrapperFn->getCallingConv());
