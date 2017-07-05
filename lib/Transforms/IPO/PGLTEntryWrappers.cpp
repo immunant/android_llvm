@@ -42,8 +42,8 @@ private:
 
   void ProcessFunction(Function &F);
   void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
-  void ReplaceAllUsages(Function &F, Function *WrapperFn);
-  void CreateWrapperBody(Function &F, Function *WrapperFn);
+  void ReplaceAllUsages(Function &F, Function *Wrapper);
+  void CreateWrapperBody(Function &F, Function *Wrapper);
   Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList, const SmallVector<VAStartInst*, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
@@ -136,70 +136,70 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
   F.addFnAttr(Attribute::RandPage);
 }
 
-static void ReplaceAddressTakenUse(Use *U, Function *F, Function *WrapperFn, SmallSet<Constant*, 8> &Constants) {
+static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
   if (!U->get()) return; // Already replaced this use?
 
   if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
     assert(GV->getInitializer() == F);
-    GV->setInitializer(WrapperFn);
+    GV->setInitializer(Wrapper);
   } else if (auto C = dyn_cast<Constant>(U->getUser())) {
     if (!Constants.count(C)) { // TODO(yln): I don't think this is needed
       Constants.insert(C);
-      C->handleOperandChange(F, WrapperFn); // Replace all uses at once
+      C->handleOperandChange(F, Wrapper); // Replace all uses at once
     }
   } else {
-    U->set(WrapperFn);
+    U->set(Wrapper);
   }
 }
 
 void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
-  Function *WrapperFn = Function::Create(
+  Function *Wrapper = Function::Create(
       F.getFunctionType(), F.getLinkage(), F.getName() + WrapperSuffix, F.getParent());
 
-  WrapperFn->copyAttributesFrom(&F);
-  WrapperFn->setComdat(F.getComdat());
+  Wrapper->copyAttributesFrom(&F);
+  Wrapper->setComdat(F.getComdat());
   // Ensure that the wrapper is not placed in an explicitly named section. If it
   // is, the section flags will be combined with other function in the section
   // (RandPage functions, potentially), and the wrapper will get marked
   // RAND_ADDR
   // TODO: Verify the above. This should not be the case unless functions are not
-  // WrapperFn->setSection("");
+  // Wrapper->setSection("");
 
   // We can't put the wrapper function in an explicitly named section because
   // it then does not get a per-function section, which we need to properly
   // support --gc-sections
-  // WrapperFn->setSection(".text.wrappers");
+  // Wrapper->setSection(".text.wrappers");
 
-  WrapperFn->addFnAttr(Attribute::RandWrapper);
-  //WrapperFn->addFnAttr(Attribute::RandPage);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
-  WrapperFn->addFnAttr(Attribute::NoInline);
-  WrapperFn->addFnAttr(Attribute::OptimizeForSize);
+  Wrapper->addFnAttr(Attribute::RandWrapper);
+  //Wrapper->addFnAttr(Attribute::RandPage);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
+  Wrapper->addFnAttr(Attribute::NoInline);
+  Wrapper->addFnAttr(Attribute::OptimizeForSize);
 
   // 1) Calls to a non-local function must go through the wrapper since they
   //    could be ridrected by the dynamic linker (i.e, LD_PRELOAD).
   // 2) Calls to vararg functions must go through the wrapper to ensure that we
   //    preserve the arguments on the stack when we indirect through the PGLT.
-  // 3) Address-taken uses of local functions might escape, hence we also need
-  //    to replace them too.
+  // 3) Address-taken uses of local functions might escape, hence we must also
+  //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
-    ReplaceAllUsages(F, WrapperFn);
+    ReplaceAllUsages(F, Wrapper);
   } else {
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
     for (auto U : AddressUses) {
-      ReplaceAddressTakenUse(U, &F, WrapperFn, Constants);
+      ReplaceAddressTakenUse(U, &F, Wrapper, Constants);
     }
   }
 
-  CreateWrapperBody(F, WrapperFn);
+  CreateWrapperBody(F, Wrapper);
 }
 
-void PGLTEntryWrappers::ReplaceAllUsages(Function &F, Function *WrapperFn) {
+void PGLTEntryWrappers::ReplaceAllUsages(Function &F, Function *Wrapper) {
   std::string Name = F.getName() + (F.isVarArg() ? OrigVASuffix : OrigSuffix);
-  WrapperFn->takeName(&F);
+  Wrapper->takeName(&F);
   F.setName(Name);
 
-  F.replaceAllUsesWith(WrapperFn);
+  F.replaceAllUsesWith(Wrapper);
 
   if (!F.hasLocalLinkage()) {
     F.setVisibility(GlobalValue::HiddenVisibility);
@@ -216,8 +216,8 @@ static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
   return Insts;
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *WrapperFn) {
-  BasicBlock *BB = BasicBlock::Create(F.getContext(), "", WrapperFn);
+void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
+  BasicBlock *BB = BasicBlock::Create(F.getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
   Value *VAList = nullptr;
@@ -232,15 +232,15 @@ void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *WrapperFn) {
   // F may have been deleted at this point. DO NOT USE F!
 
   SmallVector<Value*, 8> Args;
-  for (auto &A : WrapperFn->args()) {
+  for (auto &A : Wrapper->args()) {
     Args.push_back(&A);
   }
   if (VAList) Args.push_back(VAList);
 
   CallInst *CI = Builder.CreateCall(DestFn, Args);
-  CI->setCallingConv(WrapperFn->getCallingConv());
+  CI->setCallingConv(Wrapper->getCallingConv());
 
-  if (WrapperFn->getReturnType()->isVoidTy()) {
+  if (Wrapper->getReturnType()->isVoidTy()) {
     Builder.CreateRetVoid();
   } else {
     Builder.CreateRet(CI);
