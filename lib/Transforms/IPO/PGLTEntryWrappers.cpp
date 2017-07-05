@@ -45,7 +45,7 @@ private:
 
   void ProcessFunction(Function &F);
   Function* CreateWrapper(Function &F);
-  Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList);
+  Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList, const SmallVector<VAStartInst*, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
 };
@@ -260,15 +260,11 @@ static Instruction* findAlloca(Instruction* Use) {
 }
 
 Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
-                                            Value *&VAList) {
+                                            Value *&VAList,
+                                            const SmallVector<VAStartInst*, 1> VAStarts) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
   Function *NewFn = &F;
-
-  auto VAStarts = FindVAStarts(F);
-  if (VAStarts.empty()) {
-    return NewFn;
-  }
 
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type
