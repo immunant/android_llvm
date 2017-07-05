@@ -132,7 +132,7 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
     CreateWrapper(F, AddressUses);
   }
 
-  F.setSection(""); // Ensure function does not have an explicit section
+  F.setSection("");
   F.addFnAttr(Attribute::RandPage);
 }
 
@@ -175,6 +175,12 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   WrapperFn->addFnAttr(Attribute::NoInline);
   WrapperFn->addFnAttr(Attribute::OptimizeForSize);
 
+  // 1) Calls to a non-local function must go through the wrapper since they
+  //    could be ridrected by the dynamic linker (i.e, LD_PRELOAD).
+  // 2) Calls to vararg functions must go through the wrapper to ensure that we
+  //    preserve the arguments on the stack when we indirect through the PGLT.
+  // 3) Address-taken uses of local functions might escape, hence we also need
+  //    to replace them too.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
     std::string OldName = F.getName();
     WrapperFn->takeName(&F);
