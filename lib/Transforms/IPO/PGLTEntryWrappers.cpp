@@ -164,38 +164,28 @@ static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
   return Insts;
 }
 
-  Module *M = F.getParent();
-  FunctionType *FFTy = F.getFunctionType();
 void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
+  Function *WrapperFn = Function::Create(
+      F.getFunctionType(), F.getLinkage(), F.getName() + WrapperSuffix, F.getParent());
 
-  Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + WrapperSuffix, M);
-
-  WrapperFn->setCallingConv(F.getCallingConv());
   WrapperFn->copyAttributesFrom(&F);
-
-  WrapperFn->addFnAttr(Attribute::NoInline);
-  WrapperFn->addFnAttr(Attribute::OptimizeForSize);
-
-  // TODO: SJC can we place wrappers on randomly located pages? I don't see why
-  // not, but this is safer for now
-  // F.addFnAttr(Attribute::RandPage);
-  WrapperFn->addFnAttr(Attribute::RandWrapper);
-
+  WrapperFn->setComdat(F.getComdat());
   // Ensure that the wrapper is not placed in an explicitly named section. If it
   // is, the section flags will be combined with other function in the section
   // (RandPage functions, potentially), and the wrapper will get marked
   // RAND_ADDR
-
   // TODO: Verify the above. This should not be the case unless functions are not
   // WrapperFn->setSection("");
 
-  WrapperFn->setComdat(F.getComdat());
-  WrapperFn->setSection(F.getSection());
-
-  // We can't put the wrapper function in an explicitely named section becuase
+  // We can't put the wrapper function in an explicitly named section because
   // it then does not get a per-function section, which we need to properly
   // support --gc-sections
   // WrapperFn->setSection(".text.wrappers");
+
+  WrapperFn->addFnAttr(Attribute::RandWrapper);
+  //WrapperFn->addFnAttr(Attribute::RandPage);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
+  WrapperFn->addFnAttr(Attribute::NoInline);
+  WrapperFn->addFnAttr(Attribute::OptimizeForSize);
 
   if (!F.hasLocalLinkage() || F.isVarArg()) {
     std::string OldName = F.getName();
@@ -204,8 +194,9 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
     auto Suffix = F.isVarArg() ? OrigVASuffix : OrigSuffix;
     F.setName(OldName + Suffix);
 
-    if (!F.hasLocalLinkage())
+    if (!F.hasLocalLinkage()) {
       F.setVisibility(GlobalValue::HiddenVisibility);
+    }
   } else {  // Local linkage, but has its address taken
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
