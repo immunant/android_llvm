@@ -216,6 +216,24 @@ static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
   return Insts;
 }
 
+static Instruction* findAlloca(Instruction* Use) {
+  Instruction *Alloca = Use;
+  while (Alloca && !isa<AllocaInst>(Alloca)) {
+    Alloca = dyn_cast<Instruction>(Alloca->op_begin());
+  }
+  assert(Alloca && "Could not find va_list alloc in a var args functions");
+  return Alloca;
+}
+
+static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
+  auto VAListAlloca = Builder.CreateAlloca(VAListTy);
+  Builder.CreateCall(
+      Intrinsic::getDeclaration(M, Intrinsic::vastart),
+      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
+
+  return VAListAlloca;
+}
+
 void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
   BasicBlock *BB = BasicBlock::Create(F.getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
@@ -245,24 +263,6 @@ void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
   } else {
     Builder.CreateRet(CI);
   }
-}
-
-static Instruction* findAlloca(Instruction* Use) {
-  Instruction *Alloca = Use;
-  while (Alloca && !isa<AllocaInst>(Alloca)) {
-    Alloca = dyn_cast<Instruction>(Alloca->op_begin());
-  }
-  assert(Alloca && "Could not find va_list alloc in a var args functions");
-  return Alloca;
-}
-
-static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
-  auto VAListAlloca = Builder.CreateAlloca(VAListTy);
-  Builder.CreateCall(
-      Intrinsic::getDeclaration(M, Intrinsic::vastart),
-      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
-
-  return VAListAlloca;
 }
 
 Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
