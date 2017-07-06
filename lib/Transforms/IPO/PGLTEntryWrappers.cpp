@@ -184,7 +184,7 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
 
   // +) Calls to a non-local function must go through the wrapper since they
-  //    could be ridrected by the dynamic linker (i.e, LD_PRELOAD).
+  //    could be redirected by the dynamic linker (i.e, LD_PRELOAD).
   // +) Calls to vararg functions must go through the wrapper to ensure that we
   //    preserve the arguments on the stack when we indirect through the PGLT.
   // -) Address-taken uses of local functions might escape, hence we must also
@@ -279,7 +279,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function* Dest, boo
 
 Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto VAStarts = FindVAStarts(F);
-  if (VAStarts.empty()) return &F;
+  if (VAStarts.empty()) return &F; // TODO(yln): are there enough/important vararg functions that don't use their arguments to varant this early exit (optimization)
 
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type // TODO(yln)
