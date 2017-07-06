@@ -231,7 +231,8 @@ static AllocaInst *FindAlloca(VAStartInst *VAStart) {
   return cast<AllocaInst>(Alloca);
 }
 
-static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
+static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder) {
+  auto VAListTy = M->getTypeByName("struct.__va_list"); // TODO(yln): brittle
   auto VAListAlloca = Builder.CreateAlloca(VAListTy);
   Builder.CreateCall(  // void va_start(va_list ap, parm_n)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
@@ -258,8 +259,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Dest, boo
     Args.push_back(&A);
   }
   if (VARewritten) {
-    auto VAListTy = Wrapper->getParent()->getTypeByName("struct.__va_list"); // TODO(yln): brittle
-    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder, VAListTy);
+    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder);
     Args.push_back(VAListAlloca);
   }
 
