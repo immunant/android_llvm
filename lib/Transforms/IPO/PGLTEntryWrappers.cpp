@@ -235,16 +235,16 @@ static Instruction* findAlloca(Instruction* Use) {
 
 static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
   auto VAListAlloca = Builder.CreateAlloca(VAListTy);
-  Builder.CreateCall(
+  Builder.CreateCall(  // void va_start(va_list ap, parm_n)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
-      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
+      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())}); // TODO(yln): what about the parm_n (count) parameter?
 
   return VAListAlloca;
 }
 
 static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argument *VAListArg) {
   Builder.SetInsertPoint(VAStart);
-  Builder.CreateCall(
+  Builder.CreateCall(  // void va_copy(va_list dest, va_list src)
       Intrinsic::getDeclaration(VAStart->getModule(), Intrinsic::vacopy),
       {VAStart->getArgOperand(0),
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
