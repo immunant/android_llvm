@@ -248,8 +248,8 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten) {
-  BasicBlock *BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
+void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Dest, bool VARewritten) {
+  auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
   // Arguments
@@ -264,7 +264,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function* Dest, boo
   }
 
   // Call
-  CallInst *CI = Builder.CreateCall(Dest, Args);
+  auto CI = Builder.CreateCall(Dest, Args);
   CI->setCallingConv(Wrapper->getCallingConv());
 
   // Return
@@ -275,19 +275,20 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function* Dest, boo
   }
 }
 
+// Creates a new function that takes a va_list parameter but is not varargs
 Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto VAStarts = FindVAStarts(F);
   if (VAStarts.empty()) return &F; // TODO(yln): are there enough/important vararg functions that don't use their arguments to varant this early exit (optimization)
 
   // Adapt function type
-  FunctionType *FTy = F.getFunctionType();
+  auto FTy = F.getFunctionType();
   SmallVector<Type*, 8> Params(FTy->param_begin(), FTy->param_end());
   auto VAListTy = F.getParent()->getTypeByName("struct.__va_list"); // TODO(yln): brittle
   Params.push_back(VAListTy->getPointerTo());
-  FunctionType *NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
+  auto NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
   // Create new function definition
-  Function* Dest = Function::Create(NonVAFty, F.getLinkage(), "", F.getParent());
+  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", F.getParent());
   Dest->copyAttributesFrom(&F);
   Dest->setComdat(F.getComdat());
   Dest->takeName(&F);
