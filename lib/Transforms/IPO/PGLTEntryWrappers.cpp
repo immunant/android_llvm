@@ -41,10 +41,10 @@ private:
   static constexpr const char *WrapperSuffix = "$$wrap";
 
   void ProcessFunction(Function &F);
-  void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function* Dest);
-  void ReplaceAllUses(Function &F, Function *Wrapper);
-  void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
   Function *RewriteVarargs(Function &F);
+  void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function* Dest);
+  void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
+  void ReplaceAllUses(Function &F, Function *Wrapper);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
