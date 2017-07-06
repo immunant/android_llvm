@@ -258,10 +258,8 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function* Dest, boo
     Args.push_back(&A);
   }
   if (VARewritten) {
-//    auto VAStarts = FindVAStarts(F);
-//    Instruction *VAListAlloca = findAlloca(VAStarts[0]);
-//    auto VAListTy = VAListAlloca->getType()->getPointerElementType();
-    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder, nullptr); // TODO(yln)
+    auto VAListTy = Wrapper->getParent()->getTypeByName("struct.__va_list"); // TODO(yln): brittle
+    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder, VAListTy);
     Args.push_back(VAListAlloca);
   }
 
@@ -281,17 +279,10 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto VAStarts = FindVAStarts(F);
   if (VAStarts.empty()) return &F; // TODO(yln): are there enough/important vararg functions that don't use their arguments to varant this early exit (optimization)
 
-  // Find A va_list alloca. This is really only to get the type.
-  // TODO: use a static type // TODO(yln)
-  Instruction *VAListAlloca2 = FindAlloca(VAStarts[0]);
-
-  // Need to create a new function that takes a va_list parameter but is not
-  // varargs and clone the original function into it.
-  auto VAListTy = VAListAlloca2->getType()->getPointerElementType();
-
   // Adapt function type
   FunctionType *FTy = F.getFunctionType();
   SmallVector<Type*, 8> Params(FTy->param_begin(), FTy->param_end());
+  auto VAListTy = F.getParent()->getTypeByName("struct.__va_list"); // TODO(yln): brittle
   Params.push_back(VAListTy->getPointerTo());
   FunctionType *NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
