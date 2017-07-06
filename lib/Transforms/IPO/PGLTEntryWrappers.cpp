@@ -45,7 +45,6 @@ private:
   void ReplaceAllUses(Function &F, Function *Wrapper);
   void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
   Function *RewriteVarargs(Function &F);
-  Function *RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> &VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
 };
@@ -283,10 +282,6 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto VAStarts = FindVAStarts(F);
   if (VAStarts.empty()) return &F;
 
-  return RewriteVarargs(F, VAStarts);
-}
-
-Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> &VAStarts) {
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type // TODO(yln)
   Instruction *VAListAlloca2 = FindAlloca(VAStarts[0]);
