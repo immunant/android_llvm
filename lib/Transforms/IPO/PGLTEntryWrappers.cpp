@@ -45,7 +45,7 @@ private:
   void ReplaceAllUses(Function &F, Function *Wrapper);
   void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
   Function *RewriteVarargs(Function &F);
-  Function *RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts);
+  Function *RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> &VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
 };
@@ -185,11 +185,11 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
 
   CreateWrapperBody(Wrapper, Dest, /* VARewritten */ &F != Dest);
 
-  // 1) Calls to a non-local function must go through the wrapper since they
+  // +) Calls to a non-local function must go through the wrapper since they
   //    could be ridrected by the dynamic linker (i.e, LD_PRELOAD).
-  // 2) Calls to vararg functions must go through the wrapper to ensure that we
+  // +) Calls to vararg functions must go through the wrapper to ensure that we
   //    preserve the arguments on the stack when we indirect through the PGLT.
-  // 3) Address-taken uses of local functions might escape, hence we must also
+  // -) Address-taken uses of local functions might escape, hence we must also
   //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
     ReplaceAllUses(F, Wrapper);
@@ -278,76 +278,68 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   return RewriteVarargs(F, VAStarts);
 }
 
-Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts) {
+Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> &VAStarts) {
   Module *M = F.getParent();
-  FunctionType *FFTy = F.getFunctionType();
+  FunctionType *FTy = F.getFunctionType();
 
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type // TODO(yln)
-  Instruction *VAListAlloca = findAlloca(VAStarts[0]);
+  Instruction *VAListAlloca2 = findAlloca(VAStarts[0]);
 
   // Need to create a new function that takes a va_list parameter but is not
   // varargs and clone the original function into it.
-  auto VAListTy = VAListAlloca->getType()->getPointerElementType();
+  auto VAListTy = VAListAlloca2->getType()->getPointerElementType();
 
-  // Create a new function definition
-  SmallVector<Type*, 4> Params(FFTy->param_begin(), FFTy->param_end());
+  // Adapt function type
+  SmallVector<Type*, 8> Params(FTy->param_begin(), FTy->param_end());
   Params.push_back(VAListTy->getPointerTo());
-  FunctionType *NonVarArgs = FunctionType::get(FFTy->getReturnType(), Params, false);
-  Function* NewFn = Function::Create(NonVarArgs, F.getLinkage(), "", M);
-  NewFn->copyAttributesFrom(&F);
-  NewFn->setComdat(F.getComdat());
-  NewFn->takeName(&F);
-  NewFn->setSubprogram(F.getSubprogram());
+  FunctionType *NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
-  // Move the original function blocks into the newly created function
-  NewFn->getBasicBlockList().splice(NewFn->begin(), F.getBasicBlockList());
+  // Create new function definition
+  Function* Dest = Function::Create(NonVAFty, F.getLinkage(), "", M);
+  Dest->copyAttributesFrom(&F);
+  Dest->setComdat(F.getComdat());
+  Dest->takeName(&F);
+  Dest->setSubprogram(F.getSubprogram());
 
-  // Transfer old arguments to new arguments
-  Function::arg_iterator NewArgI = NewFn->arg_begin();
-  for (Function::arg_iterator OldArgI = F.arg_begin(), OldArgE = F.arg_end();
-       OldArgI != OldArgE; ++OldArgI, ++NewArgI) {
-    OldArgI->replaceAllUsesWith(&*NewArgI);
-    NewArgI->takeName(&*OldArgI);
+//  Dest->stealArgumentListFrom(Src); // TODO(yln): Try this instead of adapting args, but probably doesn't work since it is one arg shorter
+  // Move basic blocks into new function; F is now dysfunctional
+  Dest->getBasicBlockList().splice(Dest->begin(), F.getBasicBlockList());
+
+  // Adapt arguments (NewFn's additional 'va_list' arg does not need adaption)
+  auto DestArg = Dest->arg_begin();
+  for (auto &A : F.args()) {
+    A.replaceAllUsesWith(DestArg);
+    DestArg->takeName(&A);
+    DestArg++;
   }
 
-  ValueToValueMapTy VMap;
-  SmallVector<ReturnInst*, 1> Returns;
+  auto VAListArg = Dest->arg_end() - 1;
 
-  Function::arg_iterator DestI = NewFn->arg_begin();
-  for (Function::const_arg_iterator I = F.arg_begin(), E = F.arg_end();
-       I != E; ++I)
-    if (VMap.count(I) == 0) {   // Is this argument preserved?
-      DestI->setName(I->getName()); // Copy the name over...
-      VMap[I] = DestI++;        // Add mapping to VMap
-    }
-
-  // Optimized for a single va_start() call. We can remove the va_list alloca
-  // and va_start, and simply use the parameter directly. If there is more than
-  // one va_start, then we need to keep the alloca and replace va_start with a
-  // va_copy.
+  // +) For a single va_start call we can remove the va_list alloca and
+  //    va_start, and use the parameter directly instead.
+  // -) For more than one va_start we need to keep the alloca and replace
+  //    va_start with a va_copy.
   if (VAStarts.size() == 1) {
-    // use the new va_list argument instead of an alloca in the callee
-    VAListAlloca->replaceAllUsesWith(NewArgI);
+    Instruction *VAListAlloca = findAlloca(VAStarts[0]);
+    VAListAlloca->replaceAllUsesWith(VAListArg);
     VAListAlloca->eraseFromParent();
-
-    // remove the va_start
     VAStarts[0]->eraseFromParent();
   } else {
-    IRBuilder<> CalleeBuilder(NewFn->getContext());
-    for (auto NewI : VAStarts) {
-      CalleeBuilder.SetInsertPoint(NewI);
-      CalleeBuilder.CreateCall(
+    IRBuilder<> Builder(Dest->getContext());
+    for (auto VAStart : VAStarts) {
+      Builder.SetInsertPoint(VAStart);
+      Builder.CreateCall(
           Intrinsic::getDeclaration(M, Intrinsic::vacopy),
-          {NewI->getArgOperand(0),
-           CalleeBuilder.CreateBitCast(NewArgI, CalleeBuilder.getInt8PtrTy())});
+          {VAStart->getArgOperand(0),
+           Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 
       // remove the va_start
-      NewI->eraseFromParent();
+      VAStart->eraseFromParent();
     }
   }
 
-  return NewFn;
+  return Dest;
 }
 
 void PGLTEntryWrappers::MoveInstructionToWrapper(Instruction *I, BasicBlock *BB) {
