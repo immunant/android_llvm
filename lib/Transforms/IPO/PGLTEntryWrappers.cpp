@@ -135,7 +135,7 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
       Dest = RewriteVarargs(F);
     }
     CreateWrapper(F, AddressUses, Dest);
-    if (&F != Dest) {
+    if (Dest != &F) {
       F.eraseFromParent();
     }
   }
@@ -183,7 +183,7 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   Wrapper->addFnAttr(Attribute::NoInline);
   Wrapper->addFnAttr(Attribute::OptimizeForSize);
 
-  CreateWrapperBody(Wrapper, Dest, /* VARewritten */ &F != Dest);
+  CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
 
   // +) Calls to a non-local function must go through the wrapper since they
   //    could be ridrected by the dynamic linker (i.e, LD_PRELOAD).
