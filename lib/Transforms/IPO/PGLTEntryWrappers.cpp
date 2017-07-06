@@ -41,9 +41,10 @@ private:
   static constexpr const char *WrapperSuffix = "$$wrap";
 
   void ProcessFunction(Function &F);
-  void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
-  void ReplaceAllUsages(Function &F, Function *Wrapper);
-  void CreateWrapperBody(Function &F, Function *Wrapper);
+  void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function* Dest);
+  void ReplaceAllUsages(Function &F, Function *Wrapper); // TODO(yln): USES rename
+  void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
+  Function *RewriteVarargs(Function &F);
   Function *RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts);
   void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
@@ -128,12 +129,16 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
     if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
   }
 
+  Function *Dest = &F;
   if (!F.hasLocalLinkage() || !AddressUses.empty()) {
-    CreateWrapper(F, AddressUses);
+    if (F.isVarArg()) {
+      Dest = RewriteVarargs(F);
+    }
+    CreateWrapper(F, AddressUses, Dest);
   }
 
-  F.setSection("");
-  F.addFnAttr(Attribute::RandPage);
+  Dest->setSection("");
+  Dest->addFnAttr(Attribute::RandPage);
 }
 
 static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
@@ -152,7 +157,7 @@ static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, Small
   }
 }
 
-void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
+void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function *Dest) {
   Function *Wrapper = Function::Create(
       F.getFunctionType(), F.getLinkage(), F.getName() + WrapperSuffix, F.getParent());
 
@@ -175,7 +180,7 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   Wrapper->addFnAttr(Attribute::NoInline);
   Wrapper->addFnAttr(Attribute::OptimizeForSize);
 
-  CreateWrapperBody(F, Wrapper);
+  CreateWrapperBody(Wrapper, Dest, /* VARewritten */ &F != Dest);
 
   // 1) Calls to a non-local function must go through the wrapper since they
   //    could be ridrected by the dynamic linker (i.e, LD_PRELOAD).
@@ -234,40 +239,28 @@ static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy)
   return VAListAlloca;
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
-  BasicBlock *BB = BasicBlock::Create(F.getContext(), "", Wrapper);
+void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten) {
+  BasicBlock *BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
-  Value *VAList = nullptr;
-  Function *DestFn = &F;
-  if (F.isVarArg()) {
-    auto VAStarts = FindVAStarts(F);
-    if (!VAStarts.empty()) {
-      DestFn = RewriteVarargs(F, VAStarts);
-      // return the new wrapper alloca to our caller so it can pass it in the built
-      // call
-      // Find A va_list alloca. This is really only to get the type.
-      // TODO: use a static type
-      Instruction *VAListAlloca = findAlloca(VAStarts[0]);
-
-      // Need to create a new function that takes a va_list parameter but is not
-      // varargs and clone the original function into it.
-      auto VAListTy = VAListAlloca->getType()->getPointerElementType();
-      VAList = CreateVAList(F.getParent(), Builder, VAListTy);
-    }
-  }
-
-  // F may have been deleted at this point. DO NOT USE F!
-
+  // Arguments
   SmallVector<Value*, 8> Args;
   for (auto &A : Wrapper->args()) {
     Args.push_back(&A);
   }
-  if (VAList) Args.push_back(VAList);
+  if (VARewritten) {
+//    auto VAStarts = FindVAStarts(F);
+//    Instruction *VAListAlloca = findAlloca(VAStarts[0]);
+//    auto VAListTy = VAListAlloca->getType()->getPointerElementType();
+    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder, nullptr); // TODO(yln)
+    Args.push_back(VAListAlloca);
+  }
 
-  CallInst *CI = Builder.CreateCall(DestFn, Args);
+  // Call
+  CallInst *CI = Builder.CreateCall(Dest, Args);
   CI->setCallingConv(Wrapper->getCallingConv());
 
+  // Return
   if (Wrapper->getReturnType()->isVoidTy()) {
     Builder.CreateRetVoid();
   } else {
@@ -275,12 +268,19 @@ void PGLTEntryWrappers::CreateWrapperBody(Function &F, Function *Wrapper) {
   }
 }
 
-Function * PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts) {
+Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
+  auto VAStarts = FindVAStarts(F);
+  if (VAStarts.empty()) return &F;
+
+  return RewriteVarargs(F, VAStarts);
+}
+
+Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts) {
   Module *M = F.getParent();
   FunctionType *FFTy = F.getFunctionType();
 
   // Find A va_list alloca. This is really only to get the type.
-  // TODO: use a static type
+  // TODO: use a static type // TODO(yln)
   Instruction *VAListAlloca = findAlloca(VAStarts[0]);
 
   // Need to create a new function that takes a va_list parameter but is not
