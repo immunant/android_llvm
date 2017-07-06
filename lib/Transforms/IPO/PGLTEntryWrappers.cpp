@@ -231,9 +231,12 @@ static AllocaInst *FindAlloca(VAStartInst *VAStart) {
   return cast<AllocaInst>(Alloca);
 }
 
+static StructType *GetVAListType(const Module *M) {
+  return M->getTypeByName("struct.__va_list"); // TODO(yln): brittle
+}
+
 static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder) {
-  auto VAListTy = M->getTypeByName("struct.__va_list"); // TODO(yln): brittle
-  auto VAListAlloca = Builder.CreateAlloca(VAListTy);
+  auto VAListAlloca = Builder.CreateAlloca(GetVAListType(M));
   Builder.CreateCall(  // void va_start(va_list ap, parm_n)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
       {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())}); // TODO(yln): what about the parm_n (count) parameter?
@@ -281,14 +284,14 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   if (VAStarts.empty()) return &F; // TODO(yln): are there enough/important vararg functions that don't use their arguments to varant this early exit (optimization)
 
   // Adapt function type
+  auto M = F.getParent();
   auto FTy = F.getFunctionType();
   SmallVector<Type*, 8> Params(FTy->param_begin(), FTy->param_end());
-  auto VAListTy = F.getParent()->getTypeByName("struct.__va_list"); // TODO(yln): brittle
-  Params.push_back(VAListTy->getPointerTo());
+  Params.push_back(GetVAListType(M)->getPointerTo());
   auto NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
   // Create new function definition
-  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", F.getParent());
+  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", M);
   Dest->copyAttributesFrom(&F);
   Dest->setComdat(F.getComdat());
   Dest->takeName(&F);
