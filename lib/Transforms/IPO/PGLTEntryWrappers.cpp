@@ -224,13 +224,13 @@ static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
   return Insts;
 }
 
-static Instruction* findAlloca(Instruction* Use) {
-  Instruction *Alloca = Use;
+static AllocaInst *FindAlloca(VAStartInst *VAStart) {
+  Instruction *Alloca = VAStart;
   while (Alloca && !isa<AllocaInst>(Alloca)) {
     Alloca = dyn_cast<Instruction>(Alloca->op_begin());
   }
-  assert(Alloca && "Could not find va_list alloc in a var args functions");
-  return Alloca;
+  assert(Alloca && "Could not find va_list alloca in var args function");
+  return cast<AllocaInst>(Alloca);
 }
 
 static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
@@ -289,7 +289,7 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
 Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> &VAStarts) {
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type // TODO(yln)
-  Instruction *VAListAlloca2 = findAlloca(VAStarts[0]);
+  Instruction *VAListAlloca2 = FindAlloca(VAStarts[0]);
 
   // Need to create a new function that takes a va_list parameter but is not
   // varargs and clone the original function into it.
@@ -328,7 +328,7 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VASta
   // -) For more than one va_start we need to keep the va_list alloca and
   //    replace va_start with a va_copy.
   if (VAStarts.size() == 1) {
-    Instruction *VAListAlloca = findAlloca(VAStarts[0]);
+    auto VAListAlloca = FindAlloca(VAStarts[0]);
     VAListAlloca->replaceAllUsesWith(VAListArg);
     VAListAlloca->eraseFromParent();
   } else {
