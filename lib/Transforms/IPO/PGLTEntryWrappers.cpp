@@ -135,6 +135,9 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
       Dest = RewriteVarargs(F);
     }
     CreateWrapper(F, AddressUses, Dest);
+    if (&F != Dest) {
+      F.eraseFromParent();
+    }
   }
 
   Dest->setSection("");
@@ -343,8 +346,6 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VASta
       NewI->eraseFromParent();
     }
   }
-
-  F.eraseFromParent();
 
   return NewFn;
 }
