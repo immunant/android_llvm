@@ -45,7 +45,6 @@ private:
   void ReplaceAllUses(Function &F, Function *Wrapper);
   void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
   Function *RewriteVarargs(Function &F);
-  void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
@@ -335,21 +334,6 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   for (auto VAStart : VAStarts) VAStart->eraseFromParent();
 
   return Dest;
-}
-
-void PGLTEntryWrappers::MoveInstructionToWrapper(Instruction *I, BasicBlock *BB) {
-  for (auto &U : I->operands()) {
-    if (auto UI = dyn_cast<Instruction>(U.get())) {
-      MoveInstructionToWrapper(UI, BB);
-    }
-  }
-
-  if (isa<BitCastInst>(I))
-    I = I->clone();
-  else
-    I->removeFromParent();
-
-  BB->getInstList().push_back(I);
 }
 
 void PGLTEntryWrappers::CreatePGLT(Module &M) {
