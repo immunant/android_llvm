@@ -42,7 +42,7 @@ private:
 
   void ProcessFunction(Function &F);
   void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function* Dest);
-  void ReplaceAllUsages(Function &F, Function *Wrapper); // TODO(yln): USES rename
+  void ReplaceAllUses(Function &F, Function *Wrapper);
   void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
   Function *RewriteVarargs(Function &F);
   Function *RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> VAStarts);
@@ -189,7 +189,7 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   // 3) Address-taken uses of local functions might escape, hence we must also
   //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
-    ReplaceAllUsages(F, Wrapper);
+    ReplaceAllUses(F, Wrapper);
   } else {
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
@@ -199,7 +199,7 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   }
 }
 
-void PGLTEntryWrappers::ReplaceAllUsages(Function &F, Function *Wrapper) {
+void PGLTEntryWrappers::ReplaceAllUses(Function &F, Function *Wrapper) {
   std::string OldName = F.getName();
   Wrapper->takeName(&F);
   F.setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
