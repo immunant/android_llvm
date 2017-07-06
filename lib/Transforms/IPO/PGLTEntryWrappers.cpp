@@ -242,6 +242,14 @@ static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy)
   return VAListAlloca;
 }
 
+static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argument *VAListArg) {
+  Builder.SetInsertPoint(VAStart);
+  Builder.CreateCall(
+      Intrinsic::getDeclaration(VAStart->getModule(), Intrinsic::vacopy),
+      {VAStart->getArgOperand(0),
+       Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
+}
+
 void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten) {
   BasicBlock *BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
@@ -279,9 +287,6 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
 }
 
 Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VAStartInst *, 1> &VAStarts) {
-  Module *M = F.getParent();
-  FunctionType *FTy = F.getFunctionType();
-
   // Find A va_list alloca. This is really only to get the type.
   // TODO: use a static type // TODO(yln)
   Instruction *VAListAlloca2 = findAlloca(VAStarts[0]);
@@ -291,12 +296,13 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VASta
   auto VAListTy = VAListAlloca2->getType()->getPointerElementType();
 
   // Adapt function type
+  FunctionType *FTy = F.getFunctionType();
   SmallVector<Type*, 8> Params(FTy->param_begin(), FTy->param_end());
   Params.push_back(VAListTy->getPointerTo());
   FunctionType *NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
   // Create new function definition
-  Function* Dest = Function::Create(NonVAFty, F.getLinkage(), "", M);
+  Function* Dest = Function::Create(NonVAFty, F.getLinkage(), "", F.getParent());
   Dest->copyAttributesFrom(&F);
   Dest->setComdat(F.getComdat());
   Dest->takeName(&F);
@@ -314,30 +320,24 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, const SmallVector<VASta
     DestArg++;
   }
 
+  // Adapt va_list uses
   auto VAListArg = Dest->arg_end() - 1;
 
   // +) For a single va_start call we can remove the va_list alloca and
   //    va_start, and use the parameter directly instead.
-  // -) For more than one va_start we need to keep the alloca and replace
-  //    va_start with a va_copy.
+  // -) For more than one va_start we need to keep the va_list alloca and
+  //    replace va_start with a va_copy.
   if (VAStarts.size() == 1) {
     Instruction *VAListAlloca = findAlloca(VAStarts[0]);
     VAListAlloca->replaceAllUsesWith(VAListArg);
     VAListAlloca->eraseFromParent();
-    VAStarts[0]->eraseFromParent();
   } else {
     IRBuilder<> Builder(Dest->getContext());
     for (auto VAStart : VAStarts) {
-      Builder.SetInsertPoint(VAStart);
-      Builder.CreateCall(
-          Intrinsic::getDeclaration(M, Intrinsic::vacopy),
-          {VAStart->getArgOperand(0),
-           Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
-
-      // remove the va_start
-      VAStart->eraseFromParent();
+      CreateVACopyCall(Builder, VAStart, VAListArg);
     }
   }
+  for (auto VAStart : VAStarts) VAStart->eraseFromParent();
 
   return Dest;
 }
