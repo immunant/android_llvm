@@ -38,13 +38,13 @@ public:
 private:
   static constexpr const char *OrigSuffix = "$$orig";
   static constexpr const char *OrigVASuffix = "$$origva";
-  static constexpr const char *WrapperSuffix = "$$wrap";
+  static constexpr const char *WrapperSuffix = "_$wrap"; // TODO(yln): switch back
 
   void ProcessFunction(Function &F);
   Function *RewriteVarargs(Function &F);
-  void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function* Dest);
+  void CreateWrapper(FunctionType *FTy, Function &F, const std::vector<Use *> &AddressUses, Function *Dest);
   void CreateWrapperBody(Function *Wrapper, Function* Callee, bool VARewritten);
-  void ReplaceAllUses(Function &F, Function *Wrapper);
+  void ReplaceAllUses(Function &F, Function *Dest, Function *Wrapper, bool IsVarArg);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
@@ -129,10 +129,17 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
 
   Function *Dest = &F;
   if (!F.hasLocalLinkage() || !AddressUses.empty()) {
+    auto FTy = F.getFunctionType();
     if (F.isVarArg()) {
       Dest = RewriteVarargs(F);
     }
-    CreateWrapper(F, AddressUses, Dest);
+
+    // At this point F is dysfunctional (no name, no body), so we should consider it
+    // "destroyed", the new "real" function ist Dest.
+    // The only thing we want from the real function is it's function Type (because dest
+    // has an additional va_list parameter
+    // :)))
+    CreateWrapper(FTy, F, AddressUses, Dest);
     if (Dest != &F) {
       F.eraseFromParent();
     }
@@ -158,10 +165,8 @@ static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, Small
   }
 }
 
-void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function *Dest) {
-  Function *Wrapper = Function::Create(
-      F.getFunctionType(), F.getLinkage(), F.getName() + WrapperSuffix, F.getParent());
-
+void PGLTEntryWrappers::CreateWrapper(FunctionType *FTy, Function &F, const std::vector<Use *> &AddressUses, Function *Dest) {
+  auto Wrapper = Function::Create(FTy, F.getLinkage(), F.getName() + WrapperSuffix, F.getParent());
   Wrapper->copyAttributesFrom(&F);
   Wrapper->setComdat(F.getComdat());
   // Ensure that the wrapper is not placed in an explicitly named section. If it
@@ -189,8 +194,8 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   //    preserve the arguments on the stack when we indirect through the PGLT.
   // -) Address-taken uses of local functions might escape, hence we must also
   //    replace them.
-  if (!F.hasLocalLinkage() || F.isVarArg()) {
-    ReplaceAllUses(F, Wrapper);
+  if (!F.hasLocalLinkage() || FTy->isVarArg()) {
+    ReplaceAllUses(F, Dest, Wrapper, FTy->isVarArg());
   } else {
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
@@ -200,10 +205,10 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &Addr
   }
 }
 
-void PGLTEntryWrappers::ReplaceAllUses(Function &F, Function *Wrapper) {
-  std::string OldName = F.getName();
-  Wrapper->takeName(&F);
-  F.setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
+void PGLTEntryWrappers::ReplaceAllUses(Function &F, Function* Dest, Function *Wrapper, bool IsVarArg) {
+  std::string OldName = Dest->getName();
+  Wrapper->takeName(Dest);
+  Dest->setName(OldName + (IsVarArg ? OrigVASuffix : OrigSuffix));
 
   F.replaceAllUsesWith(Wrapper);
 
