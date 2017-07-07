@@ -141,17 +141,14 @@ void PGLTEntryWrappers::ProcessFunction(Function *F) {
   F->addFnAttr(Attribute::RandPage);
 }
 
-static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
+static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper) {
   if (!U->get()) return; // Already replaced this use?
 
   if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
     assert(GV->getInitializer() == F);
     GV->setInitializer(Wrapper);
   } else if (auto C = dyn_cast<Constant>(U->getUser())) {
-    if (!Constants.count(C)) { // TODO(yln): I don't think this is needed
-      Constants.insert(C);
-      C->handleOperandChange(F, Wrapper); // Replace all uses at once
-    }
+    C->handleOperandChange(F, Wrapper);
   } else {
     U->set(Wrapper);
   }
@@ -196,9 +193,8 @@ Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> 
     }
   } else {
     assert(!AddressUses.empty());
-    SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
     for (auto U : AddressUses) {
-      ReplaceAddressTakenUse(U, &F, Wrapper, Constants);
+      ReplaceAddressTakenUse(U, &F, Wrapper);
     }
   }
 
