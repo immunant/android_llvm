@@ -44,7 +44,6 @@ private:
   Function *RewriteVarargs(Function &F);
   void CreateWrapper(Function &F, const std::vector<Use *> &AddressUses, Function *Dest);
   void CreateWrapperBody(Function *Wrapper, Function* Callee, bool VARewritten);
-  void ReplaceAllUses(Function &F, Function *Dest, Function *Wrapper);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
@@ -187,7 +186,15 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use *> &Add
   // -) Address-taken uses of local functions might escape, hence we must also
   //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
-    ReplaceAllUses(F, Dest, Wrapper);
+    std::string OldName = Dest->getName();
+    Wrapper->takeName(Dest);
+    Dest->setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
+
+    F.replaceAllUsesWith(Wrapper);
+
+    if (!F.hasLocalLinkage()) {
+      Dest->setVisibility(GlobalValue::HiddenVisibility);
+    }
   } else {
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants; // TODO(yln): SmallPtrSetImpl without N=8
@@ -196,19 +203,9 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use *> &Add
     }
   }
 
+  // Creating the body must come last: above we might change the visibility of
+  // the wrapped function, which invalidates an-already created CallInst
   CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
-}
-
-void PGLTEntryWrappers::ReplaceAllUses(Function &F, Function* Dest, Function *Wrapper) {
-  std::string OldName = Dest->getName();
-  Wrapper->takeName(Dest);
-  Dest->setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
-
-  F.replaceAllUsesWith(Wrapper);
-
-  if (!F.hasLocalLinkage()) {
-    Dest->setVisibility(GlobalValue::HiddenVisibility);
-  }
 }
 
 static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
