@@ -43,7 +43,7 @@ private:
   void ProcessFunction(Function &F);
   Function *RewriteVarargs(Function &F);
   void CreateWrapper(Function &F, const std::vector<Use*> &AddressUses, Function* Dest);
-  void CreateWrapperBody(Function *Wrapper, Function* Dest, bool VARewritten);
+  void CreateWrapperBody(Function *Wrapper, Function* Callee, bool VARewritten);
   void ReplaceAllUses(Function &F, Function *Wrapper);
   void CreatePGLT(Module &M);
 };
@@ -267,7 +267,7 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Dest, bool VARewritten) {
+void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, bool VARewritten) {
   auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
@@ -282,7 +282,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Dest, boo
   }
 
   // Call
-  auto CI = Builder.CreateCall(Dest, Args);
+  auto CI = Builder.CreateCall(Callee, Args);
   CI->setCallingConv(Wrapper->getCallingConv());
 
   // Return
