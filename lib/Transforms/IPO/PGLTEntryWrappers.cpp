@@ -306,11 +306,12 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
   // Create new function definition
-  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", M);
+  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", M); // TODO(yln): rename "NewFn"
   Dest->copyAttributesFrom(&F);
   Dest->setComdat(F.getComdat());
   Dest->takeName(&F);
   Dest->setSubprogram(F.getSubprogram());
+//  Dest->copyMetadata(&F, 1337); // TODO(yln): what happens to metadata?
 
 //  Dest->stealArgumentListFrom(Src); // TODO(yln): Try this instead of adapting args, but probably doesn't work since it is one arg shorter
   // Move basic blocks into new function; F is now dysfunctional
