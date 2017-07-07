@@ -231,8 +231,23 @@ static AllocaInst *FindAlloca(VAStartInst *VAStart) {
   return cast<AllocaInst>(Alloca);
 }
 
+// TODO(yln): brittle, think about better way
+// Should we create it ourselves? va_list is a platform-dependent type
+// From LLVM docs:
+//; This struct is different for every platform. For most platforms,
+//; it is merely an i8*.
+//%struct.va_list = type { i8* }
+//
+//; For Unix x86_64 platforms, va_list is the following struct:
+//; %struct.va_list = type { i32, i32, i8*, i8* }
 static StructType *GetVAListType(const Module *M) {
-  return M->getTypeByName("struct.__va_list"); // TODO(yln): brittle
+  constexpr const char *VAListTyNames[] = {"struct.__va_list",
+                                           "struct.std::__va_list"};
+  for (auto TyName : VAListTyNames) {
+    auto Ty = M->getTypeByName(TyName);
+    if (Ty) return Ty;
+  }
+  llvm_unreachable("Could not retrieve 'va_list' type");
 }
 
 static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder) {
