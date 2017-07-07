@@ -40,7 +40,7 @@ private:
   static constexpr const char *OrigVASuffix = "$$origva";
   static constexpr const char *WrapperSuffix = "$$wrap";
 
-  void ProcessFunction(Function &F);
+  void ProcessFunction(Function *F);
   Function *RewriteVarargs(Function &F);
   Function *CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
   void CreateWrapperBody(Function *Wrapper, Function* F, bool VARewritten);
@@ -72,7 +72,7 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   }
 
   for (auto F : Worklist) {
-    ProcessFunction(*F);
+    ProcessFunction(F);
   }
 
   if (!Worklist.empty()) {
@@ -120,23 +120,25 @@ static bool SkipFunctionUse(const Use &U) {
       || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
 }
 
-void PGLTEntryWrappers::ProcessFunction(Function &F) {
+void PGLTEntryWrappers::ProcessFunction(Function *F) {
   std::vector<Use*> AddressUses;
-  for (Use &U : F.uses()) {
+  for (Use &U : F->uses()) {
     if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
   }
 
-  Function *Dest = &F;
-  if (!F.hasLocalLinkage() || !AddressUses.empty()) {
-    if (F.isVarArg()) {
-      Dest = RewriteVarargs(F); // Might delete F
+  if (!F->hasLocalLinkage() || !AddressUses.empty()) {
     auto Wrapper = CreateWrapper(*F, AddressUses);
+    bool VARewritten = false;
+    if (F->isVarArg()) {
+      auto NF = RewriteVarargs(*F);
+      VARewritten = NF != F;
+      F = NF;   // Reassign F because it might have been deleted
     }
-    CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
+    CreateWrapperBody(Wrapper, F, VARewritten);
   }
 
-  Dest->setSection("");
-  Dest->addFnAttr(Attribute::RandPage);
+  F->setSection("");
+  F->addFnAttr(Attribute::RandPage);
 }
 
 static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
