@@ -196,7 +196,9 @@ def install_wrappers(llvm_install_path):
         shutil.move(clang_path, clang_path + '.real')
     if not os.path.exists(clang_tidy_path + '.real'):
         shutil.move(clang_tidy_path, clang_tidy_path + '.real')
+    utils.remove(clang_path)
     utils.remove(clangxx_path)
+    utils.remove(clang_tidy_path)
     utils.remove(clangxx_path + '.real')
     os.symlink('clang.real', clangxx_path + '.real')
 
