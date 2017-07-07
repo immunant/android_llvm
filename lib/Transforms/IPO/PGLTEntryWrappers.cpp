@@ -377,7 +377,7 @@ void PGLTEntryWrappers::CreatePGLT(Module &M) {
   LLVMUsed->setSection("llvm.metadata");
 
 
-  // TODO(yln): this can be removed, maybe
+  // TODO(yln): this can be removed, maybe, alternatively remove some redundant code in AsmPrinter::EmitPGLT
   // Set the PGLT base address
   auto PGLTAddress = M.getGlobalVariable("_PGLT_");
   if (!PGLTAddress) {
