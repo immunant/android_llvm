@@ -42,7 +42,7 @@ private:
 
   void ProcessFunction(Function &F);
   Function *RewriteVarargs(Function &F);
-  Function *CreateWrapper(Function &F, const std::vector<Use *> &AddressUses, Function *Dest);
+  Function *CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
   void CreateWrapperBody(Function *Wrapper, Function* F, bool VARewritten);
   void CreatePGLT(Module &M);
 };
@@ -128,9 +128,9 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
 
   Function *Dest = &F;
   if (!F.hasLocalLinkage() || !AddressUses.empty()) {
-    auto Wrapper = CreateWrapper(F, AddressUses, Dest);
     if (F.isVarArg()) {
       Dest = RewriteVarargs(F); // Might delete F
+    auto Wrapper = CreateWrapper(*F, AddressUses);
     }
     CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
   }
@@ -155,7 +155,7 @@ static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, Small
   }
 }
 
-Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use *> &AddressUses, Function *Dest) {
+Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
   auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(),
                                   F.getName() + WrapperSuffix, F.getParent());
   Wrapper->copyAttributesFrom(&F);
@@ -184,14 +184,13 @@ Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use *>
   // -) Address-taken uses of local functions might escape, hence we must also
   //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
-    std::string OldName = Dest->getName();
-    Wrapper->takeName(Dest);
-    Dest->setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
-
+    // Take name, replace usages, hide original function
+    std::string OldName = F.getName();
+    Wrapper->takeName(&F);
+    F.setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
     F.replaceAllUsesWith(Wrapper);
-
     if (!F.hasLocalLinkage()) {
-      Dest->setVisibility(GlobalValue::HiddenVisibility);
+      F.setVisibility(GlobalValue::HiddenVisibility);
     }
   } else {
     assert(!AddressUses.empty());
