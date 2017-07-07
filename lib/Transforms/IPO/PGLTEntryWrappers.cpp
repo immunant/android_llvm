@@ -38,7 +38,7 @@ public:
 private:
   static constexpr const char *OrigSuffix = "$$orig";
   static constexpr const char *OrigVASuffix = "$$origva";
-  static constexpr const char *WrapperSuffix = "_$wrap"; // TODO(yln): switch back
+  static constexpr const char *WrapperSuffix = "$$wrap";
 
   void ProcessFunction(Function &F);
   Function *RewriteVarargs(Function &F);
