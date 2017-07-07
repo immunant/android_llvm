@@ -186,8 +186,6 @@ void PGLTEntryWrappers::CreateWrapper(FunctionType *FTy, Function &F, const std:
   Wrapper->addFnAttr(Attribute::NoInline);
   Wrapper->addFnAttr(Attribute::OptimizeForSize);
 
-  CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
-
   // +) Calls to a non-local function must go through the wrapper since they
   //    could be redirected by the dynamic linker (i.e, LD_PRELOAD).
   // +) Calls to vararg functions must go through the wrapper to ensure that we
@@ -203,6 +201,8 @@ void PGLTEntryWrappers::CreateWrapper(FunctionType *FTy, Function &F, const std:
       ReplaceAddressTakenUse(U, &F, Wrapper, Constants);
     }
   }
+
+  CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
 }
 
 void PGLTEntryWrappers::ReplaceAllUses(Function &F, Function* Dest, Function *Wrapper, bool IsVarArg) {
@@ -213,7 +213,7 @@ void PGLTEntryWrappers::ReplaceAllUses(Function &F, Function* Dest, Function *Wr
   F.replaceAllUsesWith(Wrapper);
 
   if (!F.hasLocalLinkage()) {
-    F.setVisibility(GlobalValue::HiddenVisibility);
+    Dest->setVisibility(GlobalValue::HiddenVisibility);
   }
 }
 
