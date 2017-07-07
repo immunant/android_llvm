@@ -18,10 +18,21 @@
 import errno
 import fcntl
 import os
+import shlex
 import subprocess
 import sys
 import time
 
+BISECT_STAGE = os.environ.get('BISECT_STAGE')
+# We do not need bisect functionality with Goma and clang.
+# Goma server does not have bisect_driver, so we only import
+# bisect_driver when needed. See http://b/34862041
+# We should be careful when doing imports because of Goma.
+if BISECT_STAGE:
+    import bisect_driver
+
+DEFAULT_BISECT_DIR = os.path.expanduser('~/ANDROID_BISECT')
+BISECT_DIR = os.environ.get('BISECT_DIR') or DEFAULT_BISECT_DIR
 STDERR_REDIRECT_KEY = 'ANDROID_LLVM_STDERR_REDIRECT'
 PREBUILT_COMPILER_PATH_KEY = 'ANDROID_LLVM_PREBUILT_COMPILER_PATH'
 
@@ -30,13 +41,13 @@ PREBUILT_COMPILER_PATH_KEY = 'ANDROID_LLVM_PREBUILT_COMPILER_PATH'
 DISABLED_WARNINGS = ['-Wno-error=zero-as-null-pointer-constant',
                      '-Wno-error=unknown-warning-option']
 
-def real_compiler_path():
-    return os.path.realpath(__file__) + '.real'
 
-
-def fallback_compiler_path():
-    return os.path.join(os.environ[PREBUILT_COMPILER_PATH_KEY],
-                        os.path.basename(__file__))
+def process_arg_file(arg_file):
+    args = []
+    # Read in entire file at once and parse as if in shell
+    with open(arg_file, 'rb') as f:
+        args.extend(shlex.split(f.read()))
+    return args
 
 
 def write_log(path, command, log):
@@ -54,30 +65,113 @@ def write_log(path, command, log):
         f.write('==============================================\n\n')
 
 
-def exec_clang(redirect_path, argv):
-    command = [real_compiler_path()] + argv[1:]
+class CompilerWrapper():
+    def __init__(self, argv):
+        self.argv0_current = argv[0]
+        self.args = argv[1:]
+        self.execargs = []
+        self.real_compiler = None
+        self.argv0 = None
+        self.append_flags = []
+        self.prepend_flags = []
+        self.custom_flags = {
+            '--gomacc-path': None
+        }
 
-    # We only want to pass extra flags to clang and clang++.
-    if os.path.basename(__file__) in ['clang', 'clang++']:
-        command += ["-fno-color-diagnostics"] + DISABLED_WARNINGS
-    p = subprocess.Popen(command,
-                         stderr=subprocess.PIPE)
-    (_, err) = p.communicate()
-    sys.stderr.write(err)
-    if p.returncode != 0:
-        write_log(redirect_path, command, err)
-        os.execv(fallback_compiler_path(),
-                 [fallback_compiler_path()] + argv[1:])
-    return p.returncode
+    def set_real_compiler(self):
+        """Find the real compiler with the absolute path."""
+        compiler_path = os.path.dirname(self.argv0_current)
+        if os.path.islink(__file__):
+            compiler = os.path.basename(os.readlink(__file__))
+        else:
+            compiler = os.path.basename(os.path.abspath(__file__))
+        self.real_compiler = os.path.join(
+                compiler_path,
+                compiler + '.real')
+        self.argv0 = self.real_compiler
+
+    def process_gomacc_command(self):
+        """Return the gomacc command if '--gomacc-path' is set."""
+        gomacc = self.custom_flags['--gomacc-path']
+        if gomacc and os.path.isfile(gomacc):
+            self.argv0 = gomacc
+            self.execargs += [gomacc]
+
+    def parse_custom_flags(self):
+        i = 0
+        args = []
+        while i < len(self.args):
+            if self.args[i] in self.custom_flags:
+                if i >= len(self.args) - 1:
+                    sys.exit('The value of {} is not set.'.format(self.args[i]))
+                self.custom_flags[self.args[i]] = self.args[i + 1]
+                i = i + 2
+            else:
+                args.append(self.args[i])
+                i = i + 1
+        self.args = args
+
+    def add_flags(self):
+        self.args = self.prepend_flags + self.args + self.append_flags
+
+    def prepare_compiler_args(self, enable_fallback):
+        self.set_real_compiler()
+        self.parse_custom_flags()
+        # Goma should not be enabled for new prebuilt.
+        if not enable_fallback:
+            self.process_gomacc_command()
+        self.add_flags()
+        self.execargs += [self.real_compiler] + self.args
+
+    def exec_clang_with_fallback(self):
+        # We only want to pass extra flags to clang and clang++.
+        if os.path.basename(__file__) in ['clang', 'clang++']:
+            self.execargs += ["-fno-color-diagnostics"] + DISABLED_WARNINGS
+        p = subprocess.Popen(self.execargs,
+                             stderr=subprocess.PIPE)
+        (_, err) = p.communicate()
+        sys.stderr.write(err)
+        if p.returncode != 0:
+            redirect_path = os.environ[STDERR_REDIRECT_KEY]
+            write_log(redirect_path, self.execargs, err)
+            fallback_arg0 = os.path.join(os.environ[PREBUILT_COMPILER_PATH_KEY],
+                                         os.path.basename(__file__))
+            os.execv(fallback_arg0,
+                     [fallback_arg0] + self.execargs[1:])
+
+    def invoke_compiler(self):
+        enable_fallback = PREBUILT_COMPILER_PATH_KEY in os.environ
+        self.prepare_compiler_args(enable_fallback)
+        if enable_fallback:
+            self.exec_clang_with_fallback()
+        else:
+            os.execv(self.argv0, self.execargs)
+
+    def bisect(self):
+        self.prepare_compiler_args()
+        # Handle @file argument syntax with compiler
+        idx = 0
+        # The length of self.execargs can be changed during the @file argument
+        # expansion, so we need to use while loop instead of for loop.
+        while idx < len(self.execargs):
+            if self.execargs[idx][0] == '@':
+                args_in_file = ProcessArgFile(self.execargs[idx][1:])
+                self.execargs = self.execargs[0:idx] + args_in_file +\
+                        self.execargs[idx + 1:]
+                # Skip update of idx, since we want to recursively expand
+                # response files.
+            else:
+                idx = idx + 1
+        bisect_driver.bisect_driver(BISECT_STAGE, BISECT_DIR, self.execargs)
 
 
 def main(argv):
-    if STDERR_REDIRECT_KEY in os.environ:
-        redirect_path = os.environ[STDERR_REDIRECT_KEY]
-        sys.exit(exec_clang(redirect_path, argv))
+    cw = CompilerWrapper(argv)
+    if BISECT_STAGE and BISECT_STAGE in bisect_driver.VALID_MODES\
+            and '-o' in argv:
+        cw.bisect()
     else:
-        os.execv(real_compiler_path(),
-                 [argv[0] + '.real'] + argv[1:] + DISABLED_WARNINGS)
+        cw.invoke_compiler()
 
 
 if __name__ == '__main__':
