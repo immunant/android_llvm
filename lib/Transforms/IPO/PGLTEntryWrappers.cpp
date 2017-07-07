@@ -295,18 +295,18 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
   // Create new function definition
-  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", M);
-  Dest->takeName(&F);
-  Dest->copyAttributesFrom(&F);
-  Dest->setComdat(F.getComdat());
-  Dest->setSubprogram(F.getSubprogram());
-//  Dest->copyMetadata(&F, 1337); // TODO(yln): what happens to metadata?
+  auto NF = Function::Create(NonVAFty, F.getLinkage(), "", M);
+  NF->takeName(&F);
+  NF->copyAttributesFrom(&F);
+  NF->setComdat(F.getComdat());
+  NF->setSubprogram(F.getSubprogram());
+//  NF->copyMetadata(&F, 1337); // TODO(yln): what happens to metadata?
 
   // Move basic blocks into new function; F is now dysfunctional
-  Dest->getBasicBlockList().splice(Dest->begin(), F.getBasicBlockList());
+  NF->getBasicBlockList().splice(NF->begin(), F.getBasicBlockList());
 
   // Adapt arguments (NewFn's additional 'va_list' arg does not need adaption)
-  auto DestArg = Dest->arg_begin();
+  auto DestArg = NF->arg_begin();
   for (auto &A : F.args()) {
     A.replaceAllUsesWith(DestArg);
     DestArg->takeName(&A);
@@ -314,7 +314,7 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   }
 
   // Adapt va_list uses
-  auto VAListArg = Dest->arg_end() - 1;
+  auto VAListArg = NF->arg_end() - 1;
 
   // +) For a single va_start call we can remove the va_list alloca and
   //    va_start, and use the parameter directly instead.
@@ -325,7 +325,7 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
     VAListAlloca->replaceAllUsesWith(VAListArg);
     VAListAlloca->eraseFromParent();
   } else {
-    IRBuilder<> Builder(Dest->getContext());
+    IRBuilder<> Builder(NF->getContext());
     for (auto VAStart : VAStarts) {
       CreateVACopyCall(Builder, VAStart, VAListArg);
     }
@@ -335,7 +335,7 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   // Delete original function
   F.eraseFromParent();
 
-  return Dest;
+  return NF;
 }
 
 void PGLTEntryWrappers::CreatePGLT(Module &M) {
