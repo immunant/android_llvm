@@ -237,16 +237,16 @@ static StructType *GetVAListType(const Module *M) {
 
 static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder) {
   auto VAListAlloca = Builder.CreateAlloca(GetVAListType(M));
-  Builder.CreateCall(  // void va_start(va_list ap, parm_n)
+  Builder.CreateCall(  // @llvm.va_start(i8* <arglist>)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
-      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())}); // TODO(yln): what about the parm_n (count) parameter?
+      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
 
   return VAListAlloca;
 }
 
 static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argument *VAListArg) {
   Builder.SetInsertPoint(VAStart);
-  Builder.CreateCall(  // void va_copy(va_list dest, va_list src)
+  Builder.CreateCall(  // @llvm.va_copy(i8* <destarglist>, i8* <srcarglist>)
       Intrinsic::getDeclaration(VAStart->getModule(), Intrinsic::vacopy),
       {VAStart->getArgOperand(0),
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
