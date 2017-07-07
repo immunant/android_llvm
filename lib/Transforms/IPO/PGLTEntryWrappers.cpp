@@ -292,7 +292,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, b
 // Creates a new function that takes a va_list parameter but is not varargs
 Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto VAStarts = FindVAStarts(F);
-  if (VAStarts.empty()) return &F; // TODO(yln): are there enough/important vararg functions that don't use their arguments to varant this early exit (optimization)
+  if (VAStarts.empty()) return &F;
 
   // Adapt function type
   auto M = F.getParent();
@@ -302,10 +302,10 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   auto NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
   // Create new function definition
-  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", M); // TODO(yln): rename "NewFn"
+  auto Dest = Function::Create(NonVAFty, F.getLinkage(), "", M);
+  Dest->takeName(&F);
   Dest->copyAttributesFrom(&F);
   Dest->setComdat(F.getComdat());
-  Dest->takeName(&F);
   Dest->setSubprogram(F.getSubprogram());
 //  Dest->copyMetadata(&F, 1337); // TODO(yln): what happens to metadata?
 
