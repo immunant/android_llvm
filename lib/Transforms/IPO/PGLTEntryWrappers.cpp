@@ -42,8 +42,8 @@ private:
 
   void ProcessFunction(Function &F);
   Function *RewriteVarargs(Function &F);
-  void CreateWrapper(Function &F, const std::vector<Use *> &AddressUses, Function *Dest);
-  void CreateWrapperBody(Function *Wrapper, Function* Callee, bool VARewritten);
+  Function *CreateWrapper(Function &F, const std::vector<Use *> &AddressUses, Function *Dest);
+  void CreateWrapperBody(Function *Wrapper, Function* F, bool VARewritten);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
@@ -128,13 +128,11 @@ void PGLTEntryWrappers::ProcessFunction(Function &F) {
 
   Function *Dest = &F;
   if (!F.hasLocalLinkage() || !AddressUses.empty()) {
+    auto Wrapper = CreateWrapper(F, AddressUses, Dest);
     if (F.isVarArg()) {
-      Dest = RewriteVarargs(F);
+      Dest = RewriteVarargs(F); // Might delete F
     }
-    CreateWrapper(F, AddressUses, Dest);
-    if (Dest != &F) {
-      F.eraseFromParent();
-    }
+    CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
   }
 
   Dest->setSection("");
@@ -157,7 +155,7 @@ static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, Small
   }
 }
 
-void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use *> &AddressUses, Function *Dest) {
+Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use *> &AddressUses, Function *Dest) {
   auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(),
                                   F.getName() + WrapperSuffix, F.getParent());
   Wrapper->copyAttributesFrom(&F);
@@ -203,9 +201,7 @@ void PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use *> &Add
     }
   }
 
-  // Creating the body must come last: above we might change the visibility of
-  // the wrapped function, which invalidates an-already created CallInst
-  CreateWrapperBody(Wrapper, Dest, /* VARewritten */ Dest != &F);
+  return Wrapper;
 }
 
 static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
@@ -263,7 +259,7 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, bool VARewritten) {
+void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *F, bool VARewritten) {
   auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
@@ -278,7 +274,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, b
   }
 
   // Call
-  auto CI = Builder.CreateCall(Callee, Args);
+  auto CI = Builder.CreateCall(F, Args);
   CI->setCallingConv(Wrapper->getCallingConv());
 
   // Return
@@ -339,6 +335,9 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
     }
   }
   for (auto VAStart : VAStarts) VAStart->eraseFromParent();
+
+  // Delete original function
+  F.eraseFromParent();
 
   return Dest;
 }
