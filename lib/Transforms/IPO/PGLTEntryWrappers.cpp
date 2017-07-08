@@ -86,10 +86,9 @@ static bool SkipFunctionUse(const Use &U);
 static bool IsDirectCallOfBitcast(User *Usr) {
   auto CE = dyn_cast<ConstantExpr>(Usr);
   if (CE && CE->getOpcode() == Instruction::BitCast) {
-    // This bitcast must have exactly one user.
     // TODO(yln): we want to ensure that all uses of the bitcast are not skippable
-    if (CE->user_begin() != CE->user_end()) {
-      return SkipFunctionUse(*CE->use_begin());
+    for (auto &U : CE->uses()) {
+      if (SkipFunctionUse(U)) return true;
     }
   }
   return false;
