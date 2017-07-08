@@ -82,26 +82,14 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   return !Worklist.empty();
 }
 
+static bool SkipFunctionUse(const Use &U);
 static bool IsDirectCallOfBitcast(User *Usr) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Usr)) {
     if (CE->getOpcode() == Instruction::BitCast) {
       // This bitcast must have exactly one user.
       // TODO(yln): we want to ensure that all uses of the bitcast are not skippable
       if (CE->user_begin() != CE->user_end()) {
-        User *ParentUse = *CE->user_begin();
-        // TOOD(yln): maybe recursive call to SkipFunctionUse
-        if (CallInst *CI = dyn_cast<CallInst>(ParentUse)) {
-          // TODO(yln): ImmutableCallSite
-          CallSite CS(CI); // TODO(yln): also handle InvokeInst, create callsite with ParentUse, ask if valid CS
-          // TODO(yln): add test with InvokeInst, confirm it points to wrapper, then make sure it gets optimized
-//              if (CS)
-          Use &CEU = *CE->use_begin();
-          if (CS.isCallee(&CEU)) {
-            return true;
-          }
-        }
-        if (isa<GlobalAlias>(ParentUse))
-          return true;
+        return SkipFunctionUse(*CE->use_begin());
       }
     }
   }
