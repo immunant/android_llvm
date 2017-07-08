@@ -43,7 +43,7 @@ private:
   void ProcessFunction(Function *F);
   Function *RewriteVarargs(Function &F);
   Function *CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
-  void CreateWrapperBody(Function *Wrapper, Function* F, bool VARewritten);
+  void CreateWrapperBody(Function *Wrapper, Function* Callee, bool VARewritten);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
@@ -256,7 +256,7 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *F, bool VARewritten) {
+void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, bool VARewritten) {
   auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
@@ -271,14 +271,14 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *F, bool V
   }
 
   // Call
-  auto CI = Builder.CreateCall(F, Args);
-  CI->setCallingConv(Wrapper->getCallingConv());
+  auto Call = Builder.CreateCall(Callee, Args);
+  Call->setCallingConv(Callee->getCallingConv());
 
   // Return
   if (Wrapper->getReturnType()->isVoidTy()) {
     Builder.CreateRetVoid();
   } else {
-    Builder.CreateRet(CI);
+    Builder.CreateRet(Call);
   }
 }
 
