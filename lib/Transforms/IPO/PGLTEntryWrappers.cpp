@@ -85,13 +85,8 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
 static bool SkipFunctionUse(const Use &U);
 static bool IsDirectCallOfBitcast(User *Usr) {
   auto CE = dyn_cast<ConstantExpr>(Usr);
-  if (CE && CE->getOpcode() == Instruction::BitCast) {
-    // TODO(yln): we want to ensure that all uses of the bitcast are not skippable
-    for (auto &U : CE->uses()) {
-      if (SkipFunctionUse(U)) return true;
-    }
-  }
-  return false;
+  return CE && CE->getOpcode() == Instruction::BitCast
+      && std::all_of(CE->use_begin(), CE->use_end(), SkipFunctionUse);
 }
 
 static bool SkipFunctionUse(const Use &U) {
