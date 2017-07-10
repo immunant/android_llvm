@@ -41,9 +41,9 @@ private:
   static constexpr const char *WrapperSuffix = "$$wrap";
 
   void ProcessFunction(Function *F);
-  Function *RewriteVarargs(Function &F);
+  Function *RewriteVarargs(Function &F, Type *&VAListTy);
   Function *CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
-  void CreateWrapperBody(Function *Wrapper, Function* Callee, bool VARewritten);
+  void CreateWrapperBody(Function *Wrapper, Function* Callee, Type *VAListTy);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
@@ -109,13 +109,11 @@ void PGLTEntryWrappers::ProcessFunction(Function *F) {
 
   if (!F->hasLocalLinkage() || !AddressUses.empty()) {
     auto Wrapper = CreateWrapper(*F, AddressUses);
-    bool VARewritten = false;
+    Type *VAListTy = nullptr;
     if (F->isVarArg()) {
-      auto NF = RewriteVarargs(*F);
-      VARewritten = NF != F;
-      F = NF;   // Reassign F because it might have been deleted
+      F = RewriteVarargs(*F, /* out */ VAListTy); // Reassign F, it might have been deleted
     }
-    CreateWrapperBody(Wrapper, F, VARewritten);
+    CreateWrapperBody(Wrapper, F, VAListTy);
   }
 
   F->setSection("");
@@ -201,27 +199,8 @@ static AllocaInst *FindAlloca(VAStartInst *VAStart) {
   return cast<AllocaInst>(Alloca);
 }
 
-// TODO(yln): brittle, think about better way
-// Should we create it ourselves? va_list is a platform-dependent type
-// From LLVM docs:
-//; This struct is different for every platform. For most platforms,
-//; it is merely an i8*.
-//%struct.va_list = type { i8* }
-//
-//; For Unix x86_64 platforms, va_list is the following struct:
-//; %struct.va_list = type { i32, i32, i8*, i8* }
-static StructType *GetVAListType(const Module *M) {
-  constexpr const char *VAListTyNames[] = {"struct.__va_list",
-                                           "struct.std::__va_list"};
-  for (auto TyName : VAListTyNames) {
-    auto Ty = M->getTypeByName(TyName);
-    if (Ty) return Ty;
-  }
-  llvm_unreachable("Could not retrieve 'va_list' type");
-}
-
-static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder) {
-  auto VAListAlloca = Builder.CreateAlloca(GetVAListType(M));
+static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
+  auto VAListAlloca = Builder.CreateAlloca(VAListTy);
   Builder.CreateCall(  // @llvm.va_start(i8* <arglist>)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
       {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
@@ -237,7 +216,7 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, bool VARewritten) {
+void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy) {
   auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
@@ -246,8 +225,8 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, b
   for (auto &A : Wrapper->args()) {
     Args.push_back(&A);
   }
-  if (VARewritten) {
-    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder);
+  if (VAListTy) {
+    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder, VAListTy);
     Args.push_back(VAListAlloca);
   }
 
@@ -263,20 +242,24 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, b
   }
 }
 
-// Creates a new function that takes a va_list parameter but is not varargs
-Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
+// Replaces the original function with a new function that takes a va_list
+// parameter but is not varargs:  foo(int, ...) -> foo$$origva(int, *va_list)
+Function *PGLTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   auto VAStarts = FindVAStarts(F);
   if (VAStarts.empty()) return &F;
 
+  // Determine va_list type
+  auto VAListAlloca = FindAlloca(VAStarts[0]);
+  VAListTy = VAListAlloca->getAllocatedType();
+
   // Adapt function type
-  auto M = F.getParent();
   auto FTy = F.getFunctionType();
   SmallVector<Type*, 8> Params(FTy->param_begin(), FTy->param_end());
-  Params.push_back(GetVAListType(M)->getPointerTo());
+  Params.push_back(VAListTy->getPointerTo());
   auto NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
 
   // Create new function definition
-  auto NF = Function::Create(NonVAFty, F.getLinkage(), "", M);
+  auto NF = Function::Create(NonVAFty, F.getLinkage(), "", F.getParent());
   NF->takeName(&F);
   NF->copyAttributesFrom(&F);
   NF->setComdat(F.getComdat());
@@ -302,7 +285,6 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F) {
   // -) For more than one va_start we need to keep the va_list alloca and
   //    replace va_start with a va_copy.
   if (VAStarts.size() == 1) {
-    auto VAListAlloca = FindAlloca(VAStarts[0]);
     VAListAlloca->replaceAllUsesWith(VAListArg);
     VAListAlloca->eraseFromParent();
   } else {
