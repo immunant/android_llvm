@@ -155,17 +155,6 @@ Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> 
                                   F.getName() + WrapperSuffix, F.getParent());
   Wrapper->copyAttributesFrom(&F);
   Wrapper->setComdat(F.getComdat());
-  // Ensure that the wrapper is not placed in an explicitly named section. If it
-  // is, the section flags will be combined with other function in the section
-  // (RandPage functions, potentially), and the wrapper will get marked
-  // RAND_ADDR
-  // TODO: Verify the above. This should not be the case unless functions are not
-  // Wrapper->setSection("");
-
-  // We can't put the wrapper function in an explicitly named section because
-  // it then does not get a per-function section, which we need to properly
-  // support --gc-sections
-  // Wrapper->setSection(".text.wrappers");
 
   Wrapper->addFnAttr(Attribute::RandWrapper);
   //Wrapper->addFnAttr(Attribute::RandPage);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
@@ -282,7 +271,6 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   NF->copyAttributesFrom(&F);
   NF->setComdat(F.getComdat());
   NF->setSubprogram(F.getSubprogram());
-//  NF->copyMetadata(&F, 1337); // TODO(yln): what happens to metadata?
 
   // Move basic blocks into new function; F is now dysfunctional
   NF->getBasicBlockList().splice(NF->begin(), F.getBasicBlockList());
