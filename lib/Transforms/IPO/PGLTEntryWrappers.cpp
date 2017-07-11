@@ -303,18 +303,16 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
 }
 
 void PGLTEntryWrappers::CreatePGLT(Module &M) {
-  LLVMContext &C = M.getContext();
-  auto *PtrTy = Type::getInt8PtrTy(C);
-  auto *PGLTType = ArrayType::get(PtrTy, 1);
-
-  Constant *Initializer = ConstantArray::get(PGLTType, {ConstantPointerNull::get(PtrTy)});
-  auto *PGLT = new GlobalVariable(M, PGLTType, true, GlobalValue::ExternalLinkage,
-                                  Initializer, "llvm.pglt");
+  auto PtrTy = Type::getInt8PtrTy(M.getContext());
+  auto Ty = ArrayType::get(PtrTy, /* NumElements */ 1);
+  auto Init = ConstantAggregateZero::get(Ty);
+  auto PGLT = new GlobalVariable(
+      M, Ty, /* constant */ true, GlobalValue::ExternalLinkage, Init, "llvm.pglt");
   PGLT->setVisibility(GlobalValue::ProtectedVisibility);
 
   llvm::appendToUsed(M, {PGLT});
 
-
+  LLVMContext &C = M.getContext();
   // TODO(yln): this can be removed, maybe, alternatively remove some redundant code in AsmPrinter::EmitPGLT
   // Set the PGLT base address
   auto PGLTAddress = M.getGlobalVariable("_PGLT_");
