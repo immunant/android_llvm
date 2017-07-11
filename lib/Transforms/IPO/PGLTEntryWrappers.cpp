@@ -15,6 +15,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include <llvm/Transforms/Utils/ModuleUtils.h>
 
 using namespace llvm;
 
@@ -311,28 +312,7 @@ void PGLTEntryWrappers::CreatePGLT(Module &M) {
                                   Initializer, "llvm.pglt");
   PGLT->setVisibility(GlobalValue::ProtectedVisibility);
 
-  GlobalVariable *LLVMUsed = M.getGlobalVariable("llvm.used");
-  std::vector<Constant *> MergedVars;
-  if (LLVMUsed) {
-    // Collect the existing members of llvm.used.
-    ConstantArray *Inits = cast<ConstantArray>(LLVMUsed->getInitializer());
-    for (unsigned I = 0, E = Inits->getNumOperands(); I != E; ++I)
-      MergedVars.push_back(Inits->getOperand(I));
-    LLVMUsed->eraseFromParent();
-  }
-
-  Type *i8PTy = Type::getInt8PtrTy(C);
-  // Add uses for pglt
-  MergedVars.push_back(
-      ConstantExpr::getBitCast(PGLT, i8PTy));
-
-  // Recreate llvm.used.
-  ArrayType *ATy = ArrayType::get(i8PTy, MergedVars.size());
-  LLVMUsed =
-      new GlobalVariable(M, ATy, false, GlobalValue::AppendingLinkage,
-                         ConstantArray::get(ATy, MergedVars), "llvm.used");
-
-  LLVMUsed->setSection("llvm.metadata");
+  llvm::appendToUsed(M, {PGLT});
 
 
   // TODO(yln): this can be removed, maybe, alternatively remove some redundant code in AsmPrinter::EmitPGLT
