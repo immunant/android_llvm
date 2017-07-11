@@ -5,6 +5,20 @@
 // Copyright 2016, 2017 Immunant, Inc.
 //
 //===----------------------------------------------------------------------===//
+//
+// This pass creates wrappers for pagerando-enabled functions. A function needs
+// a wrapper if it has non-local linkage or its address taken, i.e., if it can
+// be used from outside the module. (As an optimization we could use pointer
+// escape analysis for address-taken functions instead of creating wrappers for
+// all of them.)
+// Vararg functions require special treatment: their variable arguments on the
+// stack need to be preserved even when indirecting through the PGLT. We replace
+// the original function with a new function that takes an explicit 'va_list'
+// parameter:  foo(int, ...) -> foo$$origva(int, *va_list). The wrapper captures
+// its variable arguments and explicitly passes it to the adapted function to
+// preserve the variable arguments passed by the caller.
+//
+//===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/CallSite.h"
@@ -270,7 +284,7 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   // Move basic blocks into new function; F is now dysfunctional
   NF->getBasicBlockList().splice(NF->begin(), F.getBasicBlockList());
 
-  // Adapt arguments (NewFn's additional 'va_list' arg does not need adaption)
+  // Adapt arguments (FN's additional 'va_list' arg does not need adaption)
   auto DestArg = NF->arg_begin();
   for (auto &A : F.args()) {
     A.replaceAllUsesWith(DestArg);
