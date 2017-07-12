@@ -1,30 +1,39 @@
-//===-- PGLTEntryWrappers.cpp: PGLT base address entry wrapper pass -------===//
+//===-- PGLTEntryWrappers.cpp - PGLT base address entry wrapper pass ------===//
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 // Copyright 2016, 2017 Immunant, Inc.
 //
 //===----------------------------------------------------------------------===//
+//
+// This pass creates wrappers for pagerando-enabled functions. A function needs
+// a wrapper if it has non-local linkage or its address taken, i.e., if it can
+// be used from outside the module. (As an optimization we could use pointer
+// escape analysis for address-taken functions instead of creating wrappers for
+// all of them.)
+// Vararg functions require special treatment: their variable arguments on the
+// stack need to be preserved even when indirecting through the PGLT. We replace
+// the original function with a new function that takes an explicit 'va_list'
+// parameter:  foo(int, ...) -> foo$$origva(int, *va_list). The wrapper captures
+// its variable arguments and explicitly passes it to the adapted function to
+// preserve the variable arguments passed by the caller.
+//
+//===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DebugInfoMetadata.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
-#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Module.h"
-#include "llvm/Support/Debug.h"
+#include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include <llvm/Transforms/Utils/ModuleUtils.h>
 
 using namespace llvm;
 
 #define DEBUG_TYPE "pglt"
-
-static const char *const kOrigFnSuffix = "$$orig";
-static const char *const kOrigVAFnSuffix = "$$origva";
 
 namespace {
 class PGLTEntryWrappers : public ModulePass {
@@ -36,16 +45,20 @@ public:
 
   bool runOnModule(Module &M) override;
 
-  StringRef getPassName() const override { return "PGLT Base Address entry point wrapper pass"; }
-
   void getAnalysisUsage(AnalysisUsage &AU) const override {
+    // Requires nothing, preserves nothing
+    ModulePass::getAnalysisUsage(AU);
   }
 
 private:
-  bool ProcessFn(Function &F);
-  Function* CreateWrapper(Function &F);
-  Function* RewriteVarargs(Function &F, IRBuilder<> &Builder, Value *&VAList);
-  void MoveInstructionToWrapper(Instruction *I, BasicBlock *BB);
+  static constexpr const char *OrigSuffix = "$$orig";
+  static constexpr const char *OrigVASuffix = "$$origva";
+  static constexpr const char *WrapperSuffix = "$$wrap";
+
+  void ProcessFunction(Function *F);
+  Function *RewriteVarargs(Function &F, Type *&VAListTy);
+  Function *CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
+  void CreateWrapperBody(Function *Wrapper, Function* Callee, Type *VAListTy);
   void CreatePGLT(Module &M);
 };
 } // end anonymous namespace
@@ -58,376 +71,260 @@ ModulePass *llvm::createPGLTEntryWrappersPass() {
   return new PGLTEntryWrappers();
 }
 
-bool PGLTEntryWrappers::runOnModule(Module &M) {
-  bool Changed = false;
-
-  std::vector<Function*> Functions;
-  for (auto &F : M)
-    Functions.push_back(&F);
-
-  for (auto F : Functions)
-    Changed |= ProcessFn(*F);
-
-  if (Changed)
-    CreatePGLT(M);
-
-  // DEBUG(M.dump());
-
-  return Changed;
+static bool SkipFunction(const Function &F) {
+  return F.isDeclaration()
+      || F.hasAvailableExternallyLinkage()
+      || F.hasComdat()  // TODO: Support COMDAT
+      || isa<UnreachableInst>(F.getEntryBlock().getTerminator());
+      // Above condition is different from F.doesNotReturn(), which we do not
+      // include (at least for now).
 }
 
-bool PGLTEntryWrappers::ProcessFn(Function &F) {
-  if (F.isDeclaration() || F.hasAvailableExternallyLinkage() ||
-      F.hasComdat()) // TODO: Support COMDAT
-    return false;
-
-  if (isa<UnreachableInst>(F.getEntryBlock().getTerminator()))
-    return false;
-
-  F.addFnAttr(Attribute::RandPage);
-
-  std::vector<Use *> AddressUses;
-  SmallSet<User*, 5> Users;
-  for (Use &U : F.uses()) {
-    User *FU = U.getUser();
-    if (isa<BlockAddress>(FU)) {
-      // This is handled in AsmPrinter::EmitBasicBlockStart
-      continue;
-    }
-    if (isa<GlobalAlias>(FU)) {
-      // These do not need to be indirected
-      continue;
-    }
-    if (isa<Constant>(FU)) {
-      if (Users.count(FU) == 1)
-        continue; // we will replace all uses in this user at once
-
-      // Don't replace calls to bitcasts of function symbols, since they get
-      // translated to direct calls.
-      if (ConstantExpr *CE = dyn_cast<ConstantExpr>(FU)) {
-        if (CE->getOpcode() == Instruction::BitCast) {
-          // This bitcast must have exactly one user.
-          if (CE->user_begin() != CE->user_end()) {
-            User *ParentUs = *CE->user_begin();
-            if (CallInst *CI = dyn_cast<CallInst>(ParentUs)) {
-              CallSite CS(CI);
-              Use &CEU = *CE->use_begin();
-              if (CS.isCallee(&CEU)) {
-                continue;
-              }
-            }
-            if (isa<GlobalAlias>(ParentUs))
-              continue;
-          }
-        }
-      }
-
-      // Skip personality function uses
-      if (auto UserFn = dyn_cast<Function>(FU)) {
-        if (UserFn->getPersonalityFn() == &F)
-          continue;
-      }
-    }
-
-    if (isa<CallInst>(FU) || isa<InvokeInst>(FU)) {
-      ImmutableCallSite CS(cast<Instruction>(FU));
-      if (CS.isCallee(&U))
-        continue;
-    }
-
-    AddressUses.push_back(&U);
-    Users.insert(FU);
+bool PGLTEntryWrappers::runOnModule(Module &M) {
+  std::vector<Function*> Worklist;
+  for (auto &F : M) {
+    if (!SkipFunction(F)) Worklist.push_back(&F);
   }
 
-  std::sort(AddressUses.begin(), AddressUses.end());
-  std::unique(AddressUses.begin(), AddressUses.end());
+  for (auto F : Worklist) {
+    ProcessFunction(F);
+  }
 
-  if (!AddressUses.empty() || !F.hasLocalLinkage()) {
-    Function* WrapperFn = CreateWrapper(F);
+  if (!Worklist.empty()) {
+    CreatePGLT(M);
+  }
 
-    if (WrapperFn->hasLocalLinkage() && !WrapperFn->isVarArg()) {
-      // Any address-taken uses may escape the module, so we need to replace them
-      // with the wrapper.
-      for (auto U : AddressUses) {
-        // Have we replaced this use?
-        if (!U->get()) continue;
+  return !Worklist.empty();
+}
 
-        if (auto GA = dyn_cast<GlobalAlias>(U->getUser())) {
-          GA->setAliasee(WrapperFn);
-        } else if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
-          assert(GV->getInitializer() == &F);
-          GV->setInitializer(WrapperFn);
-        } else if (Constant *C = dyn_cast<Constant>(U->getUser())) {
-          C->handleOperandChange(&F, WrapperFn);
-        } else {
-          U->set(WrapperFn);
-        }
-      }
+static bool SkipFunctionUse(const Use &U);
+static bool IsDirectCallOfBitcast(User *Usr) {
+  auto CE = dyn_cast<ConstantExpr>(Usr);
+  return CE && CE->getOpcode() == Instruction::BitCast
+      && std::all_of(CE->use_begin(), CE->use_end(), SkipFunctionUse);
+}
+
+static bool SkipFunctionUse(const Use &U) {
+  auto User = U.getUser();
+  auto UserFn = dyn_cast<Function>(User);
+  ImmutableCallSite CS(User);
+
+  return (CS && CS.isCallee(&U))  // Used as the callee
+      || isa<GlobalAlias>(User)   // No need to indirect
+      || isa<BlockAddress>(User)  // Handled in AsmPrinter::EmitBasicBlockStart
+      || (UserFn && UserFn->getPersonalityFn() == U.get()) // Skip pers. fn uses
+      || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
+}
+
+void PGLTEntryWrappers::ProcessFunction(Function *F) {
+  std::vector<Use*> AddressUses;
+  for (Use &U : F->uses()) {
+    if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
+  }
+
+  if (!F->hasLocalLinkage() || !AddressUses.empty()) {
+    auto Wrapper = CreateWrapper(*F, AddressUses);
+    Type *VAListTy = nullptr;
+    if (F->isVarArg()) {
+      F = RewriteVarargs(*F, /* out */ VAListTy); // Reassign F, it might have been deleted
+    }
+    CreateWrapperBody(Wrapper, F, VAListTy);
+  }
+
+  F->setSection("");
+  F->addFnAttr(Attribute::RandPage);
+}
+
+static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
+  if (!U->get()) return; // Already replaced this use?
+
+  if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
+    assert(GV->getInitializer() == F);
+    GV->setInitializer(Wrapper);
+  } else if (auto C = dyn_cast<Constant>(U->getUser())) {
+    if (Constants.insert(C).second) {     // Constant::handleOperandChange must
+      C->handleOperandChange(F, Wrapper); // not be called more than once per user
     }
   } else {
-    // Even if we don't need a wrapper, we still need to ensure that the
-    // function doesn't have an explicit section.
-    if (F.hasSection()) {
-      F.setSection("");
+    U->set(Wrapper);
+  }
+}
+
+Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
+  auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(),
+                                  F.getName() + WrapperSuffix, F.getParent());
+  Wrapper->copyAttributesFrom(&F);
+  Wrapper->setComdat(F.getComdat());
+
+  Wrapper->addFnAttr(Attribute::RandWrapper);
+  //Wrapper->addFnAttr(Attribute::RandPage);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
+  Wrapper->addFnAttr(Attribute::NoInline);
+  Wrapper->addFnAttr(Attribute::OptimizeForSize);
+
+  // +) Calls to a non-local function must go through the wrapper since they
+  //    could be redirected by the dynamic linker (i.e, LD_PRELOAD).
+  // +) Calls to vararg functions must go through the wrapper to ensure that we
+  //    preserve the arguments on the stack when we indirect through the PGLT.
+  // -) Address-taken uses of local functions might escape, hence we must also
+  //    replace them.
+  if (!F.hasLocalLinkage() || F.isVarArg()) {
+    // Take name, replace usages, hide original function
+    std::string OldName = F.getName();
+    Wrapper->takeName(&F);
+    F.setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
+    F.replaceAllUsesWith(Wrapper);
+    if (!F.hasLocalLinkage()) {
+      F.setVisibility(GlobalValue::HiddenVisibility);
+    }
+  } else {
+    assert(!AddressUses.empty());
+    SmallSet<Constant*, 8> Constants;
+    for (auto U : AddressUses) {
+      ReplaceAddressTakenUse(U, &F, Wrapper, Constants);
     }
   }
 
-  return true;
+  return Wrapper;
 }
 
-Function* PGLTEntryWrappers::CreateWrapper(Function &F) {
-  Module *M = F.getParent();
-  FunctionType *FFTy = F.getFunctionType();
-
-  Function *WrapperFn = Function::Create(FFTy, F.getLinkage(), F.getName() + "_$wrap", M);
-  BasicBlock *BB = BasicBlock::Create(F.getContext(), "", WrapperFn);
-
-  WrapperFn->setCallingConv(F.getCallingConv());
-  WrapperFn->copyAttributesFrom(&F);
-
-  WrapperFn->addFnAttr(Attribute::NoInline);
-  WrapperFn->addFnAttr(Attribute::OptimizeForSize);
-
-  // TODO: SJC can we place wrappers on randomly located pages? I don't see why
-  // not, but this is safer for now
-  WrapperFn->removeFnAttr(Attribute::RandPage);
-  WrapperFn->addFnAttr(Attribute::RandWrapper);
-
-  // Ensure that the wrapper is not placed in an explicitly named section. If it
-  // is, the section flags will be combined with other function in the section
-  // (RandPage functions, potentially), and the wrapper will get marked
-  // RAND_ADDR
-
-  // TODO: Verify the above. This should not be the case unless functions are not
-  // WrapperFn->setSection("");
-
-  if (F.hasComdat()) {
-    WrapperFn->setComdat(F.getComdat());
+static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
+  SmallVector<VAStartInst*, 1> Insts;
+  for (auto &I : instructions(F)) {
+    if (isa<VAStartInst>(&I)) {
+      Insts.push_back(cast<VAStartInst>(&I));
+    }
   }
+  return Insts;
+}
 
-  if (F.hasSection()) {
-    WrapperFn->setSection(F.getSection());
-    F.setSection("");
+static AllocaInst *FindAlloca(VAStartInst *VAStart) {
+  Instruction *Alloca = VAStart;
+  while (Alloca && !isa<AllocaInst>(Alloca)) {
+    Alloca = dyn_cast<Instruction>(Alloca->op_begin());
   }
+  assert(Alloca && "Could not find va_list alloca in var args function");
+  return cast<AllocaInst>(Alloca);
+}
 
-  // We can't put the wrapper function in an explicitely named section becuase
-  // it then does not get a per-function section, which we need to properly
-  // support --gc-sections
-  // WrapperFn->setSection(".text.wrappers");
+static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
+  auto VAListAlloca = Builder.CreateAlloca(VAListTy);
+  Builder.CreateCall(  // @llvm.va_start(i8* <arglist>)
+      Intrinsic::getDeclaration(M, Intrinsic::vastart),
+      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
 
-  if (!F.hasLocalLinkage() || F.isVarArg()) {
-    std::string OldName = F.getName();
-    WrapperFn->takeName(&F);
-    F.replaceAllUsesWith(WrapperFn);
-    if (F.isVarArg())
-      F.setName(OldName + kOrigVAFnSuffix);
-    else
-      F.setName(OldName + kOrigFnSuffix);
+  return VAListAlloca;
+}
 
-    if (!F.hasLocalLinkage())
-      F.setVisibility(GlobalValue::HiddenVisibility);
-  }
+static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argument *VAListArg) {
+  Builder.SetInsertPoint(VAStart);
+  Builder.CreateCall(  // @llvm.va_copy(i8* <destarglist>, i8* <srcarglist>)
+      Intrinsic::getDeclaration(VAStart->getModule(), Intrinsic::vacopy),
+      {VAStart->getArgOperand(0),
+       Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
+}
 
+void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy) {
+  auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
-  Value *VAList = nullptr;
-  Function *DestFn = &F;
-  if (F.isVarArg()) {
-    DEBUG(F.dump());
-    DestFn = RewriteVarargs(F, Builder, VAList);
+  // Arguments
+  SmallVector<Value*, 8> Args;
+  for (auto &A : Wrapper->args()) {
+    Args.push_back(&A);
+  }
+  if (VAListTy) {
+    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder, VAListTy);
+    Args.push_back(VAListAlloca);
   }
 
-  // F may have been deleted at this point. DO NOT USE F!
+  // Call
+  auto Call = Builder.CreateCall(Callee, Args);
+  Call->setCallingConv(Callee->getCallingConv());
 
+  // Return
+  if (Wrapper->getReturnType()->isVoidTy()) {
+    Builder.CreateRetVoid();
+  } else {
+    Builder.CreateRet(Call);
+  }
+}
+
+// Replaces the original function with a new function that takes a va_list
+// parameter but is not varargs:  foo(int, ...) -> foo$$origva(int, *va_list)
+Function *PGLTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
+  auto VAStarts = FindVAStarts(F);
+  if (VAStarts.empty()) return &F;
+
+  // Determine va_list type
+  auto VAListAlloca = FindAlloca(VAStarts[0]);
+  VAListTy = VAListAlloca->getAllocatedType();
+
+  // Adapt function type
+  auto FTy = F.getFunctionType();
+  SmallVector<Type*, 8> Params(FTy->param_begin(), FTy->param_end());
+  Params.push_back(VAListTy->getPointerTo());
+  auto NonVAFty = FunctionType::get(FTy->getReturnType(), Params, false);
+
+  // Create new function definition
+  auto NF = Function::Create(NonVAFty, F.getLinkage(), "", F.getParent());
+  NF->takeName(&F);
+  NF->copyAttributesFrom(&F);
+  NF->setComdat(F.getComdat());
+  NF->setSubprogram(F.getSubprogram());
+
+  // Move basic blocks into new function; F is now dysfunctional
+  NF->getBasicBlockList().splice(NF->begin(), F.getBasicBlockList());
+
+  // Adapt arguments (FN's additional 'va_list' arg does not need adaption)
+  auto DestArg = NF->arg_begin();
+  for (auto &A : F.args()) {
+    A.replaceAllUsesWith(DestArg);
+    DestArg->takeName(&A);
+    DestArg++;
+  }
+
+  // Adapt va_list uses
+  auto VAListArg = NF->arg_end() - 1;
+
+  // +) For a single va_start call we can remove the va_list alloca and
+  //    va_start, and use the parameter directly instead.
+  // -) For more than one va_start we need to keep the va_list alloca and
+  //    replace va_start with a va_copy.
+  if (VAStarts.size() == 1) {
+    VAListAlloca->replaceAllUsesWith(VAListArg);
+    VAListAlloca->eraseFromParent();
+  } else {
+    IRBuilder<> Builder(NF->getContext());
+    for (auto VAStart : VAStarts) {
+      CreateVACopyCall(Builder, VAStart, VAListArg);
+    }
+  }
+  for (auto VAStart : VAStarts) VAStart->eraseFromParent();
+
+  // Delete original function
+  F.eraseFromParent();
+
+  return NF;
+}
+
+void PGLTEntryWrappers::CreatePGLT(Module &M) {
+  auto PtrTy = Type::getInt8PtrTy(M.getContext());
+  auto Ty = ArrayType::get(PtrTy, /* NumElements */ 1);
+  auto Init = ConstantAggregateZero::get(Ty);
+  auto PGLT = new GlobalVariable(
+      M, Ty, /* constant */ true, GlobalValue::ExternalLinkage, Init, "llvm.pglt");
+  PGLT->setVisibility(GlobalValue::ProtectedVisibility);
+
+  llvm::appendToUsed(M, {PGLT});
+
+  LLVMContext &C = M.getContext();
+  // TODO(yln): this can be removed, maybe, alternatively remove some redundant code in AsmPrinter::EmitPGLT
   // Set the PGLT base address
-  auto PGLTAddress = M->getGlobalVariable("_PGLT_");
+  auto PGLTAddress = M.getGlobalVariable("_PGLT_");
   if (!PGLTAddress) {
-    PGLTAddress = new GlobalVariable(*M, Builder.getInt8Ty(), true,
+    PGLTAddress = new GlobalVariable(M, Type::getInt8Ty(C), true,
                                      GlobalValue::ExternalLinkage,
                                      nullptr, "_PGLT_");
     PGLTAddress->setVisibility(GlobalValue::ProtectedVisibility);
   }
-
-  SmallVector<Value *, 16> Args;
-  Args.reserve(FFTy->getNumParams());
-
-  unsigned i = 0;
-  for (Function::arg_iterator AI = WrapperFn->arg_begin(), AE = WrapperFn->arg_end();
-       AI != AE; ++AI) {
-    Args.push_back(AI);
-    ++i;
-  }
-
-  if (VAList)
-    Args.push_back(VAList);
-
-  CallInst *CI = Builder.CreateCall(DestFn, Args);
-  CI->setCallingConv(WrapperFn->getCallingConv());
-
-  if (WrapperFn->getReturnType()->isVoidTy()) {
-    Builder.CreateRetVoid();
-  } else {
-    Builder.CreateRet(CI);
-  }
-
-  DEBUG(WrapperFn->dump());
-  DEBUG(DestFn->dump());
-
-  return WrapperFn;
-}
-
-static Instruction* findAlloca(Instruction* Use) {
-  Instruction *Alloca = Use;
-  while (Alloca && !isa<AllocaInst>(Alloca)) {
-    Alloca = dyn_cast<Instruction>(Alloca->op_begin());
-  }
-  assert(Alloca && "Could not find va_list allloc in a var args functions");
-  return Alloca;
-}
-
-Function* PGLTEntryWrappers::RewriteVarargs(Function &F, IRBuilder<> &Builder,
-                                            Value *&VAList) {
-  Module *M = F.getParent();
-  FunctionType *FFTy = F.getFunctionType();
-  Function *NewFn = &F;
-
-  SmallVector<CallInst*, 1> VAStarts;
-  for (auto &B : F) {
-    for (auto &I : B) {
-      if (isa<VAStartInst>(&I)) {
-        VAStarts.push_back(cast<CallInst>(&I));
-      }
-    }
-  }
-
-  if (VAStarts.empty())
-    return NewFn;
-
-  // Find A va_list alloca. This is really only to get the type.
-  // TODO: use a static type
-  Instruction *VAListAlloca = findAlloca(VAStarts[0]);
-
-  // Need to create a new function that takes a va_list parameter but is not
-  // varargs and clone the original function into it.
-  auto VAListTy = VAListAlloca->getType()->getPointerElementType();
-
-  // in the wrapper
-  auto *NewVAListAlloca = Builder.CreateAlloca(VAListTy);
-  Builder.CreateCall(
-      Intrinsic::getDeclaration(M, Intrinsic::vastart),
-      {Builder.CreateBitCast(NewVAListAlloca, Builder.getInt8PtrTy())});
-
-  // Create a new function definition
-  SmallVector<Type*, 4> Params(FFTy->param_begin(), FFTy->param_end());
-  Params.push_back(VAListTy->getPointerTo());
-  FunctionType *NonVarArgs = FunctionType::get(FFTy->getReturnType(), Params, false);
-  NewFn = Function::Create(NonVarArgs, F.getLinkage(), "", M);
-  NewFn->copyAttributesFrom(&F);
-  NewFn->setComdat(F.getComdat());
-  NewFn->takeName(&F);
-  NewFn->setSubprogram(F.getSubprogram());
-
-  // Move the original function blocks into the newly created function
-  NewFn->getBasicBlockList().splice(NewFn->begin(), F.getBasicBlockList());
-
-  // Transfer old arguments to new arguments
-  Function::arg_iterator NewArgI = NewFn->arg_begin();
-  for (Function::arg_iterator OldArgI = F.arg_begin(), OldArgE = F.arg_end();
-       OldArgI != OldArgE; ++OldArgI, ++NewArgI) {
-    OldArgI->replaceAllUsesWith(&*NewArgI);
-    NewArgI->takeName(&*OldArgI);
-  }
-
-  ValueToValueMapTy VMap;
-  SmallVector<ReturnInst*, 1> Returns;
-
-  Function::arg_iterator DestI = NewFn->arg_begin();
-  for (Function::const_arg_iterator I = F.arg_begin(), E = F.arg_end();
-       I != E; ++I)
-    if (VMap.count(I) == 0) {   // Is this argument preserved?
-      DestI->setName(I->getName()); // Copy the name over...
-      VMap[I] = DestI++;        // Add mapping to VMap
-    }
-
-  // return the new wrapper alloca to our caller so it can pass it in the built
-  // call
-  VAList = NewVAListAlloca;
-
-  // Optimized for a single va_start() call. We can remove the va_list alloca
-  // and va_start, and simply use the parameter directly. If there is more than
-  // one va_start, then we need to keep the alloca and replace va_start with a
-  // va_copy.
-  if (VAStarts.size() == 1) {
-    // use the new va_list argument instead of an alloca in the callee
-    VAListAlloca->replaceAllUsesWith(NewArgI);
-    VAListAlloca->eraseFromParent();
-
-    // remove the va_start
-    VAStarts[0]->eraseFromParent();
-  } else {
-    IRBuilder<> CalleeBuilder(NewFn->getContext());
-    for (auto NewI : VAStarts) {
-      CalleeBuilder.SetInsertPoint(NewI);
-      CalleeBuilder.CreateCall(
-          Intrinsic::getDeclaration(M, Intrinsic::vacopy),
-          {NewI->getArgOperand(0),
-           CalleeBuilder.CreateBitCast(NewArgI, CalleeBuilder.getInt8PtrTy())});
-
-      // remove the va_start
-      NewI->eraseFromParent();
-    }
-  }
-
-  F.eraseFromParent();
-
-  return NewFn;
-}
-
-void PGLTEntryWrappers::MoveInstructionToWrapper(Instruction *I, BasicBlock *BB) {
-  for (auto &U : I->operands()) {
-    if (auto UI = dyn_cast<Instruction>(U.get())) {
-      MoveInstructionToWrapper(UI, BB);
-    }
-  }
-
-  if (isa<BitCastInst>(I))
-    I = I->clone();
-  else
-    I->removeFromParent();
-
-  BB->getInstList().push_back(I);
-}
-
-void PGLTEntryWrappers::CreatePGLT(Module &M) {
-  LLVMContext &C = M.getContext();
-  auto *PtrTy = Type::getInt8PtrTy(C);
-  auto *PGLTType = ArrayType::get(PtrTy, 1);
-
-  Constant *Initializer = ConstantArray::get(PGLTType, {ConstantPointerNull::get(PtrTy)});
-  auto *PGLT = new GlobalVariable(M, PGLTType, true, GlobalValue::ExternalLinkage,
-                                  Initializer, "llvm.pglt");
-  PGLT->setVisibility(GlobalValue::ProtectedVisibility);
-
-  GlobalVariable *LLVMUsed = M.getGlobalVariable("llvm.used");
-  std::vector<Constant *> MergedVars;
-  if (LLVMUsed) {
-    // Collect the existing members of llvm.used.
-    ConstantArray *Inits = cast<ConstantArray>(LLVMUsed->getInitializer());
-    for (unsigned I = 0, E = Inits->getNumOperands(); I != E; ++I)
-      MergedVars.push_back(Inits->getOperand(I));
-    LLVMUsed->eraseFromParent();
-  }
-
-  Type *i8PTy = Type::getInt8PtrTy(C);
-  // Add uses for pglt
-  MergedVars.push_back(
-      ConstantExpr::getBitCast(PGLT, i8PTy));
-
-  // Recreate llvm.used.
-  ArrayType *ATy = ArrayType::get(i8PTy, MergedVars.size());
-  LLVMUsed =
-      new GlobalVariable(M, ATy, false, GlobalValue::AppendingLinkage,
-                         ConstantArray::get(ATy, MergedVars), "llvm.used");
-
-  LLVMUsed->setSection("llvm.metadata");
 }
