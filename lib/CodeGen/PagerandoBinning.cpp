@@ -20,6 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/Passes.h"
@@ -47,7 +48,6 @@ public:
   }
 
 private:
-  static constexpr unsigned DefaultBin = 0;
   static constexpr unsigned BinSize = 4096; // one page
   static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thump
 
@@ -75,8 +75,10 @@ bool PagerandoBinning::runOnModule(Module &M) {
 
   for (auto &F : M) {
     const MachineFunction &MF = MMI.getMachineFunction(F);
-    unsigned Bin = F.isRandPage() ? AssignToBin(MF) : DefaultBin;
-    MMI.setBin(&F, Bin);
+    if (F.isRandPage()) {
+      unsigned Bin = AssignToBin(MF);
+      F.setSectionPrefix(".page" + utostr(Bin));
+    }
   }
 
   return true;

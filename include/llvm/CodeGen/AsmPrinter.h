@@ -112,6 +112,9 @@ public:
   typedef std::pair<const GlobalVariable *, unsigned> GOTEquivUsePair;
   MapVector<const MCSymbol *, GOTEquivUsePair> GlobalGOTEquivs;
 
+  /// Sections that need to be referenced in the PGLT
+  std::vector<const MCSection*> PGLT;
+
 private:
   MCSymbol *CurrentFnBegin = nullptr;
   MCSymbol *CurrentFnEnd = nullptr;
@@ -426,6 +429,14 @@ public:
   /// basic block.
   MCSymbol *GetBlockAddressSymbol(const BlockAddress *BA) const;
   MCSymbol *GetBlockAddressSymbol(const BasicBlock *BB) const;
+
+  /// Return the MCSymbol for the start of the section containing this global
+  /// object, if available.
+  MCSymbol *GetSectionSymbol(const GlobalObject *GO) const;
+
+  /// Return the index of the section containing this global object, if
+  /// available.
+  unsigned GetPGLTIndex(const GlobalObject *GO);
 
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.

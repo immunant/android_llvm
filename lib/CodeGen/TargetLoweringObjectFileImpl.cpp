@@ -349,12 +349,6 @@ static MCSectionELF *selectELFSectionForGlobal(
     Name = getSectionPrefixForGlobal(Kind);
   }
 
-  // TODO: Consider using set/getSectionPrefix
-  if (Kind.isTextRand()) {
-    Name += ".page";
-    Name += utostr(Bin);
-  }
-
   if (const auto *F = dyn_cast<Function>(GO)) {
     const auto &OptionalPrefix = F->getSectionPrefix();
     if (OptionalPrefix)
@@ -386,7 +380,7 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   // global value to a uniqued section specifically for it.
   bool EmitUniqueSection = false;
   if (!(Flags & ELF::SHF_MERGE) && !Kind.isCommon()) {
-    if (Kind.isText())
+    if (Kind.isText() && !Kind.isTextRand())
       EmitUniqueSection = TM.getFunctionSections();
     else
       EmitUniqueSection = TM.getDataSections();
@@ -397,27 +391,6 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   if (AssociatedSymbol) {
     EmitUniqueSection = true;
     Flags |= ELF::SHF_LINK_ORDER;
-  }
-
-  if (Kind.isTextRand()) {
-    unsigned Bin = 0;
-    // FIXME: Not sure what to do with comdat sections. Shouldn't really have any
-    // with LTO?
-    const Function *F = cast<Function>(GO);
-    Bin = MMI->getBin(F);
-
-    // Unique sections aren't important during the backend stage of LTO
-    // compilation, which is used for position-independent pages.
-    if (Bin)
-      EmitUniqueSection = false;
-
-    auto *Sec = selectELFSectionForGlobal(getContext(), GO, Kind, getMangler(), TM,
-                                          EmitUniqueSection, Flags, &NextUniqueID,
-                                          AssociatedSymbol, Bin);
-
-    getContext().setBinSymbol(Bin, Sec->getBeginSymbol());
-
-    return Sec;
   }
 
   MCSectionELF *Section = selectELFSectionForGlobal(
