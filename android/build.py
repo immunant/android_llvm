@@ -432,7 +432,7 @@ def build_stage1():
     return stage1_install
 
 
-def build_stage2(stage1_install, stage2_targets):
+def build_stage2(stage1_install, stage2_targets, use_lld=False):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
     # Build/install the stage2 toolchain
@@ -446,6 +446,9 @@ def build_stage2(stage1_install, stage2_targets):
     stage2_extra_defines['CMAKE_CXX_COMPILER'] = stage2_cxx
     stage2_extra_defines['LLVM_BUILD_RUNTIME'] = 'ON'
     stage2_extra_defines['LLVM_ENABLE_LIBCXX'] = 'ON'
+
+    if use_lld:
+        stage2_extra_defines['LLVM_ENABLE_LLD'] = 'ON'
 
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
@@ -491,6 +494,8 @@ def parse_args():
         '-v', '--verbose', action='count', default=0,
         help='Increase log level. Defaults to logging.INFO.')
 
+    parser.add_argument('--use-lld', action='store_true', default=False,
+                        help='Use lld for linking (only affects stage2)')
     return parser.parse_args()
 
 
@@ -502,8 +507,10 @@ def main():
     log_level = log_levels[verbosity]
     logging.basicConfig(level=log_level)
 
+    # TODO(pirama): Once we have a set of prebuilts with lld, pass use_lld for
+    # stage1 as well.
     stage1_install = build_stage1()
-    stage2_install = build_stage2(stage1_install, STAGE2_TARGETS)
+    stage2_install = build_stage2(stage1_install, STAGE2_TARGETS, args.use_lld)
 
     if utils.build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
