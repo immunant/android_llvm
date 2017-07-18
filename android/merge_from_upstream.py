@@ -30,6 +30,7 @@ PROJECT_PATH = (
     ('compiler-rt', llvm_path('projects/compiler-rt')),
     ('libcxx', llvm_path('projects/libcxx')),
     ('libcxxabi', llvm_path('projects/libcxxabi')),
+    ('lld', llvm_path('tools/lld')),
     ('openmp', llvm_path('projects/openmp')),
 )
 
