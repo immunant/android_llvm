@@ -70,7 +70,7 @@ def merge_projects(revision, create_new_branch):
 
 def get_commit_hash(revision, path):
     # Get sha and commit message body for each log.
-    p = subprocess.Popen(['git', 'log', 'aosp/upstream-mirror',
+    p = subprocess.Popen(['git', 'log', 'aosp/upstream-master',
                           '--format=%h%x1f%B%x1e'], stdout=subprocess.PIPE,
                          cwd=path)
     (log, _) = p.communicate()
