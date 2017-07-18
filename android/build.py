@@ -15,21 +15,28 @@
 # limitations under the License.
 #
 
-#from __future__ import print_function
-
 import argparse
-import glob
-import multiprocessing
+import logging
 import os
 import shutil
 import subprocess
-import sys
 import utils
 
 from version import Version
 
 ORIG_ENV = dict(os.environ)
 STAGE2_TARGETS = 'AArch64;ARM;Mips;X86'
+
+
+def logger():
+    """Returns the module level logger."""
+    return logging.getLogger(__name__)
+
+
+def check_call(cmd, *args, **kwargs):
+    """subprocss.check_call with logging."""
+    logger().info('check_call: %s', subprocess.list2cmdline(cmd))
+    subprocess.check_call(cmd, *args, **kwargs)
 
 
 def extract_clang_version(stage2_install):
@@ -122,14 +129,10 @@ def invoke_cmake(out_path, defines, env, cmake_path, target=None, install=True):
     else:
         ninja_target = []
 
-    print subprocess.list2cmdline(flags)
-    subprocess.check_call(
-        [cmake_bin_path()] + flags, cwd=out_path, env=env)
-    subprocess.check_call(
-        [ninja_bin_path()] + ninja_target, cwd=out_path, env=env)
+    check_call([cmake_bin_path()] + flags, cwd=out_path, env=env)
+    check_call([ninja_bin_path()] + ninja_target, cwd=out_path, env=env)
     if install:
-        subprocess.check_call(
-            [ninja_bin_path(), 'install'], cwd=out_path, env=env)
+        check_call([ninja_bin_path(), 'install'], cwd=out_path, env=env)
 
 
 def cross_compile_configs(stage2_install):
@@ -480,7 +483,25 @@ def build_runtimes(stage2_install):
     build_asan_test(stage2_install)
 
 
+def parse_args():
+    """Parses and returns command line arguments."""
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '-v', '--verbose', action='count', default=0,
+        help='Increase log level. Defaults to logging.INFO.')
+
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    log_levels = [logging.INFO, logging.DEBUG]
+    verbosity = min(args.verbose, len(log_levels) - 1)
+    log_level = log_levels[verbosity]
+    logging.basicConfig(level=log_level)
+
     stage1_install = build_stage1()
     stage2_install = build_stage2(stage1_install, STAGE2_TARGETS)
 
@@ -491,7 +512,7 @@ def main():
         windows_targets = STAGE2_TARGETS
 
         # Build 64-bit clang for Windows
-        windows64_path  = utils.android_path('out', 'windows-x86')
+        windows64_path = utils.android_path('out', 'windows-x86')
         windows64_install = utils.android_path('out', 'windows-x86-install')
         build_llvm_for_windows(targets=windows_targets,
                                build_dir=windows64_path,
