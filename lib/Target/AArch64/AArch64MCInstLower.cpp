@@ -46,7 +46,7 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandDarwin(const MachineOperand &MO,
   // FIXME: We would like an efficient form for this, so we don't have to do a
   // lot of extra uniquing.
   MCSymbolRefExpr::VariantKind RefKind = MCSymbolRefExpr::VK_None;
-  if ((MO.getTargetFlags() & AArch64II::MO_GOT) != 0) {
+  if ((MO.getTargetFlags() & AArch64II::MO_SOURCE) == AArch64II::MO_GOT) {
     if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_PAGE)
       RefKind = MCSymbolRefExpr::VK_GOTPAGE;
     else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) ==
@@ -54,7 +54,7 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandDarwin(const MachineOperand &MO,
       RefKind = MCSymbolRefExpr::VK_GOTPAGEOFF;
     else
       llvm_unreachable("Unexpected target flags with MO_GOT on GV operand");
-  } else if ((MO.getTargetFlags() & AArch64II::MO_TLS) != 0) {
+  } else if ((MO.getTargetFlags() & AArch64II::MO_SOURCE) == AArch64II::MO_TLS) {
     if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_PAGE)
       RefKind = MCSymbolRefExpr::VK_TLVPPAGE;
     else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) ==
@@ -79,10 +79,12 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandDarwin(const MachineOperand &MO,
 MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
                                                     MCSymbol *Sym) const {
   uint32_t RefFlags = 0;
+  unsigned SourceFlag = MO.getTargetFlags() & AArch64II::MO_SOURCE;
+  unsigned FragmentFlag = MO.getTargetFlags() & AArch64II::MO_FRAGMENT;
 
-  if (MO.getTargetFlags() & AArch64II::MO_GOT)
+  if (SourceFlag == AArch64II::MO_GOT)
     RefFlags |= AArch64MCExpr::VK_GOT;
-  else if (MO.getTargetFlags() & AArch64II::MO_TLS) {
+  else if (SourceFlag == AArch64II::MO_TLS) {
     TLSModel::Model Model;
     if (MO.isGlobal()) {
       const GlobalValue *GV = MO.getGlobal();
@@ -119,20 +121,20 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
     RefFlags |= AArch64MCExpr::VK_ABS;
   }
 
-  if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_PAGE)
+  if (FragmentFlag == AArch64II::MO_PAGE)
     RefFlags |= AArch64MCExpr::VK_PAGE;
-  else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) ==
+  else if (FragmentFlag ==
            AArch64II::MO_PAGEOFF)
     RefFlags |= AArch64MCExpr::VK_PAGEOFF;
-  else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_G3)
+  else if (FragmentFlag == AArch64II::MO_G3)
     RefFlags |= AArch64MCExpr::VK_G3;
-  else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_G2)
+  else if (FragmentFlag == AArch64II::MO_G2)
     RefFlags |= AArch64MCExpr::VK_G2;
-  else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_G1)
+  else if (FragmentFlag == AArch64II::MO_G1)
     RefFlags |= AArch64MCExpr::VK_G1;
-  else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_G0)
+  else if (FragmentFlag == AArch64II::MO_G0)
     RefFlags |= AArch64MCExpr::VK_G0;
-  else if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_HI12)
+  else if (FragmentFlag == AArch64II::MO_HI12)
     RefFlags |= AArch64MCExpr::VK_HI12;
 
   if (MO.getTargetFlags() & AArch64II::MO_NC)

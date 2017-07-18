@@ -3435,7 +3435,7 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
          "unexpected offset in global node");
 
   // This also catched the large code model case for Darwin.
-  if ((OpFlags & AArch64II::MO_GOT) != 0) {
+  if (OpFlags == AArch64II::MO_GOT) {
     SDValue GotAddr = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, OpFlags);
     // FIXME: Once remat is capable of dealing with instructions with register
     // operands, expand this into two nodes instead of using a wrapper node.

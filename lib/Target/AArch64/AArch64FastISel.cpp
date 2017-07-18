@@ -470,7 +470,7 @@ unsigned AArch64FastISel::materializeGV(const GlobalValue *GV) {
   unsigned ADRPReg = createResultReg(&AArch64::GPR64commonRegClass);
   unsigned ResultReg;
 
-  if (OpFlags & AArch64II::MO_GOT) {
+  if (OpFlags == AArch64II::MO_GOT) {
     // ADRP + LDRX
     BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(AArch64::ADRP),
             ADRPReg)
