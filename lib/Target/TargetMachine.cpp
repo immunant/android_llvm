@@ -57,7 +57,8 @@ TargetMachine::~TargetMachine() {
 }
 
 bool TargetMachine::isPositionIndependent() const {
-  return getRelocationModel() == Reloc::PIC_;
+  return getRelocationModel() == Reloc::PIC_ ||
+         getRelocationModel() == Reloc::PIP;
 }
 
 /// \brief Reset the target options based on the function's attributes.
