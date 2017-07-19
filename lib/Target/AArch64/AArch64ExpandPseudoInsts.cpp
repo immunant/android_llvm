@@ -916,6 +916,33 @@ bool AArch64ExpandPseudo::expandMI(MachineBasicBlock &MBB,
     return true;
   }
 
+  case AArch64::MOVaddrBIN: {
+    unsigned DstReg = MI.getOperand(0).getReg();
+    const MachineOperand &Base = MI.getOperand(1);
+    const MachineOperand &Global = MI.getOperand(2);
+    unsigned Flags = Global.getTargetFlags();
+
+    // TODO(sjc): We need to add a page index to the bin address because we
+    // don't (yet) enforce that bins are <= 4096 bytes. If we can ensure that at
+    // least all destinations in a bin are on the first page, we can drop this
+    // instruction.
+    MachineInstrBuilder MIB1 =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::ADDXri), DstReg)
+            .add(Base)
+            .addGlobalAddress(Global.getGlobal(), 0, Flags | AArch64II::MO_HI12)
+            .addImm(12);
+
+    MachineInstrBuilder MIB2 =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::ADDXri), DstReg)
+            .addReg(DstReg)
+            .addGlobalAddress(Global.getGlobal(), 0, Flags | AArch64II::MO_PAGEOFF)
+            .addImm(0);
+
+    transferImpOps(MI, MIB1, MIB2);
+    MI.eraseFromParent();
+    return true;
+  }
+
   case AArch64::MOVaddr:
   case AArch64::MOVaddrJT:
   case AArch64::MOVaddrCP:

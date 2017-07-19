@@ -389,6 +389,10 @@ def MOVaddrEXT
              [(set GPR64:$dst, (AArch64addlow (AArch64adrp texternalsym:$hi),
                                             texternalsym:$low))]>,
       Sched<[WriteAdrAdr]>;
+def MOVaddrBIN
+    : Pseudo<(outs GPR64:$dst), (ins GPR64:$base, i64imm:$low),
+             [(set GPR64:$dst, (add GPR64:$base, tglobaladdr:$low))]>,
+      Sched<[WriteAdr]>;
 
 } // isReMaterializable, isCodeGenOnly
 

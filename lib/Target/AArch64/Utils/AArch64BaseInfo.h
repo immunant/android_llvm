@@ -520,6 +520,8 @@ namespace AArch64II {
     /// referee will affect interpretation.
     MO_TLS = 0x40,
 
+    MO_SEC = 0x50,
+
     /// MO_NC - Indicates whether the linker is expected to check the symbol
     /// reference for overflow. For example in an ADRP/ADD pair of relocations
     /// the ADRP usually does check, but not the ADD.

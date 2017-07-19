@@ -117,6 +117,8 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
       RefFlags |= AArch64MCExpr::VK_TLSDESC;
       break;
     }
+  } else if (SourceFlag == AArch64II::MO_SEC) {
+    RefFlags |= AArch64MCExpr::VK_SEC;
   } else {
     // No modifier means this is a generic reference, classified as absolute for
     // the cases where it matters (:abs_g0: etc).
@@ -152,6 +154,19 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
     auto *GO = cast<GlobalObject>(MO.getGlobal());
     unsigned index = Printer.GetPGLTIndex(GO);
     return MCOperand::createImm(index);
+  } else if (SourceFlag == AArch64II::MO_SEC) {
+    auto *GO = cast<GlobalObject>(MO.getGlobal());
+    const MCSymbol *SecSym = Printer.GetSectionSymbol(GO);
+    assert(SecSym && "Could not find a section symbol");
+    const MCExpr *SecExpr = MCSymbolRefExpr::create(SecSym, Ctx);
+    Expr = MCBinaryExpr::createSub(Expr, SecExpr, Ctx);
+    if (FragmentFlag == AArch64II::MO_PAGEOFF) {
+      const MCExpr *MaskExpr = MCConstantExpr::create(0xfff, Ctx);
+      Expr = MCBinaryExpr::createAnd(Expr, MaskExpr, Ctx);
+    } else if (FragmentFlag == AArch64II::MO_HI12) {
+      const MCExpr *ShiftExpr = MCConstantExpr::create(12, Ctx);
+      Expr = MCBinaryExpr::createLShr(Expr, ShiftExpr, Ctx);
+    }
   }
 
   AArch64MCExpr::VariantKind RefKind;
