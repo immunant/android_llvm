@@ -124,7 +124,7 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
 
   // TODO: Decide if we want to stick with the platform register
   if (TM.getRelocationModel() == Reloc::PIP)
-    setPGLTBaseRegister(AArch64::X18);
+    setPGLTBaseRegister(AArch64::X20);
 
   if (Subtarget->hasFPARMv8()) {
     addRegisterClass(MVT::f16, &AArch64::FPR16RegClass);

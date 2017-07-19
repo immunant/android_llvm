@@ -1172,6 +1172,7 @@ public:
 
   /// If a physical register, this returns the register that stores the base
   /// address of the PGLT.
+  // TODO(sjc): should we move this to TargetRegisterInfo?
   unsigned getPGLTBaseRegister() const {
     return PGLTBaseRegister;
   }
