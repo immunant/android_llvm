@@ -38,6 +38,8 @@ enum NodeType : unsigned {
   ADDlow,   // Add the low 12 bits of a TargetGlobalAddress operand.
   LOADgot,  // Load from automatically generated descriptor (e.g. Global
             // Offset Table, TLS record).
+  LOADgotr,  // Load from automatically generated descriptor (e.g. Global
+             // Offset Table, TLS record) via a register base address.
   RET_FLAG, // Return with a flag operand. Operand 0 is the chain operand.
   BRCOND,   // Conditional branch instruction; "b.cond".
   CSEL,

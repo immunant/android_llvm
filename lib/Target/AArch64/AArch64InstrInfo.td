@@ -155,6 +155,7 @@ def SDT_AArch64WrapperLarge : SDTypeProfile<1, 4,
 def AArch64adrp          : SDNode<"AArch64ISD::ADRP", SDTIntUnaryOp, []>;
 def AArch64addlow        : SDNode<"AArch64ISD::ADDlow", SDTIntBinOp, []>;
 def AArch64LOADgot       : SDNode<"AArch64ISD::LOADgot", SDTIntUnaryOp>;
+def AArch64LOADgotr      : SDNode<"AArch64ISD::LOADgotr", SDTIntBinOp>;
 def AArch64callseq_start : SDNode<"ISD::CALLSEQ_START",
                                 SDCallSeqStart<[ SDTCisVT<0, i32> ]>,
                                 [SDNPHasChain, SDNPOutGlue]>;
@@ -345,6 +346,11 @@ def LOADgot : Pseudo<(outs GPR64:$dst), (ins i64imm:$addr),
                      [(set GPR64:$dst, (AArch64LOADgot tglobaladdr:$addr))]>,
               Sched<[WriteLDAdr]>;
 
+let AddedComplexity = 10 in
+def LOADgotr : Pseudo<(outs GPR64:$dst), (ins GPR64:$base, i64imm:$addr),
+                      [(set GPR64:$dst, (AArch64LOADgotr GPR64:$base, tglobaladdr:$addr))]>,
+               Sched<[WriteLD]>;
+
 // The MOVaddr instruction should match only when the add is not folded
 // into a load or store address.
 def MOVaddr
@@ -388,6 +394,9 @@ def : Pat<(AArch64LOADgot texternalsym:$addr),
 
 def : Pat<(AArch64LOADgot tconstpool:$addr),
           (LOADgot tconstpool:$addr)>;
+
+def : Pat<(AArch64LOADgotr GPR64:$base, GPR64:$offset),
+          (LOADgotr GPR64:$base, GPR64:$offset)>;
 
 //===----------------------------------------------------------------------===//
 // System instructions.

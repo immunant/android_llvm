@@ -893,6 +893,7 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::ADRP:              return "AArch64ISD::ADRP";
   case AArch64ISD::ADDlow:            return "AArch64ISD::ADDlow";
   case AArch64ISD::LOADgot:           return "AArch64ISD::LOADgot";
+  case AArch64ISD::LOADgotr:          return "AArch64ISD::LOADgotr";
   case AArch64ISD::RET_FLAG:          return "AArch64ISD::RET_FLAG";
   case AArch64ISD::BRCOND:            return "AArch64ISD::BRCOND";
   case AArch64ISD::CSEL:              return "AArch64ISD::CSEL";
