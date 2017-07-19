@@ -3269,7 +3269,15 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     }
   } else if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     const GlobalValue *GV = G->getGlobal();
-    Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, 0);
+    auto F = dyn_cast_or_null<Function>(GV);
+    bool UsePIPAddressing = MF.getFunction()->isRandPage() ||
+                            (F && F->isRandPage());
+    if (UsePIPAddressing) {
+      // Reuse global address lowering to avoid duplication
+      Callee = LowerGlobalAddress(Callee, DAG);
+    } else {
+      Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, 0);
+    }
   } else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     const char *Sym = S->getSymbol();
     Callee = DAG.getTargetExternalSymbol(Sym, PtrVT, 0);
@@ -3443,6 +3451,67 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
 
   assert(cast<GlobalAddressSDNode>(Op)->getOffset() == 0 &&
          "unexpected offset in global node");
+
+  MachineFunction &MF = DAG.getMachineFunction();
+  auto F = dyn_cast<Function>(GV);
+  if (MF.getFunction()->isRandPage() ||
+      (F && F->isRandPage())) {
+    // Position-independent pages, access through the PGLT
+
+    // We need a GOT entry for externally defined objects
+    if (GV->isDeclaration() || GV->hasAvailableExternallyLinkage())
+      OpFlags |= AArch64II::MO_GOT;
+
+    SDValue BaseAddr, Offset;
+    SDValue PGLTValue = DAG.getNode(ISD::PGLT, DL, DAG.getVTList(MVT::i64, MVT::Other));
+    SDValue Chain = PGLTValue.getValue(1);
+    if (OpFlags == AArch64II::MO_GOT) {
+      BaseAddr = DAG.getNode(AArch64ISD::LOADpglt, DL, PtrVT, Chain, PGLTValue,
+                             DAG.getTargetConstant(0, DL, MVT::i32));
+
+      const Module *M = DAG.getMachineFunction().getFunction()->getParent();
+      PICLevel::Level picLevel = M->getPICLevel();
+
+      const unsigned char MO_NC = AArch64II::MO_NC;
+      const unsigned char MO_GOTOFF = AArch64II::MO_GOTOFF;
+      if (picLevel == PICLevel::SmallPIC) {
+        // GOT size <= 28KiB
+        Offset = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_GOTOFF);
+      } else {
+        // Large GOT size
+        Offset = DAG.getNode(
+            AArch64ISD::WrapperLarge, DL, PtrVT,
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_GOTOFF | AArch64II::MO_G3),
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_GOTOFF | AArch64II::MO_G2 | MO_NC),
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_GOTOFF | AArch64II::MO_G1 | MO_NC),
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_GOTOFF | AArch64II::MO_G0 | MO_NC));
+      }
+
+      return DAG.getNode(AArch64ISD::LOADgotr, DL, PtrVT, BaseAddr, Offset);
+    } else {
+      SDValue PGLTOffset =
+        DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, AArch64II::MO_PGLT);
+      BaseAddr = DAG.getNode(AArch64ISD::LOADpglt, DL, PtrVT, Chain, PGLTValue, PGLTOffset);
+
+      const unsigned char MO_NC = AArch64II::MO_NC;
+      const unsigned char MO_SEC = AArch64II::MO_SEC;
+      if (F && F->isRandPage()) {
+        // Offset will be a small immediate
+        Offset =
+          DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_SEC);
+      } else {
+        Offset = DAG.getNode(
+            AArch64ISD::WrapperLarge, DL, PtrVT,
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_SEC | AArch64II::MO_G3),
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_SEC | AArch64II::MO_G2 | MO_NC),
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_SEC | AArch64II::MO_G1 | MO_NC),
+            DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, MO_SEC | AArch64II::MO_G0 | MO_NC));
+      }
+
+      return DAG.getNode(ISD::ADD, DL, PtrVT, BaseAddr, Offset);
+    }
+  }
+
 
   // This also catched the large code model case for Darwin.
   if (OpFlags == AArch64II::MO_GOT) {
