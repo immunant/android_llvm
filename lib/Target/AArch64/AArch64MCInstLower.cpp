@@ -148,6 +148,12 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
     Expr = MCBinaryExpr::createAdd(
         Expr, MCConstantExpr::create(MO.getOffset(), Ctx), Ctx);
 
+  if (SourceFlag == AArch64II::MO_PGLT) {
+    auto *GO = cast<GlobalObject>(MO.getGlobal());
+    unsigned index = Printer.GetPGLTIndex(GO);
+    return MCOperand::createImm(index);
+  }
+
   AArch64MCExpr::VariantKind RefKind;
   RefKind = static_cast<AArch64MCExpr::VariantKind>(RefFlags);
   Expr = AArch64MCExpr::create(Expr, RefKind, Ctx);

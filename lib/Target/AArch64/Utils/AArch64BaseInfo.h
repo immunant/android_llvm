@@ -512,6 +512,8 @@ namespace AArch64II {
 
     MO_GOTOFF = 0x20,
 
+    MO_PGLT = 0x30,
+
     /// MO_TLS - Indicates that the operand being accessed is some kind of
     /// thread-local symbol. On Darwin, only one type of thread-local access
     /// exists (pre linker-relaxation), but on ELF the TLSModel used for the

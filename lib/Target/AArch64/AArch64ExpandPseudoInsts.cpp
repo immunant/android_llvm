@@ -894,6 +894,28 @@ bool AArch64ExpandPseudo::expandMI(MachineBasicBlock &MBB,
     return true;
   }
 
+  case AArch64::LOADpglt: {
+    unsigned DstReg = MI.getOperand(0).getReg();
+    const MachineOperand &Base = MI.getOperand(1);
+    const MachineOperand &Offset = MI.getOperand(2);
+    unsigned Flags = Offset.getTargetFlags();
+
+    MachineInstrBuilder MIB =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+            .add(Base);
+
+    if (Offset.isGlobal()) {
+      MIB.addGlobalAddress(Offset.getGlobal(), 0, Flags | AArch64II::MO_PGLT);
+    } else {
+      assert(Offset.isImm() && "Only expect globals, immediates");
+      MIB.addImm(Offset.getImm());
+    }
+
+    transferImpOps(MI, MIB, MIB);
+    MI.eraseFromParent();
+    return true;
+  }
+
   case AArch64::MOVaddr:
   case AArch64::MOVaddrJT:
   case AArch64::MOVaddrCP:

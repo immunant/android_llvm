@@ -36,6 +36,7 @@ public:
     VK_TPREL    = 0x006,
     VK_TLSDESC  = 0x007,
     VK_GOTOFF   = 0x008,
+    VK_PGLT     = 0x009,
     VK_SymLocBits = 0x00f,
 
     // Variants specifying which part of the final address calculation is

@@ -253,6 +253,8 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
   // BlockAddress
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
 
+  setOperationAction(ISD::PGLT, MVT::i64, Custom);
+
   // Add/Sub overflow ops with MVT::Glues are lowered to NZCV dependences.
   setOperationAction(ISD::ADDC, MVT::i32, Custom);
   setOperationAction(ISD::ADDE, MVT::i32, Custom);
@@ -898,6 +900,7 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::ADDlow:            return "AArch64ISD::ADDlow";
   case AArch64ISD::LOADgot:           return "AArch64ISD::LOADgot";
   case AArch64ISD::LOADgotr:          return "AArch64ISD::LOADgotr";
+  case AArch64ISD::LOADpglt:          return "AArch64ISD::LOADpglt";
   case AArch64ISD::RET_FLAG:          return "AArch64ISD::RET_FLAG";
   case AArch64ISD::BRCOND:            return "AArch64ISD::BRCOND";
   case AArch64ISD::CSEL:              return "AArch64ISD::CSEL";
@@ -2375,6 +2378,8 @@ SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
     return LowerGlobalTLSAddress(Op, DAG);
   case ISD::SETCC:
     return LowerSETCC(Op, DAG);
+  case ISD::PGLT:
+    return LowerPGLT(Op, DAG);
   case ISD::BR_CC:
     return LowerBR_CC(Op, DAG);
   case ISD::SELECT:
@@ -3993,6 +3998,30 @@ SDValue AArch64TargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
 
     SDValue CC2Val = DAG.getConstant(CC2, dl, MVT::i32);
     return DAG.getNode(AArch64ISD::CSEL, dl, VT, TVal, CS1, CC2Val, Cmp);
+  }
+}
+
+SDValue AArch64TargetLowering::LowerPGLT(SDValue Op, SelectionDAG &DAG) const {
+  assert(Subtarget->isPIP() &&
+         "PGLT lowering only supported with PIP relocation model");
+
+  SDLoc dl(Op);
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  MachineFunction &MF = DAG.getMachineFunction();
+  unsigned PGLTReg = getPGLTBaseRegister();
+  if (MF.getFunction()->isRandPage()) {
+    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, PGLTReg, PtrVT);
+  } else {
+    SDValue Hi =
+      DAG.getTargetExternalSymbol("_PGLT_", PtrVT, AArch64II::MO_PAGE);
+    SDValue Lo =
+      DAG.getTargetExternalSymbol("_PGLT_", PtrVT,
+                                  AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
+    SDValue ADRP = DAG.getNode(AArch64ISD::ADRP, dl, PtrVT, Hi);
+    SDValue PGLTAddress = DAG.getNode(AArch64ISD::ADDlow, dl, PtrVT, ADRP, Lo);
+    SDValue Chain = DAG.getCopyToReg(DAG.getEntryNode(), dl, PGLTReg, PGLTAddress);
+    SDValue Ops[2] = { PGLTAddress, Chain };
+    return DAG.getMergeValues(Ops, dl);
   }
 }
 
