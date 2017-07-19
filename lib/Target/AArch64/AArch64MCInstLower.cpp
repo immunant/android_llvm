@@ -84,6 +84,8 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
 
   if (SourceFlag == AArch64II::MO_GOT)
     RefFlags |= AArch64MCExpr::VK_GOT;
+  else if (SourceFlag == AArch64II::MO_GOTOFF)
+    RefFlags |= AArch64MCExpr::VK_GOTOFF;
   else if (SourceFlag == AArch64II::MO_TLS) {
     TLSModel::Model Model;
     if (MO.isGlobal()) {

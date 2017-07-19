@@ -510,6 +510,7 @@ namespace AArch64II {
     /// the symbol itself.
     MO_GOT = 0x10,
 
+    MO_GOTOFF = 0x20,
 
     /// MO_TLS - Indicates that the operand being accessed is some kind of
     /// thread-local symbol. On Darwin, only one type of thread-local access
