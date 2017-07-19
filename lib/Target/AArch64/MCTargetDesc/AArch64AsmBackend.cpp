@@ -10,6 +10,7 @@
 #include "AArch64.h"
 #include "AArch64RegisterInfo.h"
 #include "MCTargetDesc/AArch64FixupKinds.h"
+#include "MCTargetDesc/AArch64MCExpr.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCAsmBackend.h"
@@ -193,10 +194,33 @@ static uint64_t adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     if (Value & 0xf)
       Ctx.reportError(Fixup.getLoc(), "fixup must be 16-byte aligned");
     return Value >> 4;
-  case AArch64::fixup_aarch64_movw:
+  case AArch64::fixup_aarch64_movw: {
+    const auto *A64E = cast<AArch64MCExpr>(Fixup.getValue());
+    AArch64MCExpr::VariantKind AddressFrag = AArch64MCExpr::getAddressFrag(A64E->getKind());
+    if (!AArch64MCExpr::isNotChecked(A64E->getKind())) {
+      if (AddressFrag == AArch64MCExpr::VK_G0 &&
+          Value >= 0x10000ULL)
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      else if (AddressFrag == AArch64MCExpr::VK_G1 &&
+               Value >= 0x100000000ULL)
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+      else if (AddressFrag == AArch64MCExpr::VK_G2 &&
+               Value >= 0x1000000000000ULL)
+        Ctx.reportError(Fixup.getLoc(), "fixup value out of range");
+    }
+    if (AddressFrag == AArch64MCExpr::VK_G0)
+      return Value & 0xffff;
+    else if (AddressFrag == AArch64MCExpr::VK_G1)
+      return (Value >> 16) & 0xffff;
+    else if (AddressFrag == AArch64MCExpr::VK_G2)
+      return (Value >> 32) & 0xffff;
+    else if (AddressFrag == AArch64MCExpr::VK_G3)
+      return (Value >> 48) & 0xffff;
+
     Ctx.reportError(Fixup.getLoc(),
-                    "no resolvable MOVZ/MOVK fixups supported yet");
+                    "MOVZ/MOVK fixup not recognized");
     return Value;
+  }
   case AArch64::fixup_aarch64_pcrel_branch14:
     // Signed 16-bit immediate
     if (SignedValue > 32767 || SignedValue < -32768)
