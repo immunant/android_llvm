@@ -765,6 +765,7 @@ bool AArch64InstructionSelector::select(MachineInstr &I) const {
       // FIXME: we don't support TLS yet.
       return false;
     }
+    // TODO(sjc): Implement PIP or bail
     unsigned char OpFlags = STI.ClassifyGlobalReference(GV, TM);
     if (OpFlags & AArch64II::MO_GOT) {
       I.setDesc(TII.get(AArch64::LOADgot));
