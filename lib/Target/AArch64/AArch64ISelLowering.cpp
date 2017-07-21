@@ -3269,7 +3269,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     }
   } else if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     const GlobalValue *GV = G->getGlobal();
-    auto F = dyn_cast_or_null<Function>(GV);
+    auto F = dyn_cast<Function>(GV);
     bool UsePIPAddressing = MF.getFunction()->isRandPage() ||
                             (F && F->isRandPage());
     if (UsePIPAddressing) {
@@ -3279,8 +3279,16 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
       Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, 0);
     }
   } else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
-    const char *Sym = S->getSymbol();
-    Callee = DAG.getTargetExternalSymbol(Sym, PtrVT, 0);
+    if (MF.getFunction()->isRandPage()) {
+      // Calls from PIP functions should go through the GOT for now so that we
+      // can properly indirect through PGLT.
+      const char *Sym = S->getSymbol();
+      Callee = DAG.getTargetExternalSymbol(Sym, PtrVT, AArch64II::MO_GOT);
+      Callee = DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, Callee);
+    } else {
+      const char *Sym = S->getSymbol();
+      Callee = DAG.getTargetExternalSymbol(Sym, PtrVT, 0);
+    }
   }
 
   // We don't usually want to end the call-sequence here because we would tidy
