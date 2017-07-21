@@ -765,7 +765,12 @@ bool AArch64InstructionSelector::select(MachineInstr &I) const {
       // FIXME: we don't support TLS yet.
       return false;
     }
-    // TODO(sjc): Implement PIP or bail
+    auto F = dyn_cast<Function>(GV);
+    if (MF.getFunction()->isRandPage() ||
+        (F && F->isRandPage())) {
+      // TODO(sjc): Implement PIP
+      return false;
+    }
     unsigned char OpFlags = STI.ClassifyGlobalReference(GV, TM);
     if (OpFlags & AArch64II::MO_GOT) {
       I.setDesc(TII.get(AArch64::LOADgot));
