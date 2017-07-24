@@ -151,13 +151,12 @@ def cross_compile_configs(stage2_install):
         ('i386', 'x86',
             'x86/x86_64-linux-android-4.9/x86_64-linux-android',
             'i686-linux-android', '-m32'),
-        # Disable mips32 and mips64 because they don't build.
-        # ('mips', 'mips',
-        #     'mips/mips64el-linux-android-4.9/mips64el-linux-android',
-        #     'mipsel-linux-android', '-m32'),
-        # ('mips64', 'mips64',
-        #     'mips/mips64el-linux-android-4.9/mips64el-linux-android',
-        #     'mips64el-linux-android', '-m64'),
+        ('mips', 'mips',
+            'mips/mips64el-linux-android-4.9/mips64el-linux-android',
+            'mipsel-linux-android', '-m32'),
+        ('mips64', 'mips64',
+            'mips/mips64el-linux-android-4.9/mips64el-linux-android',
+            'mips64el-linux-android', '-m64'),
         ]
 
     cc = os.path.join(stage2_install, 'bin', 'clang')
@@ -178,9 +177,12 @@ def cross_compile_configs(stage2_install):
                                           'lib', 'gcc',
                                           os.path.basename(toolchain_path),
                                           '4.9.x')
-        # The 32-bit libgcc.a is in a separate subdir
+        # The 32-bit libgcc.a is sometimes in a separate subdir
         if arch == 'i386':
             toolchain_builtins = os.path.join(toolchain_builtins, '32')
+        elif arch == 'mips':
+            toolchain_builtins = os.path.join(toolchain_builtins, '32',
+                                              'mips-r2')
         ldflags = ['-L' + toolchain_builtins]
         defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
