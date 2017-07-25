@@ -71,10 +71,10 @@ ModulePass *llvm::createPagerandoBinningPass() {
 }
 
 bool PagerandoBinning::runOnModule(Module &M) {
-  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
+  auto &MMI = getAnalysis<MachineModuleInfo>();
 
   for (auto &F : M) {
-    const MachineFunction &MF = MMI.getMachineFunction(F);
+    auto &MF = MMI.getMachineFunction(F);
     if (F.isRandPage()) {
       unsigned Bin = AssignToBin(MF);
       // Note: overwrites an existing section prefix
@@ -86,7 +86,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
 }
 
 static unsigned ComputeFunctionSize(const MachineFunction &MF) {
-  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+  auto *TII = MF.getSubtarget().getInstrInfo();
 
   unsigned Size = 0;
   for (auto &MBB : MF)
