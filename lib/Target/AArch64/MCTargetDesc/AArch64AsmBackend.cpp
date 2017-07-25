@@ -106,7 +106,6 @@ static unsigned getFixupKindNumBytes(unsigned Kind) {
     return 1;
 
   case FK_Data_2:
-  case AArch64::fixup_aarch64_movw:
     return 2;
 
   case AArch64::fixup_aarch64_pcrel_branch14:
@@ -118,6 +117,7 @@ static unsigned getFixupKindNumBytes(unsigned Kind) {
   case AArch64::fixup_aarch64_ldst_imm12_scale16:
   case AArch64::fixup_aarch64_ldr_pcrel_imm19:
   case AArch64::fixup_aarch64_pcrel_branch19:
+  case AArch64::fixup_aarch64_movw:
     return 3;
 
   case AArch64::fixup_aarch64_pcrel_adr_imm21:
