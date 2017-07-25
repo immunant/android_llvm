@@ -278,8 +278,6 @@ void ARMPGLTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
 }
 
 bool ARMPGLTOpt::isSameBin(const GlobalValue *GV) {
-  if (auto *F = dyn_cast<Function>(GV))
-    return (F->isRandPage() && F->getSectionPrefix() == CurBinPrefix);
-
-  return false;
+  auto F = dyn_cast<Function>(GV);
+  return F && F->isRandPage() && F->getSectionPrefix() == CurBinPrefix;
 }
