@@ -128,6 +128,9 @@ private:
   /// If VerboseAsm is set, a pointer to the loop info for this function.
   MachineLoopInfo *LI = nullptr;
 
+  /// Sections that need to be referenced in the PGLT
+  std::vector<const MCSection*> PGLT;
+
   struct HandlerInfo {
     AsmPrinterHandler *Handler;
     const char *TimerName;
@@ -426,6 +429,14 @@ public:
   /// basic block.
   MCSymbol *GetBlockAddressSymbol(const BlockAddress *BA) const;
   MCSymbol *GetBlockAddressSymbol(const BasicBlock *BB) const;
+
+  /// Return the MCSymbol for the start of the section containing this global
+  /// object, if available.
+  MCSymbol *GetSectionSymbol(const GlobalObject *GO) const;
+
+  /// Return the index of the section containing this global object, if
+  /// available.
+  unsigned GetPGLTIndex(const GlobalObject *GO);
 
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.

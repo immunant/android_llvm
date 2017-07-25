@@ -1692,8 +1692,8 @@ void AsmPrinter::EmitPGLT(const GlobalVariable *GV) {
   MCSymbol *GOTSymbol = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
   OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSymbol, OutContext), PtrSize);
 
-  for (const MCSymbol *Sym : OutContext.getBinSymbols())
-    OutStreamer->EmitValue(MCSymbolRefExpr::create(Sym, OutContext), PtrSize);
+  for (auto *Sec : PGLT)
+    OutStreamer->EmitValue(MCSymbolRefExpr::create(Sec->getBeginSymbol(), OutContext), PtrSize);
 
   MCSymbol *PGLTEndSym = OutContext.getOrCreateSymbol(StringRef("_PGLT_END_"));
   OutStreamer->EmitSymbolAttribute(PGLTEndSym, MCSA_Global);
@@ -2540,6 +2540,21 @@ MCSymbol *AsmPrinter::GetExternalSymbolSymbol(StringRef Sym) const {
   SmallString<60> NameStr;
   Mangler::getNameWithPrefix(NameStr, Sym, getDataLayout());
   return OutContext.getOrCreateSymbol(NameStr);
+}
+
+MCSymbol *AsmPrinter::GetSectionSymbol(const GlobalObject *GO) const {
+  MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
+  return Sec->getBeginSymbol();
+}
+
+unsigned AsmPrinter::GetPGLTIndex(const GlobalObject *GO) {
+  const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
+  auto I = std::find(PGLT.begin(), PGLT.end(), Sec);
+  auto Index = static_cast<unsigned>(I - PGLT.begin());
+  if (I == PGLT.end()) {
+    PGLT.push_back(Sec);
+  }
+  return Index + 1;  // Index 0 denotes the default bin #0
 }
 
 /// PrintParentLoopComment - Print comments about parent loops of this one.

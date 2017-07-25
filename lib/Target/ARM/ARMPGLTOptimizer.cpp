@@ -50,7 +50,7 @@ private:
   const TargetLowering *TLI;
   ARMFunctionInfo *AFI;
   const ARMSubtarget *Subtarget;
-  unsigned CurBin;
+  StringRef CurBinPrefix;
   MachineConstantPool *ConstantPool;
   bool isThumb2;
 
@@ -77,7 +77,8 @@ bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
   TII = Subtarget->getInstrInfo();
   TLI = Subtarget->getTargetLowering();
   AFI = Fn.getInfo<ARMFunctionInfo>();
-  CurBin = MMI->getBin(Fn.getFunction());
+  // If we are in a RandPage, it should always have a section prefix
+  CurBinPrefix = Fn.getFunction()->getSectionPrefix().getValue();
   ConstantPool = Fn.getConstantPool();
   isThumb2 = Fn.getInfo<ARMFunctionInfo>()->isThumb2Function();
 
@@ -277,8 +278,6 @@ void ARMPGLTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
 }
 
 bool ARMPGLTOpt::isSameBin(const GlobalValue *GV) {
-  if (auto *F = dyn_cast<Function>(GV))
-    return MMI->getBin(F) == CurBin;
-
-  return false;
+  auto F = dyn_cast<Function>(GV);
+  return F && F->isRandPage() && F->getSectionPrefix() == CurBinPrefix;
 }

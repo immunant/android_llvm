@@ -1058,7 +1058,7 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
     auto *F = cast<Function>(cast<ARMConstantPoolConstant>(ACPV)->getGV());
 
     auto ConstantOffset = ConstantInt::get(
-        ACPV->getType(), MMI->getBin(F)*DL.getPointerSize());
+        ACPV->getType(), GetPGLTIndex(F)*DL.getPointerSize());
     return EmitGlobalConstant(DL, ConstantOffset);
   }
 
@@ -1114,10 +1114,7 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
     // pagerando bin (segment).
     auto *F = cast<Function>(cast<ARMConstantPoolConstant>(ACPV)->getGV());
 
-    // Ensure that the bin for F has been created
-    getObjFileLowering().SectionForGlobal(F, TM, MMI);
-
-    const MCSymbol *BinSym = OutContext.getBinSymbol(MMI->getBin(F));
+    const MCSymbol *BinSym = GetSectionSymbol(F);
     const MCExpr *BinExpr = MCSymbolRefExpr::create(BinSym, OutContext);
     Expr = MCBinaryExpr::createSub(Expr, BinExpr, OutContext);
   }

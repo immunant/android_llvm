@@ -143,9 +143,6 @@ class MachineModuleInfo : public ImmutablePass {
   const Function *LastRequest = nullptr; ///< Used for shortcut/cache.
   MachineFunction *LastResult = nullptr; ///< Used for shortcut/cache.
 
-  typedef DenseMap<const Function *, unsigned> FuncBinMap;
-  FuncBinMap Bins;
-
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -247,16 +244,6 @@ public:
   }
   /// \}
 
-  unsigned getBin(const Function *F) const {
-    auto I = Bins.find(F);
-    if (I != Bins.end())
-      return I->second;
-    else
-      return 0;
-  }
-  void setBin(const Function *F, unsigned Bin) {
-    Bins[F] = Bin;
-  }
 }; // End class MachineModuleInfo
 
 //===- MMI building helpers -----------------------------------------------===//
