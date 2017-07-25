@@ -45,13 +45,35 @@ def extract_clang_version(stage2_install):
     return Version(version_file)
 
 
-def ndk_path():
-    # TODO Switch to r15 from the toolchain/prebuilts/ndk/r15 branch (once it is
-    # created)
-    ndk_version = 'r10'
-    platform_level = 'android-23'
-    return utils.android_path('prebuilts/ndk', ndk_version, 'platforms',
-                              platform_level)
+def ndk_base():
+    ndk_version = 'r15'
+    return utils.android_path('prebuilts/ndk', ndk_version)
+
+
+def android_api(arch):
+    if arch in ['arm', 'i386', 'mips']:
+        return '14'
+    else:
+        return '21'
+
+
+def ndk_path(arch):
+    platform_level = 'android-' + android_api(arch)
+    return os.path.join(ndk_base(), 'platforms', platform_level)
+
+
+def libcxx_headers():
+    return os.path.join(ndk_base(), 'sources', 'cxx-stl', 'llvm-libc++',
+                        'include')
+
+
+def libcxxabi_headers():
+    return os.path.join(ndk_base(), 'sources', 'cxx-stl', 'llvm-libc++abi',
+                        'include')
+
+
+def support_headers():
+    return os.path.join(ndk_base(), 'sources', 'android', 'support', 'include')
 
 
 # This is the baseline stable version of Clang to start our stage-1 build.
@@ -62,6 +84,7 @@ def clang_prebuilt_version():
 def clang_prebuilt_base_dir():
     return utils.android_path('prebuilts/clang/host', utils.build_os_type(),
                               clang_prebuilt_version())
+
 
 def clang_prebuilt_bin_dir():
     return utils.android_path(clang_prebuilt_base_dir(), 'bin')
@@ -166,7 +189,14 @@ def cross_compile_configs(stage2_install):
         toolchain_root = utils.android_path('prebuilts/gcc',
                                             utils.build_os_type())
         toolchain_bin = os.path.join(toolchain_root, toolchain_path, 'bin')
-        sysroot = os.path.join(ndk_path(), 'arch-' + ndk_arch)
+        sysroot_libs = os.path.join(ndk_path(arch), 'arch-' + ndk_arch)
+        sysroot = os.path.join(ndk_base(), 'sysroot')
+        if arch == 'arm':
+            sysroot_headers = os.path.join(sysroot, 'usr', 'include',
+                                           'arm-linux-androideabi')
+        else:
+            sysroot_headers = os.path.join(sysroot, 'usr', 'include',
+                                           llvm_triple)
 
         defines = {}
         defines['CMAKE_C_COMPILER'] = cc
@@ -183,14 +213,17 @@ def cross_compile_configs(stage2_install):
         elif arch == 'mips':
             toolchain_builtins = os.path.join(toolchain_builtins, '32',
                                               'mips-r2')
-        ldflags = ['-L' + toolchain_builtins]
+        ldflags = ['-L' + toolchain_builtins, '--sysroot=%s' % sysroot_libs]
         defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
+        defines['CMAKE_SYSROOT'] = sysroot
+        defines['CMAKE_SYSROOT_COMPILE'] = sysroot
 
         cflags = ['--target=%s' % llvm_triple,
-                  '--sysroot=%s' % sysroot,
                   '-B%s' % toolchain_bin,
+                  '-isystem %s' % sysroot_headers,
+                  '-D__ANDROID_API__=%s' % android_api(arch),
                   extra_flags,
                  ]
         yield (arch, llvm_triple, defines, cflags)
@@ -208,12 +241,9 @@ def build_asan_test(stage2_install):
 
 
 def build_libcxx(stage2_install, clang_version):
-    support_headers = utils.android_path('bionic', 'libc', 'include')
     for (arch, llvm_triple, libcxx_defines, cflags) in cross_compile_configs(stage2_install):
         print "Building libcxx for %s" % arch
         libcxx_path = utils.android_path('out', 'lib', 'libcxx-'+arch)
-
-        cflags.extend(['-isystem %s' % support_headers])
 
         libcxx_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libcxx_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
@@ -236,7 +266,6 @@ def build_libcxx(stage2_install, clang_version):
         for f in os.listdir(libcxx_libs):
             if f.startswith('libc++'):
                 shutil.copy2(os.path.join(libcxx_libs, f), libcxx_install)
-
 
 
 def build_crts(stage2_install, clang_version):
@@ -270,8 +299,6 @@ def build_crts(stage2_install, clang_version):
 
 
 def build_libfuzzers(stage2_install, clang_version):
-    libcxx_headers = utils.llvm_path('projects', 'libcxx', 'include')
-    support_headers = utils.android_path('bionic', 'libc', 'include')
 
     for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(stage2_install):
         print "Building libfuzzer for %s" % arch
@@ -281,8 +308,9 @@ def build_libfuzzers(stage2_install, clang_version):
         libfuzzer_defines['LLVM_USE_SANITIZE_COVERAGE'] = 'YES'
         libfuzzer_defines['CMAKE_CXX_STANDARD'] = '11'
 
-        cflags.extend(['-isystem %s' % libcxx_headers,
-                       '-isystem %s' % support_headers])
+        cflags.extend(['-isystem %s' % libcxx_headers(),
+                       '-isystem %s' % libcxxabi_headers(),
+                       '-isystem %s' % support_headers()])
 
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
@@ -484,7 +512,9 @@ def build_runtimes(stage2_install):
     version = extract_clang_version(stage2_install)
     build_crts(stage2_install, version)
     build_libfuzzers(stage2_install, version)
-    build_libcxx(stage2_install, version)
+    # Bug: http://b/64037266. `strtod_l` is missing in NDK r15. This will break
+    # libcxx build.
+    # build_libcxx(stage2_install, version)
     build_asan_test(stage2_install)
 
 
