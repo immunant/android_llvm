@@ -112,9 +112,6 @@ public:
   typedef std::pair<const GlobalVariable *, unsigned> GOTEquivUsePair;
   MapVector<const MCSymbol *, GOTEquivUsePair> GlobalGOTEquivs;
 
-  /// Sections that need to be referenced in the PGLT
-  std::vector<const MCSection*> PGLT;
-
 private:
   MCSymbol *CurrentFnBegin = nullptr;
   MCSymbol *CurrentFnEnd = nullptr;
@@ -130,6 +127,9 @@ private:
 
   /// If VerboseAsm is set, a pointer to the loop info for this function.
   MachineLoopInfo *LI = nullptr;
+
+  /// Sections that need to be referenced in the PGLT
+  std::vector<const MCSection*> PGLT;
 
   struct HandlerInfo {
     AsmPrinterHandler *Handler;
