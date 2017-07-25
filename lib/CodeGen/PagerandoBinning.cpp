@@ -77,6 +77,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
     const MachineFunction &MF = MMI.getMachineFunction(F);
     if (F.isRandPage()) {
       unsigned Bin = AssignToBin(MF);
+      // Note: overwrites an existing section prefix
       F.setSectionPrefix(".page" + utostr(Bin));
     }
   }
