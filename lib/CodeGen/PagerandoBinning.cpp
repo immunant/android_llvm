@@ -78,7 +78,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
     if (F.isRandPage()) {
       unsigned Bin = AssignToBin(MF);
       // Note: overwrites an existing section prefix
-      F.setSectionPrefix(".page" + utostr(Bin));
+      F.setSectionPrefix(".bin_" + utostr(Bin));
     }
   }
 
