@@ -68,7 +68,7 @@ FunctionPass *llvm::createARMPGLTOptimizationPass() {
 }
 
 bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
-  if (!Fn.getFunction()->isRandPage() || skipFunction(*Fn.getFunction()))
+  if (!Fn.getFunction()->isBinned() || skipFunction(*Fn.getFunction()))
     return false;
 
   MF = &Fn;
@@ -279,5 +279,5 @@ void ARMPGLTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
 
 bool ARMPGLTOpt::isSameBin(const GlobalValue *GV) {
   auto F = dyn_cast<Function>(GV);
-  return F && F->isRandPage() && F->getSectionPrefix() == CurBinPrefix;
+  return F && F->isBinned() && F->getSectionPrefix() == CurBinPrefix;
 }

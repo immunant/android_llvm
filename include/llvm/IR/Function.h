@@ -441,11 +441,9 @@ public:
            AttributeSets.hasAttribute(2, Attribute::StructRet);
   }
 
-  bool isRandPage() const {
+  /// @brief True if the function is assigned to a Pagerando bin.
+  bool isBinned() const {
     return hasFnAttribute(Attribute::PagerandoBinned);
-  }
-  void setRandPage() {
-    addFnAttr(Attribute::PagerandoBinned);
   }
 
   /// @brief Determine if the parameter or return value is marked with NoAlias

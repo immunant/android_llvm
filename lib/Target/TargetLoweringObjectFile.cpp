@@ -145,7 +145,7 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
   if (!GVar) {
     const Function *F = dyn_cast<Function>(GO);
     if (F) {
-      if (F->hasFnAttribute(Attribute::PagerandoBinned))
+      if (F->hasFnAttribute(Attribute::PagerandoBinned)) // TODO(yln)
         return SectionKind::getTextRand();
       else if (F->hasFnAttribute(Attribute::PagerandoWrapper))
         return SectionKind::getTextRandWrapper();
@@ -288,7 +288,7 @@ bool TargetLoweringObjectFile::shouldPutJumpTableInFunctionSection(
 
   // If we place the function in a randomly located page, it's faster to have a
   // local jump table, since a global one would require extra indirection.
-  if (F.isRandPage())
+  if (F.isBinned())
     return true;
 
   return false;

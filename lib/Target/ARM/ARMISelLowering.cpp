@@ -1998,9 +1998,9 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   auto PtrVt = getPointerTy(DAG.getDataLayout());
 
-  auto F = dyn_cast_or_null<Function>(GV);
-  bool UsePIPAddressing = MF.getFunction()->isRandPage() ||
-                          (F && F->isRandPage());
+  auto F = dyn_cast_or_null<Function>(GV); // TODO(yln)
+  bool UsePIPAddressing = MF.getFunction()->isBinned() ||
+                          (F && F->isBinned());
   if (UsePIPAddressing) {
     if (GV) {
       Callee = LowerGlobalAddressELF(Callee, DAG);
@@ -3006,7 +3006,7 @@ ARMTargetLowering::LowerPGLT(SDValue Op, SelectionDAG &DAG) const {
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   MachineFunction &MF = DAG.getMachineFunction();
   unsigned PGLTReg = getPGLTBaseRegister();
-  if (MF.getFunction()->isRandPage()) {
+  if (MF.getFunction()->isBinned()) {
     return DAG.getCopyFromReg(DAG.getEntryNode(), dl, PGLTReg, PtrVT);
   } else {
     // Need to materialize the PGLT address
@@ -3202,9 +3202,9 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
 
   MachineFunction &MF = DAG.getMachineFunction();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
-  auto F = dyn_cast<Function>(GV);
-  if (MF.getFunction()->isRandPage() ||
-      (F && F->isRandPage())) {
+  auto F = dyn_cast<Function>(GV); // TODO(yln)
+  if (MF.getFunction()->isBinned() ||
+      (F && F->isBinned())) {
     // Position-independent pages, access through the PGLT
     // TODO: Add support for MOVT/W
 
@@ -3212,7 +3212,7 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     ARMConstantPoolValue *OffsetCPV;
     SDValue PGLTValue = DAG.getNode(ISD::PGLT, dl, DAG.getVTList(MVT::i32, MVT::Other));
     SDValue Chain = PGLTValue.getValue(1);
-    if (F && F->isRandPage()) {
+    if (F && F->isBinned()) {
       ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
           GV, ARMCP::PGLTOFF);
       SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);

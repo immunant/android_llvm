@@ -2306,8 +2306,8 @@ bool ARMFastISel::SelectCall(const Instruction *I,
   if (CI->isTailCall()) return false;
 
   // Can't handle PIP
-  const Function *F = dyn_cast<Function>(Callee);
-  if (FuncInfo.MF->getFunction()->isRandPage() || (F && F->isRandPage()))
+  const Function *F = dyn_cast<Function>(Callee); // TODO(yln)
+  if (FuncInfo.MF->getFunction()->isBinned() || (F && F->isBinned()))
     return false;
 
   // Check the calling convention.

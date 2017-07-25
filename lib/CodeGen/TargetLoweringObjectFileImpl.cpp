@@ -419,7 +419,7 @@ bool TargetLoweringObjectFileELF::shouldPutJumpTableInFunctionSection(
     bool UsesLabelDifference, const Function &F) const {
   // If we place the function in a randomly page, it's faster to have a local
   // jump table, since a global one would need dynamic relocation.
-  if (F.isRandPage())
+  if (F.isBinned())
     return true;
 
   // We can always create relative relocations, so use another section
