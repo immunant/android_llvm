@@ -442,10 +442,10 @@ public:
   }
 
   bool isRandPage() const {
-    return hasFnAttribute(Attribute::RandPage);
+    return hasFnAttribute(Attribute::PagerandoBinned);
   }
   void setRandPage() {
-    addFnAttr(Attribute::RandPage);
+    addFnAttr(Attribute::PagerandoBinned);
   }
 
   /// @brief Determine if the parameter or return value is marked with NoAlias

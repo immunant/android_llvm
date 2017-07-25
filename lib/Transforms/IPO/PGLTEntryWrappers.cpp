@@ -132,7 +132,7 @@ void PGLTEntryWrappers::ProcessFunction(Function *F) {
   }
 
   F->setSection("");
-  F->addFnAttr(Attribute::RandPage);
+  F->addFnAttr(Attribute::PagerandoBinned);
 }
 
 static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
@@ -156,8 +156,8 @@ Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> 
   Wrapper->copyAttributesFrom(&F);
   Wrapper->setComdat(F.getComdat());
 
-  Wrapper->addFnAttr(Attribute::RandWrapper);
-  //Wrapper->addFnAttr(Attribute::RandPage);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
+  Wrapper->addFnAttr(Attribute::PagerandoWrapper);
+  //Wrapper->addFnAttr(Attribute::PagerandoBinned);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
   Wrapper->addFnAttr(Attribute::NoInline);
   Wrapper->addFnAttr(Attribute::OptimizeForSize);
 

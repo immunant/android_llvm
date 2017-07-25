@@ -1111,8 +1111,10 @@ bool LLParser::ParseFnAttributeValuePairs(AttrBuilder &B,
       B.addAttribute(Attribute::SanitizeMemory); break;
     case lltok::kw_uwtable: B.addAttribute(Attribute::UWTable); break;
     case lltok::kw_writeonly: B.addAttribute(Attribute::WriteOnly); break;
-    case lltok::kw_randpage: B.addAttribute(Attribute::RandPage); break;
-    case lltok::kw_randwrapper: B.addAttribute(Attribute::RandWrapper); break;
+    case lltok::kw_pagerando_binned:
+      B.addAttribute(Attribute::PagerandoBinned); break;
+    case lltok::kw_pagerando_wrapper:
+      B.addAttribute(Attribute::PagerandoWrapper); break;
 
     // Error handling.
     case lltok::kw_inreg:

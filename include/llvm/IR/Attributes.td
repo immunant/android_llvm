@@ -173,11 +173,11 @@ def WriteOnly : EnumAttr<"writeonly">;
 /// Zero extended before/after call.
 def ZExt : EnumAttr<"zeroext">;
 
-/// Function should be placed on a randomly located page.
-def RandPage : EnumAttr<"randpage">;
+/// Function is placed into a Pagerando bin.
+def PagerandoBinned : EnumAttr<"pagerando_binned">;
 
-/// Function is a wrapper to set up PGLT register.
-def RandWrapper : EnumAttr<"randwrapper">;
+/// Function is a Pagerando wrapper.
+def PagerandoWrapper : EnumAttr<"pagerando_wrapper">;
 
 /// Target-independent string attributes.
 def LessPreciseFPMAD : StrBoolAttr<"less-precise-fpmad">;
