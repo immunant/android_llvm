@@ -2550,12 +2550,11 @@ MCSymbol *AsmPrinter::GetSectionSymbol(const GlobalObject *GO) const {
 unsigned AsmPrinter::GetPGLTIndex(const GlobalObject *GO) {
   const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
   auto I = std::find(PGLT.begin(), PGLT.end(), Sec);
-  if (I != PGLT.end()) {
-    return (I - PGLT.begin()) + 1;
-  } else {
+  auto Index = static_cast<unsigned>(I - PGLT.begin());
+  if (I == PGLT.end()) {
     PGLT.push_back(Sec);
-    return PGLT.size();
   }
+  return Index + 1;  // Index 0 denotes the default bin #0
 }
 
 /// PrintParentLoopComment - Print comments about parent loops of this one.
