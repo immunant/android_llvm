@@ -31,8 +31,8 @@ class SectionKind {
            /// ExecuteOnly, Text section that is not readable.
            ExecuteOnly,
 
-           /// RandAddr - Text section should go on a page which will be randomly
-           /// located in memory.
+           /// TextRand - Text section location in memory should be randomized
+           /// by the loader.
            TextRand,
 
     /// ReadOnly - Data that is never written to at program runtime by the
