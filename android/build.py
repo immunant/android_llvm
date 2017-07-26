@@ -72,6 +72,16 @@ def libcxxabi_headers():
                         'include')
 
 
+def ndk_toolchain_lib(arch, toolchain_root, host_tag):
+    toolchain_lib = os.path.join(ndk_base(), 'toolchains', toolchain_root,
+                                 'prebuilt', 'linux-x86_64', host_tag)
+    if arch in ['arm', 'i386', 'mips']:
+        toolchain_lib = os.path.join(toolchain_lib, 'lib')
+    else:
+        toolchain_lib = os.path.join(toolchain_lib, 'lib64')
+    return toolchain_lib
+
+
 def support_headers():
     return os.path.join(ndk_base(), 'sources', 'android', 'support', 'include')
 
@@ -213,7 +223,27 @@ def cross_compile_configs(stage2_install):
         elif arch == 'mips':
             toolchain_builtins = os.path.join(toolchain_builtins, '32',
                                               'mips-r2')
-        ldflags = ['-L' + toolchain_builtins, '--sysroot=%s' % sysroot_libs]
+        libcxx_libs = os.path.join(ndk_base(), 'sources', 'cxx-stl',
+                                   'llvm-libc++', 'libs')
+        if ndk_arch == 'arm':
+            libcxx_libs = os.path.join(libcxx_libs, 'armeabi')
+        elif ndk_arch == 'arm64':
+            libcxx_libs = os.path.join(libcxx_libs, 'arm64-v8a')
+        else:
+            libcxx_libs = os.path.join(libcxx_libs, ndk_arch)
+
+        if ndk_arch == 'arm':
+            toolchain_lib = ndk_toolchain_lib(arch, 'arm-linux-androideabi-4.9',
+                                              'arm-linux-androideabi')
+        elif ndk_arch == 'x86' or ndk_arch == 'x86_64':
+            toolchain_lib = ndk_toolchain_lib(arch, ndk_arch + '-4.9',
+                                              llvm_triple)
+        else:
+            toolchain_lib = ndk_toolchain_lib(arch, llvm_triple + '-4.9',
+                                              llvm_triple)
+
+        ldflags = ['-L' + toolchain_builtins, '-Wl,-z,defs', '-L' + libcxx_libs,
+                   '-L' + toolchain_lib, '--sysroot=%s' % sysroot_libs]
         defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
@@ -288,6 +318,11 @@ def build_crts(stage2_install, clang_version):
         crt_defines['COMPILER_RT_TEST_TARGET_TRIPLE'] = llvm_triple
         crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'OFF'
         crt_defines['CMAKE_INSTALL_PREFIX'] = crt_install
+
+        # libcxxabi is statically linked into libc++ and we need to add libc++
+        # manually here.
+        crt_defines['ASAN_DYNAMIC_LIBS'] = 'c++'
+        crt_defines['UBSAN_DYNAMIC_LIBS'] = 'c++'
         crt_defines.update(base_cmake_defines())
 
         crt_env = dict(ORIG_ENV)
