@@ -374,7 +374,7 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   // global value to a uniqued section specifically for it.
   bool EmitUniqueSection = false;
   if (!(Flags & ELF::SHF_MERGE) && !Kind.isCommon()) {
-    if (Kind.isText() && !Kind.isTextRand())
+    if (Kind.isText())
       EmitUniqueSection = TM.getFunctionSections();
     else
       EmitUniqueSection = TM.getDataSections();
@@ -385,6 +385,8 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   if (AssociatedSymbol) {
     EmitUniqueSection = true;
     Flags |= ELF::SHF_LINK_ORDER;
+  } else if (Kind.isTextRand()) {
+    EmitUniqueSection = false;
   }
 
   MCSectionELF *Section = selectELFSectionForGlobal(
