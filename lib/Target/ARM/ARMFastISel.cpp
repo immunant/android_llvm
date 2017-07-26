@@ -2307,7 +2307,7 @@ bool ARMFastISel::SelectCall(const Instruction *I,
 
   // Can't handle PIP
   const Function *F = dyn_cast<Function>(Callee); // TODO(yln)
-  if (FuncInfo.MF->getFunction()->isBinned() || (F && F->isBinned()))
+  if (FuncInfo.MF->getFunction()->isPagerando() || (F && F->isPagerando()))
     return false;
 
   // Check the calling convention.

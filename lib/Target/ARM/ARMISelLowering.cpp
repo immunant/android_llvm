@@ -1999,8 +1999,8 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   auto PtrVt = getPointerTy(DAG.getDataLayout());
 
   auto F = dyn_cast_or_null<Function>(GV); // TODO(yln)
-  bool UsePIPAddressing = MF.getFunction()->isBinned() ||
-                          (F && F->isBinned());
+  bool UsePIPAddressing = MF.getFunction()->isPagerando() ||
+                          (F && F->isPagerando());
   if (UsePIPAddressing) {
     if (GV) {
       Callee = LowerGlobalAddressELF(Callee, DAG);
@@ -3006,7 +3006,7 @@ ARMTargetLowering::LowerPGLT(SDValue Op, SelectionDAG &DAG) const {
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   MachineFunction &MF = DAG.getMachineFunction();
   unsigned PGLTReg = getPGLTBaseRegister();
-  if (MF.getFunction()->isBinned()) {
+  if (MF.getFunction()->isPagerando()) {
     return DAG.getCopyFromReg(DAG.getEntryNode(), dl, PGLTReg, PtrVT);
   } else {
     // Need to materialize the PGLT address
@@ -3203,8 +3203,8 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
   MachineFunction &MF = DAG.getMachineFunction();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   auto F = dyn_cast<Function>(GV); // TODO(yln)
-  if (MF.getFunction()->isBinned() ||
-      (F && F->isBinned())) {
+  if (MF.getFunction()->isPagerando() ||
+      (F && F->isPagerando())) {
     // Position-independent pages, access through the PGLT
     // TODO: Add support for MOVT/W
 
@@ -3212,7 +3212,7 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     ARMConstantPoolValue *OffsetCPV;
     SDValue PGLTValue = DAG.getNode(ISD::PGLT, dl, DAG.getVTList(MVT::i32, MVT::Other));
     SDValue Chain = PGLTValue.getValue(1);
-    if (F && F->isBinned()) {
+    if (F && F->isPagerando()) {
       ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
           GV, ARMCP::PGLTOFF);
       SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);

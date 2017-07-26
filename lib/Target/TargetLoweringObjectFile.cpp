@@ -141,7 +141,7 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
 
   // Early exit - functions should be always in text sections.
   if (auto *F = dyn_cast<Function>(GO)) {
-    if (F->isBinned())
+    if (F->isPagerando())
       return SectionKind::getTextRand();
     if (F->hasFnAttribute(Attribute::PagerandoWrapper))
       return SectionKind::getTextRandWrapper();
@@ -285,7 +285,7 @@ bool TargetLoweringObjectFile::shouldPutJumpTableInFunctionSection(
 
   // If we place the function in a randomly located page, it's faster to have a
   // local jump table, since a global one would require extra indirection.
-  if (F.isBinned())
+  if (F.isPagerando())
     return true;
 
   return false;

@@ -441,8 +441,9 @@ public:
            AttributeSets.hasAttribute(2, Attribute::StructRet);
   }
 
-  /// @brief True if the function is assigned to a Pagerando bin.
-  bool isBinned() const {
+  /// @brief True if the function is compatible with Pagerando and should be
+  /// placed into a randomized bin.
+  bool isPagerando() const {
     return hasFnAttribute(Attribute::PagerandoBinned);
   }
 

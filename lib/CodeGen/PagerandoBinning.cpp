@@ -75,7 +75,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
 
   for (auto &F : M) {
     auto &MF = MMI.getMachineFunction(F);
-    if (F.isBinned()) {
+    if (F.isPagerando()) {
       unsigned Bin = AssignToBin(MF);
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(".bin_" + utostr(Bin));
