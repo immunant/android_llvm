@@ -76,6 +76,8 @@ struct MachinePointerInfo {
   /// Return a MachinePointerInfo record that refers to a GOT entry.
   static MachinePointerInfo getGOT(MachineFunction &MF);
 
+  /// Return a MachinePointerInfo record that refers to a Page Offset Table
+  /// (POT) entry.
   static MachinePointerInfo getPOT(MachineFunction &MF);
 
   /// Stack pointer relative access.

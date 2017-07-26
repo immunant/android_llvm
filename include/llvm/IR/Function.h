@@ -446,6 +446,7 @@ public:
   bool isPagerando() const {
     return hasFnAttribute(Attribute::PagerandoBinned);
   }
+  /// @brief True if the function is a Pagerando wrapper.
   bool isPagerandoWrapper() const {
     return hasFnAttribute(Attribute::PagerandoWrapper);
   }
