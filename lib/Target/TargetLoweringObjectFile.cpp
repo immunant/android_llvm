@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Target/TargetLoweringObjectFile.h"
-#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -141,17 +140,15 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
   Reloc::Model ReloModel = TM.getRelocationModel();
 
   // Early exit - functions should be always in text sections.
-  const auto *GVar = dyn_cast<GlobalVariable>(GO);
-  if (!GVar) {
-    const Function *F = dyn_cast<Function>(GO);
-    if (F) {
-      if (F->hasFnAttribute(Attribute::PagerandoBinned)) // TODO(yln)
-        return SectionKind::getTextRand();
-      else if (F->hasFnAttribute(Attribute::PagerandoWrapper))
-        return SectionKind::getTextRandWrapper();
-    }
+  if (auto *F = dyn_cast<Function>(GO)) {
+    if (F->isBinned())
+      return SectionKind::getTextRand();
+    if (F->hasFnAttribute(Attribute::PagerandoWrapper))
+      return SectionKind::getTextRandWrapper();
     return SectionKind::getText();
   }
+
+  const auto *GVar = cast<GlobalVariable>(GO);
 
   // Handle thread-local data first.
   if (GVar->isThreadLocal()) {
