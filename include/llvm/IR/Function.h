@@ -446,6 +446,9 @@ public:
   bool isPagerando() const {
     return hasFnAttribute(Attribute::PagerandoBinned);
   }
+  bool isPagerandoWrapper() const {
+    return hasFnAttribute(Attribute::PagerandoWrapper);
+  }
 
   /// @brief Determine if the parameter or return value is marked with NoAlias
   /// attribute.
