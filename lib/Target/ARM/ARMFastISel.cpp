@@ -2306,7 +2306,7 @@ bool ARMFastISel::SelectCall(const Instruction *I,
   if (CI->isTailCall()) return false;
 
   // Can't handle PIP
-  const Function *F = dyn_cast<Function>(Callee); // TODO(yln)
+  const Function *F = dyn_cast<Function>(Callee);
   if (FuncInfo.MF->getFunction()->isPagerando() || (F && F->isPagerando()))
     return false;
 
