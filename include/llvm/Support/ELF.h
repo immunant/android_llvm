@@ -756,7 +756,7 @@ enum : unsigned {
 
   SHF_MASKOS = 0x0ff00000,
 
-  SHF_IMM_RANDADDR = 0x00100000,
+  SHF_RAND_ADDR = 0x00100000,
 
   // Bits indicating processor-specific flags.
   SHF_MASKPROC = 0xf0000000,

@@ -212,7 +212,7 @@ static unsigned getELFSectionFlags(SectionKind K) {
     Flags |= ELF::SHF_STRINGS;
 
   if (K.isTextRand())
-    Flags |= ELF::SHF_IMM_RANDADDR;
+    Flags |= ELF::SHF_RAND_ADDR;
 
   return Flags;
 }
