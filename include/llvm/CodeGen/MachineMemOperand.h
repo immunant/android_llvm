@@ -76,7 +76,7 @@ struct MachinePointerInfo {
   /// Return a MachinePointerInfo record that refers to a GOT entry.
   static MachinePointerInfo getGOT(MachineFunction &MF);
 
-  static MachinePointerInfo getPGLT(MachineFunction &MF);
+  static MachinePointerInfo getPOT(MachineFunction &MF);
 
   /// Stack pointer relative access.
   static MachinePointerInfo getStack(MachineFunction &MF, int64_t Offset);

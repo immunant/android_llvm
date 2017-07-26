@@ -72,8 +72,8 @@ StringRef ARMConstantPoolValue::getModifierText() const {
     return "gotoff";
   case ARMCP::GOT_BREL:
     return "got_brel";
-  case ARMCP::PGLTOFF:
-    return "pgltoff";
+  case ARMCP::POTOFF:
+    return "potoff";
   case ARMCP::BINOFF:
     return "binoff";
   }

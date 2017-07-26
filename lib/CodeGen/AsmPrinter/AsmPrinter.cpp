@@ -1635,8 +1635,8 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
       GV->hasAvailableExternallyLinkage())
     return true;
 
-  if (GV->getName() == "llvm.pglt")
-    EmitPGLT(GV);
+  if (GV->getName() == "llvm.pot")
+    EmitPOT(GV);
 
   if (!GV->hasAppendingLinkage()) return false;
 
@@ -1659,11 +1659,11 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
   report_fatal_error("unknown special variable");
 }
 
-void AsmPrinter::EmitPGLT(const GlobalVariable *GV) {
+void AsmPrinter::EmitPOT(const GlobalVariable *GV) {
   // FIXME: This duplicates a lot of code from EmitGlobalVariable. Might be
   // better to create the global variable earlier somehow and emit it normally.
-  MCSymbol *PGLTSym = OutContext.getOrCreateSymbol(StringRef("_PGLT_"));
-  EmitVisibility(PGLTSym, GV->getVisibility(), !GV->isDeclaration());
+  MCSymbol *POTSym = OutContext.getOrCreateSymbol(StringRef("_POT_"));
+  EmitVisibility(POTSym, GV->getVisibility(), !GV->isDeclaration());
 
   // uint64_t Size = DL->getTypeAllocSize(GV->getType()->getElementType());
 
@@ -1672,7 +1672,7 @@ void AsmPrinter::EmitPGLT(const GlobalVariable *GV) {
 
   // for (const HandlerInfo &HI : Handlers) {
   //   NamedRegionTimer T(HI.TimerName, HI.TimerGroupName, TimePassesIsEnabled);
-  //   HI.Handler->setSymbolSize(PGLTSym, Size);
+  //   HI.Handler->setSymbolSize(POTSym, Size);
   // }
 
   MCSection *TheSection =
@@ -1682,23 +1682,23 @@ void AsmPrinter::EmitPGLT(const GlobalVariable *GV) {
 
   OutStreamer->SwitchSection(TheSection);
 
-  EmitLinkage(GV, PGLTSym);
+  EmitLinkage(GV, POTSym);
   EmitAlignment(AlignLog, GV);
 
-  OutStreamer->EmitLabel(PGLTSym);
+  OutStreamer->EmitLabel(POTSym);
 
   unsigned PtrSize = getDataLayout().getPointerSize(0);
 
   MCSymbol *GOTSymbol = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
   OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSymbol, OutContext), PtrSize);
 
-  for (auto *Sec : PGLT)
+  for (auto *Sec : POT)
     OutStreamer->EmitValue(MCSymbolRefExpr::create(Sec->getBeginSymbol(), OutContext), PtrSize);
 
-  MCSymbol *PGLTEndSym = OutContext.getOrCreateSymbol(StringRef("_PGLT_END_"));
-  OutStreamer->EmitSymbolAttribute(PGLTEndSym, MCSA_Global);
-  OutStreamer->EmitSymbolAttribute(PGLTEndSym, MAI->getProtectedVisibilityAttr());
-  OutStreamer->EmitLabel(PGLTEndSym);
+  MCSymbol *POTEndSym = OutContext.getOrCreateSymbol(StringRef("_POT_END_"));
+  OutStreamer->EmitSymbolAttribute(POTEndSym, MCSA_Global);
+  OutStreamer->EmitSymbolAttribute(POTEndSym, MAI->getProtectedVisibilityAttr());
+  OutStreamer->EmitLabel(POTEndSym);
 
   OutStreamer->AddBlankLine();
 }
@@ -2547,12 +2547,12 @@ MCSymbol *AsmPrinter::GetSectionSymbol(const GlobalObject *GO) const {
   return Sec->getBeginSymbol();
 }
 
-unsigned AsmPrinter::GetPGLTIndex(const GlobalObject *GO) {
+unsigned AsmPrinter::GetPOTIndex(const GlobalObject *GO) {
   const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
-  auto I = std::find(PGLT.begin(), PGLT.end(), Sec);
-  auto Index = static_cast<unsigned>(I - PGLT.begin());
-  if (I == PGLT.end()) {
-    PGLT.push_back(Sec);
+  auto I = std::find(POT.begin(), POT.end(), Sec);
+  auto Index = static_cast<unsigned>(I - POT.begin());
+  if (I == POT.end()) {
+    POT.push_back(Sec);
   }
   return Index + 1;  // Index 0 denotes the default bin #0
 }

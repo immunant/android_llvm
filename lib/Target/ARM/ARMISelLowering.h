@@ -610,7 +610,7 @@ class InstrItineraryData;
     SDValue LowerGlobalTLSAddressDarwin(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGlobalTLSAddressWindows(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGLOBAL_OFFSET_TABLE(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerPGLT(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerPOT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerBR_JT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerXALUO(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSELECT(SDValue Op, SelectionDAG &DAG) const;

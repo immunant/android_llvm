@@ -65,8 +65,8 @@ namespace ISD {
     /// The address of the GOT
     GLOBAL_OFFSET_TABLE,
 
-    /// The address of the PGLT
-    PGLT,
+    /// The address of the POT
+    POT,
 
     /// FRAMEADDR, RETURNADDR - These nodes represent llvm.frameaddress and
     /// llvm.returnaddress on the DAG.  These nodes take one operand, the index

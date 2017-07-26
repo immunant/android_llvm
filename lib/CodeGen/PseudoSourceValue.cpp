@@ -21,7 +21,7 @@
 using namespace llvm;
 
 static const char *const PSVNames[] = {
-    "Stack", "GOT", "PGLT", "JumpTable", "ConstantPool", "FixedStack",
+    "Stack", "GOT", "POT", "JumpTable", "ConstantPool", "FixedStack",
     "GlobalValueCallEntry", "ExternalSymbolCallEntry"};
 
 PseudoSourceValue::PseudoSourceValue(PSVKind Kind) : Kind(Kind) {}
@@ -38,19 +38,19 @@ void PseudoSourceValue::printCustom(raw_ostream &O) const {
 bool PseudoSourceValue::isConstant(const MachineFrameInfo *) const {
   if (isStack())
     return false;
-  if (isGOT() || isPGLT() || isConstantPool() || isJumpTable())
+  if (isGOT() || isPOT() || isConstantPool() || isJumpTable())
     return true;
   llvm_unreachable("Unknown PseudoSourceValue!");
 }
 
 bool PseudoSourceValue::isAliased(const MachineFrameInfo *) const {
-  if (isStack() || isGOT() || isPGLT() || isConstantPool() || isJumpTable())
+  if (isStack() || isGOT() || isPOT() || isConstantPool() || isJumpTable())
     return false;
   llvm_unreachable("Unknown PseudoSourceValue!");
 }
 
 bool PseudoSourceValue::mayAlias(const MachineFrameInfo *) const {
-  return !(isGOT() || isPGLT() || isConstantPool() || isJumpTable());
+  return !(isGOT() || isPOT() || isConstantPool() || isJumpTable());
 }
 
 bool FixedStackPseudoSourceValue::isConstant(
@@ -99,7 +99,7 @@ ExternalSymbolPseudoSourceValue::ExternalSymbolPseudoSourceValue(const char *ES)
 
 PseudoSourceValueManager::PseudoSourceValueManager()
     : StackPSV(PseudoSourceValue::Stack), GOTPSV(PseudoSourceValue::GOT),
-      PGLTPSV(PseudoSourceValue::PGLT),
+      POTPSV(PseudoSourceValue::POT),
       JumpTablePSV(PseudoSourceValue::JumpTable),
       ConstantPoolPSV(PseudoSourceValue::ConstantPool) {}
 
@@ -109,7 +109,7 @@ const PseudoSourceValue *PseudoSourceValueManager::getStack() {
 
 const PseudoSourceValue *PseudoSourceValueManager::getGOT() { return &GOTPSV; }
 
-const PseudoSourceValue *PseudoSourceValueManager::getPGLT() { return &PGLTPSV; }
+const PseudoSourceValue *PseudoSourceValueManager::getPOT() { return &POTPSV; }
 
 const PseudoSourceValue *PseudoSourceValueManager::getConstantPool() {
   return &ConstantPoolPSV;

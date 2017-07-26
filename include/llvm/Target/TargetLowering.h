@@ -1171,9 +1171,9 @@ public:
   }
 
   /// If a physical register, this returns the register that stores the base
-  /// address of the PGLT.
-  unsigned getPGLTBaseRegister() const {
-    return PGLTBaseRegister;
+  /// address of the POT.
+  unsigned getPOTBaseRegister() const {
+    return POTBaseRegister;
   }
 
   /// Returns the target's jmp_buf size in bytes (if never set, the default is
@@ -1505,10 +1505,10 @@ protected:
     StackPointerRegisterToSaveRestore = R;
   }
 
-  /// If set to a physical register, this sets the register that stores the PGLT
+  /// If set to a physical register, this sets the register that stores the POT
   /// base address.
-  void setPGLTBaseRegister(unsigned R) {
-    PGLTBaseRegister = R;
+  void setPOTBaseRegister(unsigned R) {
+    POTBaseRegister = R;
   }
 
   /// Tells the code generator that the target has multiple (allocatable)
@@ -2115,8 +2115,8 @@ private:
   unsigned StackPointerRegisterToSaveRestore;
 
   /// If set to a physical register, this specifies the register that
-  /// stores the PGLT base register.
-  unsigned PGLTBaseRegister;
+  /// stores the POT base register.
+  unsigned POTBaseRegister;
 
   /// This indicates the default register class to use for each ValueType the
   /// target supports natively.
