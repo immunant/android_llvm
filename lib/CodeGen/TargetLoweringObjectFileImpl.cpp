@@ -211,9 +211,6 @@ static unsigned getELFSectionFlags(SectionKind K) {
   if (K.isMergeableCString())
     Flags |= ELF::SHF_STRINGS;
 
-  if (K.isTextRand())
-    Flags |= ELF::SHF_RAND_ADDR;
-
   return Flags;
 }
 

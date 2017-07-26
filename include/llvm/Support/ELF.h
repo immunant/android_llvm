@@ -756,9 +756,6 @@ enum : unsigned {
 
   SHF_MASKOS = 0x0ff00000,
 
-  // Section location in memory should be randomized by the loader.
-  SHF_RAND_ADDR = 0x00400000,
-
   // Bits indicating processor-specific flags.
   SHF_MASKPROC = 0xf0000000,
 
