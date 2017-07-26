@@ -23,7 +23,7 @@
 
 using namespace llvm;
 
-#define DEBUG_TYPE "arm-pot-opt"
+#define DEBUG_TYPE "pagerando"
 
 #define ARM_POT_OPT_NAME "ARM POT interwork optimization pass"
 

@@ -33,7 +33,7 @@
 
 using namespace llvm;
 
-#define DEBUG_TYPE "pot"
+#define DEBUG_TYPE "pagerando"
 
 namespace {
 class POTEntryWrappers : public ModulePass {
