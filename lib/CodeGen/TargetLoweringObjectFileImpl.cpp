@@ -214,9 +214,6 @@ static unsigned getELFSectionFlags(SectionKind K) {
   if (K.isTextRand())
     Flags |= ELF::SHF_IMM_RANDADDR;
 
-  if (K.isTextRandWrapper())
-    Flags |= ELF::SHF_IMM_RANDWRAPPER;
-
   return Flags;
 }
 

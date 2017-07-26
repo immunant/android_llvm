@@ -34,7 +34,6 @@ class SectionKind {
            /// RandAddr - Text section should go on a page which will be randomly
            /// located in memory.
            TextRand,
-           TextRandWrapper,
 
     /// ReadOnly - Data that is never written to at program runtime by the
     /// program or the dynamic linker.  Things in the top-level readonly
@@ -122,13 +121,11 @@ public:
   bool isMetadata() const { return K == Metadata; }
 
   bool isText() const {
-    return K == Text || K == ExecuteOnly ||
-           K == TextRand || K == TextRandWrapper;
+    return K == Text || K == ExecuteOnly || K == TextRand;
   }
 
   bool isExecuteOnly() const { return K == ExecuteOnly; }
   bool isTextRand() const { return K == TextRand; }
-  bool isTextRandWrapper() const { return K == TextRandWrapper; }
 
   bool isReadOnly() const {
     return K == ReadOnly || isMergeableCString() ||
@@ -190,7 +187,6 @@ public:
   static SectionKind getText() { return get(Text); }
   static SectionKind getExecuteOnly() { return get(ExecuteOnly); }
   static SectionKind getTextRand() { return get(TextRand); }
-  static SectionKind getTextRandWrapper() { return get(TextRandWrapper); }
   static SectionKind getReadOnly() { return get(ReadOnly); }
   static SectionKind getMergeable1ByteCString() {
     return get(Mergeable1ByteCString);

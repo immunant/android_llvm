@@ -143,8 +143,6 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
   if (auto *F = dyn_cast<Function>(GO)) {
     if (F->isPagerando())
       return SectionKind::getTextRand();
-    if (F->hasFnAttribute(Attribute::PagerandoWrapper))
-      return SectionKind::getTextRandWrapper();
     return SectionKind::getText();
   }
 
