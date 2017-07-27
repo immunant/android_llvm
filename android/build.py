@@ -321,6 +321,7 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None,
     cmake_defines = base_cmake_defines()
     cmake_defines['CMAKE_INSTALL_PREFIX'] = install_dir
     cmake_defines['LLVM_TARGETS_TO_BUILD'] = targets
+    cmake_defines['LLVM_BUILD_LLVM_DYLIB'] = 'ON'
     cmake_defines['CLANG_VENDOR'] = 'Android '
 
     if extra_defines is not None:
