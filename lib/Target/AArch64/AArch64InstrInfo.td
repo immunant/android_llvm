@@ -634,6 +634,13 @@ def : Pat<(AArch64WrapperLarge tjumptable:$g3, tjumptable:$g2,
                           tjumptable:$g2, 32),
                   tjumptable:$g3, 48)>;
 
+def : Pat<(AArch64WrapperLarge texternalsym:$g3, texternalsym:$g2,
+                             texternalsym:$g1, texternalsym:$g0),
+          (MOVKXi (MOVKXi (MOVKXi (MOVZXi texternalsym:$g0, 0),
+                                  texternalsym:$g1, 16),
+                          texternalsym:$g2, 32),
+                  texternalsym:$g3, 48)>;
+
 
 //===----------------------------------------------------------------------===//
 // Arithmetic instructions.

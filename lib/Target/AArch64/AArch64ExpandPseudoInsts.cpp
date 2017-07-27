@@ -879,6 +879,12 @@ bool AArch64ExpandPseudo::expandMI(MachineBasicBlock &MBB,
               .add(Base);
       MIB.addGlobalAddress(Global.getGlobal(), 0, Flags);
       transferImpOps(MI, MIB, MIB);
+    } else if (Global.isSymbol()) {
+      MachineInstrBuilder MIB =
+          BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+              .add(Base);
+      MIB.addExternalSymbol(Global.getSymbolName(), Flags);
+      transferImpOps(MI, MIB, MIB);
     } else {
       assert(Global.isReg() &&
              "Only expect global immediate or register offset");

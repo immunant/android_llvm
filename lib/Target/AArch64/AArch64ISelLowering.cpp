@@ -3282,9 +3282,33 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     if (MF.getFunction()->isRandPage()) {
       // Calls from PIP functions should go through the GOT for now so that we
       // can properly indirect through PGLT.
+      SDValue PGLTValue = DAG.getNode(ISD::PGLT, DL, DAG.getVTList(MVT::i64, MVT::Other));
+      SDValue Chain = PGLTValue.getValue(1);
+      SDValue BaseAddr = DAG.getNode(AArch64ISD::LOADpglt, DL, PtrVT, Chain, PGLTValue,
+                                     DAG.getTargetConstant(0, DL, MVT::i32));
+      SDValue Offset;
+
+      const Module *M = DAG.getMachineFunction().getFunction()->getParent();
+      PICLevel::Level picLevel = M->getPICLevel();
+
       const char *Sym = S->getSymbol();
-      Callee = DAG.getTargetExternalSymbol(Sym, PtrVT, AArch64II::MO_GOT);
-      Callee = DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, Callee);
+
+      const unsigned char MO_NC = AArch64II::MO_NC;
+      const unsigned char MO_GOTOFF = AArch64II::MO_GOTOFF;
+      if (picLevel == PICLevel::SmallPIC) {
+        // GOT size <= 28KiB
+        Offset = DAG.getTargetExternalSymbol(Sym, PtrVT, MO_GOTOFF);
+      } else {
+        // Large GOT size
+        Offset = DAG.getNode(
+            AArch64ISD::WrapperLarge, DL, PtrVT,
+            DAG.getTargetExternalSymbol(Sym, PtrVT, MO_GOTOFF | AArch64II::MO_G3),
+            DAG.getTargetExternalSymbol(Sym, PtrVT, MO_GOTOFF | AArch64II::MO_G2 | MO_NC),
+            DAG.getTargetExternalSymbol(Sym, PtrVT, MO_GOTOFF | AArch64II::MO_G1 | MO_NC),
+            DAG.getTargetExternalSymbol(Sym, PtrVT, MO_GOTOFF | AArch64II::MO_G0 | MO_NC));
+      }
+
+      Callee = DAG.getNode(AArch64ISD::LOADgotr, DL, PtrVT, BaseAddr, Offset);
     } else {
       const char *Sym = S->getSymbol();
       Callee = DAG.getTargetExternalSymbol(Sym, PtrVT, 0);
