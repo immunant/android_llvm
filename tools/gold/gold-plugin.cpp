@@ -997,7 +997,7 @@ static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
     if (get_input_section_name(cur_section, &name) != LDPS_OK)
       message(LDPL_FATAL, "Failed to get input section type");
 
-    if (StringRef(name).startswith(".text.page")) {
+    if (StringRef(name).startswith(".text.bin_")) {
       unique_segments(name, /* segment_name */
                       ELF::PF_R | ELF::PF_X | ELF::PF_RAND_ADDR, /* p_flags */
                       4096, /* aligment */
