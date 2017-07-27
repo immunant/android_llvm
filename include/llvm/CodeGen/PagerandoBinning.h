@@ -32,6 +32,7 @@ class MachineFunction;
 class PagerandoBinning : public ModulePass {
 public:
   static char ID;
+  static constexpr auto SectionPrefix = ".bin_";
 
   explicit PagerandoBinning();
 

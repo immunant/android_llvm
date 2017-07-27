@@ -60,7 +60,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
     if (F.isPagerando()) {
       unsigned Bin = AssignToBin(MF);
       // Note: overwrites an existing section prefix
-      F.setSectionPrefix(".bin_" + utostr(Bin));
+      F.setSectionPrefix(SectionPrefix + utostr(Bin));
     }
   }
 
