@@ -1,4 +1,4 @@
-//===-- ARMPGLTOptimizer.cpp - ARM load / store opt. pass -----------------===//
+//===-- ARMPOTOptimizer.cpp - ARM load / store opt. pass ------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file This pass optimizes calls inside the same position-independent bin to
-/// direct calls to avoid the overhead of indirect calls through the PGLT.
+/// direct calls to avoid the overhead of indirect calls through the POT.
 //
 //===----------------------------------------------------------------------===//
 
@@ -23,15 +23,15 @@
 
 using namespace llvm;
 
-#define DEBUG_TYPE "arm-pglt-opt"
+#define DEBUG_TYPE "pagerando"
 
-#define ARM_PGLT_OPT_NAME "ARM PGLT interwork optimization pass"
+#define ARM_POT_OPT_NAME "ARM POT interwork optimization pass"
 
 namespace {
-class ARMPGLTOpt : public MachineFunctionPass {
+class ARMPOTOpt : public MachineFunctionPass {
 public:
   static char ID;
-  explicit ARMPGLTOpt() : MachineFunctionPass(ID) {}
+  explicit ARMPOTOpt() : MachineFunctionPass(ID) {}
   // TODO(yln): why not self-registering
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
@@ -41,7 +41,7 @@ public:
         MachineFunctionProperties::Property::TracksLiveness);
   }
 
-  StringRef getPassName() const override { return ARM_PGLT_OPT_NAME; }
+  StringRef getPassName() const override { return ARM_POT_OPT_NAME; }
 
 private:
   MachineFunction *MF;
@@ -55,20 +55,20 @@ private:
   bool isThumb2;
 
   bool isSameBin(const GlobalValue *GV);
-  void replacePGLTUses(SmallVectorImpl<int> &CPEntries);
+  void replacePOTUses(SmallVectorImpl<int> &CPEntries);
   void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
 };
 } // end anonymous namespace
 
-char ARMPGLTOpt::ID = 0;
-INITIALIZE_PASS(ARMPGLTOpt, "arm-pglt-opt", ARM_PGLT_OPT_NAME, false, false)
+char ARMPOTOpt::ID = 0;
+INITIALIZE_PASS(ARMPOTOpt, "arm-pot-opt", ARM_POT_OPT_NAME, false, false)
 
-FunctionPass *llvm::createARMPGLTOptimizationPass() {
-  return new ARMPGLTOpt();
+FunctionPass *llvm::createARMPOTOptimizationPass() {
+  return new ARMPOTOpt();
 }
 
-bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
-  if (!Fn.getFunction()->isRandPage() || skipFunction(*Fn.getFunction()))
+bool ARMPOTOpt::runOnMachineFunction(MachineFunction &Fn) {
+  if (!Fn.getFunction()->isPagerando() || skipFunction(*Fn.getFunction()))
     return false;
 
   MF = &Fn;
@@ -82,11 +82,11 @@ bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
   ConstantPool = Fn.getConstantPool();
   isThumb2 = Fn.getInfo<ARMFunctionInfo>()->isThumb2Function();
 
-  SmallVector<int, 8> PGLTCPEntries;
+  SmallVector<int, 8> POTCPEntries;
 
   auto &CPEntries = ConstantPool->getConstants();
 
-  // Find all constant pool entries referencing PGLT-indirect symbols in the
+  // Find all constant pool entries referencing POT-indirect symbols in the
   // same bin
   for (int i = 0, e = CPEntries.size(); i < e; ++i) {
     auto &Entry = CPEntries[i];
@@ -95,22 +95,22 @@ bool ARMPGLTOpt::runOnMachineFunction(MachineFunction &Fn) {
 
     ARMConstantPoolValue *ACPV =
       static_cast<ARMConstantPoolValue*>(Entry.Val.MachineCPVal);
-    if (ACPV->getModifier() == ARMCP::PGLTOFF ||
+    if (ACPV->getModifier() == ARMCP::POTOFF ||
         ACPV->getModifier() == ARMCP::BINOFF) {
       const GlobalValue *GV = cast<ARMConstantPoolConstant>(ACPV)->getGV();
       if (isSameBin(GV)) 
-        PGLTCPEntries.push_back(i);
+        POTCPEntries.push_back(i);
     }
   }
 
-  if (PGLTCPEntries.empty())
+  if (POTCPEntries.empty())
     return false;
 
-  // Replace users of PGLT-indirect CP entries with direct calls
-  replacePGLTUses(PGLTCPEntries);
+  // Replace users of POT-indirect CP entries with direct calls
+  replacePOTUses(POTCPEntries);
 
   // Delete unneeded CP entries
-  deleteOldCPEntries(PGLTCPEntries);
+  deleteOldCPEntries(POTCPEntries);
 
   return true;
 }
@@ -131,7 +131,7 @@ static unsigned NormalizeCallOpcode(unsigned Opc) {
   }
 }
 
-void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
+void ARMPOTOpt::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
   MachineRegisterInfo &MRI = MF->getRegInfo();
 
   std::vector<std::pair<MachineInstr*, const GlobalValue*> > UsesToReplace;
@@ -235,7 +235,7 @@ void ARMPGLTOpt::replacePGLTUses(SmallVectorImpl<int> &CPEntries) {
   }
 }
 
-void ARMPGLTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
+void ARMPOTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
   std::sort(CPEntries.begin(), CPEntries.end());
   std::vector<int> IndexMapping;
   int NewI = 0;
@@ -277,7 +277,7 @@ void ARMPGLTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
   }
 }
 
-bool ARMPGLTOpt::isSameBin(const GlobalValue *GV) {
+bool ARMPOTOpt::isSameBin(const GlobalValue *GV) {
   auto F = dyn_cast<Function>(GV);
-  return F && F->isRandPage() && F->getSectionPrefix() == CurBinPrefix;
+  return F && F->isPagerando() && F->getSectionPrefix() == CurBinPrefix;
 }

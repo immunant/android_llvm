@@ -1,4 +1,4 @@
-//===-- PGLTEntryWrappers.cpp - PGLT base address entry wrapper pass ------===//
+//===-- POTEntryWrappers.cpp - POT base address entry wrapper pass --------===//
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
@@ -12,7 +12,7 @@
 // escape analysis for address-taken functions instead of creating wrappers for
 // all of them.)
 // Vararg functions require special treatment: their variable arguments on the
-// stack need to be preserved even when indirecting through the PGLT. We replace
+// stack need to be preserved even when indirecting through the POT. We replace
 // the original function with a new function that takes an explicit 'va_list'
 // parameter:  foo(int, ...) -> foo$$origva(int, *va_list). The wrapper captures
 // its variable arguments and explicitly passes it to the adapted function to
@@ -33,14 +33,14 @@
 
 using namespace llvm;
 
-#define DEBUG_TYPE "pglt"
+#define DEBUG_TYPE "pagerando"
 
 namespace {
-class PGLTEntryWrappers : public ModulePass {
+class POTEntryWrappers : public ModulePass {
 public:
   static char ID;
-  explicit PGLTEntryWrappers() : ModulePass(ID) {
-    initializePGLTEntryWrappersPass(*PassRegistry::getPassRegistry());
+  explicit POTEntryWrappers() : ModulePass(ID) {
+    initializePOTEntryWrappersPass(*PassRegistry::getPassRegistry());
   }
 
   bool runOnModule(Module &M) override;
@@ -59,16 +59,16 @@ private:
   Function *RewriteVarargs(Function &F, Type *&VAListTy);
   Function *CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
   void CreateWrapperBody(Function *Wrapper, Function* Callee, Type *VAListTy);
-  void CreatePGLT(Module &M);
+  void CreatePOT(Module &M);
 };
 } // end anonymous namespace
 
-char PGLTEntryWrappers::ID = 0;
-INITIALIZE_PASS(PGLTEntryWrappers, "pglt-entry-wrappers",
-                "PGLT Entry Wrappers", false, false)
+char POTEntryWrappers::ID = 0;
+INITIALIZE_PASS(POTEntryWrappers, "pot-entry-wrappers",
+                "POT Entry Wrappers", false, false)
 
-ModulePass *llvm::createPGLTEntryWrappersPass() {
-  return new PGLTEntryWrappers();
+ModulePass *llvm::createPOTEntryWrappersPass() {
+  return new POTEntryWrappers();
 }
 
 static bool SkipFunction(const Function &F) {
@@ -80,7 +80,7 @@ static bool SkipFunction(const Function &F) {
       // include (at least for now).
 }
 
-bool PGLTEntryWrappers::runOnModule(Module &M) {
+bool POTEntryWrappers::runOnModule(Module &M) {
   std::vector<Function*> Worklist;
   for (auto &F : M) {
     if (!SkipFunction(F)) Worklist.push_back(&F);
@@ -91,7 +91,7 @@ bool PGLTEntryWrappers::runOnModule(Module &M) {
   }
 
   if (!Worklist.empty()) {
-    CreatePGLT(M);
+    CreatePOT(M);
   }
 
   return !Worklist.empty();
@@ -116,7 +116,7 @@ static bool SkipFunctionUse(const Use &U) {
       || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
 }
 
-void PGLTEntryWrappers::ProcessFunction(Function *F) {
+void POTEntryWrappers::ProcessFunction(Function *F) {
   std::vector<Use*> AddressUses;
   for (Use &U : F->uses()) {
     if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
@@ -132,7 +132,7 @@ void PGLTEntryWrappers::ProcessFunction(Function *F) {
   }
 
   F->setSection("");
-  F->addFnAttr(Attribute::RandPage);
+  F->addFnAttr(Attribute::PagerandoBinned);
 }
 
 static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
@@ -150,21 +150,21 @@ static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, Small
   }
 }
 
-Function *PGLTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
+Function *POTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
   auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(),
                                   F.getName() + WrapperSuffix, F.getParent());
   Wrapper->copyAttributesFrom(&F);
   Wrapper->setComdat(F.getComdat());
 
-  Wrapper->addFnAttr(Attribute::RandWrapper);
-  //Wrapper->addFnAttr(Attribute::RandPage);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
+  Wrapper->addFnAttr(Attribute::PagerandoWrapper);
+  //Wrapper->addFnAttr(Attribute::PagerandoBinned);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
   Wrapper->addFnAttr(Attribute::NoInline);
   Wrapper->addFnAttr(Attribute::OptimizeForSize);
 
   // +) Calls to a non-local function must go through the wrapper since they
   //    could be redirected by the dynamic linker (i.e, LD_PRELOAD).
   // +) Calls to vararg functions must go through the wrapper to ensure that we
-  //    preserve the arguments on the stack when we indirect through the PGLT.
+  //    preserve the arguments on the stack when we indirect through the POT.
   // -) Address-taken uses of local functions might escape, hence we must also
   //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
@@ -223,7 +223,7 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy) {
+void POTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy) {
   auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
@@ -251,7 +251,7 @@ void PGLTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, T
 
 // Replaces the original function with a new function that takes a va_list
 // parameter but is not varargs:  foo(int, ...) -> foo$$origva(int, *va_list)
-Function *PGLTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
+Function *POTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   auto VAStarts = FindVAStarts(F);
   if (VAStarts.empty()) return &F;
 
@@ -307,24 +307,24 @@ Function *PGLTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   return NF;
 }
 
-void PGLTEntryWrappers::CreatePGLT(Module &M) {
+void POTEntryWrappers::CreatePOT(Module &M) {
   auto PtrTy = Type::getInt8PtrTy(M.getContext());
   auto Ty = ArrayType::get(PtrTy, /* NumElements */ 1);
   auto Init = ConstantAggregateZero::get(Ty);
-  auto PGLT = new GlobalVariable(
-      M, Ty, /* constant */ true, GlobalValue::ExternalLinkage, Init, "llvm.pglt");
-  PGLT->setVisibility(GlobalValue::ProtectedVisibility);
+  auto POT = new GlobalVariable(
+      M, Ty, /* constant */ true, GlobalValue::ExternalLinkage, Init, "llvm.pot");
+  POT->setVisibility(GlobalValue::ProtectedVisibility);
 
-  llvm::appendToUsed(M, {PGLT});
+  llvm::appendToUsed(M, {POT});
 
   LLVMContext &C = M.getContext();
-  // TODO(yln): this can be removed, maybe, alternatively remove some redundant code in AsmPrinter::EmitPGLT
-  // Set the PGLT base address
-  auto PGLTAddress = M.getGlobalVariable("_PGLT_");
-  if (!PGLTAddress) {
-    PGLTAddress = new GlobalVariable(M, Type::getInt8Ty(C), true,
+  // TODO(yln): this can be removed, maybe, alternatively remove some redundant code in AsmPrinter::EmitPOT
+  // Set the POT base address
+  auto POTAddress = M.getGlobalVariable("_POT_");
+  if (!POTAddress) {
+    POTAddress = new GlobalVariable(M, Type::getInt8Ty(C), true,
                                      GlobalValue::ExternalLinkage,
-                                     nullptr, "_PGLT_");
-    PGLTAddress->setVisibility(GlobalValue::ProtectedVisibility);
+                                     nullptr, "_POT_");
+    POTAddress->setVisibility(GlobalValue::ProtectedVisibility);
   }
 }

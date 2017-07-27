@@ -975,7 +975,7 @@ getModifierVariantKind(ARMCP::ARMCPModifier Modifier) {
     return MCSymbolRefExpr::VK_GOTOFF;
   case ARMCP::GOT_BREL:
     return MCSymbolRefExpr::VK_GOT;
-  case ARMCP::PGLTOFF:
+  case ARMCP::POTOFF:
     // Unreachable, handled in EmitMachineConstantPoolValue
     break;
   }
@@ -1050,15 +1050,15 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
     return EmitGlobalConstant(DL, ACPC->getPromotedGlobalInit());
   }
 
-  if (ACPV->getModifier() == ARMCP::PGLTOFF) {
-    // This constant pool entry refers to an offset into the PGLT. Compute the
+  if (ACPV->getModifier() == ARMCP::POTOFF) {
+    // This constant pool entry refers to an offset into the POT. Compute the
     // bin of the target and emit the correct constant offset.
     //
     // Note: This requires LTO.
     auto *F = cast<Function>(cast<ARMConstantPoolConstant>(ACPV)->getGV());
 
     auto ConstantOffset = ConstantInt::get(
-        ACPV->getType(), GetPGLTIndex(F)*DL.getPointerSize());
+        ACPV->getType(), GetPOTIndex(F)*DL.getPointerSize());
     return EmitGlobalConstant(DL, ConstantOffset);
   }
 

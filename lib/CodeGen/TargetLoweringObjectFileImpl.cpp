@@ -211,12 +211,6 @@ static unsigned getELFSectionFlags(SectionKind K) {
   if (K.isMergeableCString())
     Flags |= ELF::SHF_STRINGS;
 
-  if (K.isTextRand())
-    Flags |= ELF::SHF_IMM_RANDADDR;
-
-  if (K.isTextRandWrapper())
-    Flags |= ELF::SHF_IMM_RANDWRAPPER;
-
   return Flags;
 }
 
@@ -380,7 +374,7 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   // global value to a uniqued section specifically for it.
   bool EmitUniqueSection = false;
   if (!(Flags & ELF::SHF_MERGE) && !Kind.isCommon()) {
-    if (Kind.isText() && !Kind.isTextRand())
+    if (Kind.isText())
       EmitUniqueSection = TM.getFunctionSections();
     else
       EmitUniqueSection = TM.getDataSections();
@@ -391,6 +385,8 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   if (AssociatedSymbol) {
     EmitUniqueSection = true;
     Flags |= ELF::SHF_LINK_ORDER;
+  } else if (Kind.isTextRand()) {
+    EmitUniqueSection = false;
   }
 
   MCSectionELF *Section = selectELFSectionForGlobal(
@@ -419,7 +415,7 @@ bool TargetLoweringObjectFileELF::shouldPutJumpTableInFunctionSection(
     bool UsesLabelDifference, const Function &F) const {
   // If we place the function in a randomly page, it's faster to have a local
   // jump table, since a global one would need dynamic relocation.
-  if (F.isRandPage())
+  if (F.isPagerando())
     return true;
 
   // We can always create relative relocations, so use another section

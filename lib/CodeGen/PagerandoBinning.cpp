@@ -20,44 +20,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/PagerandoBinning.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/CodeGen/Passes.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "pagerando"
-
-namespace {
-class PagerandoBinning : public ModulePass {
-public:
-  static char ID;
-  explicit PagerandoBinning() : ModulePass(ID), BinCount(1) {
-    initializePagerandoBinningPass(*PassRegistry::getPassRegistry());
-  }
-
-  bool runOnModule(Module &M) override;
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<MachineModuleInfo>();
-    AU.setPreservesAll();
-    ModulePass::getAnalysisUsage(AU);
-  }
-
-private:
-  static constexpr unsigned BinSize = 4096; // one page
-  static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thump
-
-  // Map <free space -> bin numbers>
-  std::multimap<unsigned, unsigned> Bins;
-  unsigned BinCount;
-
-  unsigned AssignToBin(const MachineFunction &MF);
-};
-} // end anonymous namespace
 
 char PagerandoBinning::ID = 0;
 INITIALIZE_PASS_BEGIN(PagerandoBinning, "pagerando-binning",
@@ -70,15 +42,25 @@ ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
 }
 
+PagerandoBinning::PagerandoBinning() : ModulePass(ID), BinCount(1) {
+  initializePagerandoBinningPass(*PassRegistry::getPassRegistry());
+}
+
+void PagerandoBinning::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.addRequired<MachineModuleInfo>();
+  AU.setPreservesAll();
+  ModulePass::getAnalysisUsage(AU);
+}
+
 bool PagerandoBinning::runOnModule(Module &M) {
-  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
+  auto &MMI = getAnalysis<MachineModuleInfo>();
 
   for (auto &F : M) {
-    const MachineFunction &MF = MMI.getMachineFunction(F);
-    if (F.isRandPage()) {
+    auto &MF = MMI.getMachineFunction(F);
+    if (F.isPagerando()) {
       unsigned Bin = AssignToBin(MF);
       // Note: overwrites an existing section prefix
-      F.setSectionPrefix(".page" + utostr(Bin));
+      F.setSectionPrefix(SectionPrefix + utostr(Bin));
     }
   }
 
@@ -86,7 +68,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
 }
 
 static unsigned ComputeFunctionSize(const MachineFunction &MF) {
-  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+  auto *TII = MF.getSubtarget().getInstrInfo();
 
   unsigned Size = 0;
   for (auto &MBB : MF)

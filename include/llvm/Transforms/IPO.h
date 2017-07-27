@@ -267,10 +267,10 @@ ModulePass *createSampleProfileLoaderPass(StringRef Name);
 ModulePass *createWriteThinLTOBitcodePass(raw_ostream &Str,
                                           raw_ostream *ThinLinkOS = nullptr);
 
-/// createPGLTEntryWrappersPass - This pass wraps entry points to properly set
-/// up the PGLT base register.
+/// createPOTEntryWrappersPass - This pass wraps entry points to properly set
+/// up the POT base register.
 ///
-ModulePass *createPGLTEntryWrappersPass();
+ModulePass *createPOTEntryWrappersPass();
 
 } // End llvm namespace
 

@@ -43,7 +43,7 @@ FunctionPass *createThumb2ITBlockPass();
 FunctionPass *createARMOptimizeBarriersPass();
 FunctionPass *createThumb2SizeReductionPass(
     std::function<bool(const Function &)> Ftor = nullptr);
-FunctionPass *createARMPGLTOptimizationPass();
+FunctionPass *createARMPOTOptimizationPass();
 
 void LowerARMMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
                                   ARMAsmPrinter &AP);
@@ -55,7 +55,7 @@ std::vector<BasicBlockInfo> computeAllBlockSizes(MachineFunction *MF);
 void initializeARMLoadStoreOptPass(PassRegistry &);
 void initializeARMPreAllocLoadStoreOptPass(PassRegistry &);
 void initializeARMConstantIslandsPass(PassRegistry &);
-void initializeARMPGLTOptPass(PassRegistry &);
+void initializeARMPOTOptPass(PassRegistry &);
 
 } // end namespace llvm
 

@@ -16,6 +16,7 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/CodeGen/CommandFlags.h"
+#include "llvm/CodeGen/PagerandoBinning.h"
 #include "llvm/Config/config.h" // plugin-api.h requires HAVE_STDINT_H
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticPrinter.h"
@@ -186,6 +187,9 @@ namespace options {
   static std::vector<const char *> extra;
   // Sample profile file path
   static std::string sample_profile;
+  // Pagerando section prefix
+  static std::string PagerandoSectionPrefix = std::string(".text")
+                                              + PagerandoBinning::SectionPrefix;
 
   static void process_plugin_option(const char *opt_)
   {
@@ -997,7 +1001,7 @@ static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
     if (get_input_section_name(cur_section, &name) != LDPS_OK)
       message(LDPL_FATAL, "Failed to get input section type");
 
-    if (StringRef(name).startswith(".text.page")) {
+    if (StringRef(name).startswith(options::PagerandoSectionPrefix)) {
       unique_segments(name, /* segment_name */
                       ELF::PF_R | ELF::PF_X | ELF::PF_RAND_ADDR, /* p_flags */
                       4096, /* aligment */

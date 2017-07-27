@@ -128,8 +128,8 @@ private:
   /// If VerboseAsm is set, a pointer to the loop info for this function.
   MachineLoopInfo *LI = nullptr;
 
-  /// Sections that need to be referenced in the PGLT
-  std::vector<const MCSection*> PGLT;
+  /// Sections that need to be referenced in the POT
+  std::vector<const MCSection*> POT;
 
   struct HandlerInfo {
     AsmPrinterHandler *Handler;
@@ -436,7 +436,7 @@ public:
 
   /// Return the index of the section containing this global object, if
   /// available.
-  unsigned GetPGLTIndex(const GlobalObject *GO);
+  unsigned GetPOTIndex(const GlobalObject *GO);
 
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.
@@ -621,7 +621,7 @@ private:
   void EmitJumpTableEntry(const MachineJumpTableInfo *MJTI,
                           const MachineBasicBlock *MBB, unsigned uid) const;
   void EmitLLVMUsedList(const ConstantArray *InitList);
-  void EmitPGLT(const GlobalVariable *GV);
+  void EmitPOT(const GlobalVariable *GV);
   /// Emit llvm.ident metadata in an '.ident' directive.
   void EmitModuleIdents(Module &M);
   void EmitXXStructorList(const DataLayout &DL, const Constant *List,

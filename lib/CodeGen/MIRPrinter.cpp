@@ -971,8 +971,8 @@ void MIPrinter::print(const MachineMemOperand &Op) {
     case PseudoSourceValue::GOT:
       OS << "got";
       break;
-    case PseudoSourceValue::PGLT:
-      OS << "pglt";
+    case PseudoSourceValue::POT:
+      OS << "pot";
       break;
     case PseudoSourceValue::JumpTable:
       OS << "jump-table";

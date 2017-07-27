@@ -940,7 +940,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::ConstantPool,  MVT::i32,   Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i32, Custom);
-  setOperationAction(ISD::PGLT, MVT::i32, Custom);
+  setOperationAction(ISD::POT, MVT::i32, Custom);
 
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
 
@@ -1142,7 +1142,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   }
 
   if (Subtarget->isPIP())
-    setPGLTBaseRegister(ARM::R9);
+    setPOTBaseRegister(ARM::R9);
 
   // We have target-specific dag combine patterns for the following nodes:
   // ARMISD::VMOVRRD  - No need to call setTargetDAGCombine
@@ -1999,16 +1999,16 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   auto PtrVt = getPointerTy(DAG.getDataLayout());
 
   auto F = dyn_cast_or_null<Function>(GV);
-  bool UsePIPAddressing = MF.getFunction()->isRandPage() ||
-                          (F && F->isRandPage());
+  bool UsePIPAddressing = MF.getFunction()->isPagerando() ||
+                          (F && F->isPagerando());
   if (UsePIPAddressing) {
     if (GV) {
       Callee = LowerGlobalAddressELF(Callee, DAG);
     } else if (ExternalSymbolSDNode *S=dyn_cast<ExternalSymbolSDNode>(Callee)) {
-      SDValue PGLTValue = DAG.getNode(ISD::PGLT, dl, DAG.getVTList(MVT::i32, MVT::Other));
+      SDValue POTValue = DAG.getNode(ISD::POT, dl, DAG.getVTList(MVT::i32, MVT::Other));
       SDValue GOTAddr = DAG.getLoad(
-          PtrVt, dl, PGLTValue.getValue(1), PGLTValue,
-          MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
+          PtrVt, dl, POTValue.getValue(1), POTValue,
+          MachinePointerInfo::getPOT(DAG.getMachineFunction()));
 
       ARMConstantPoolValue *CPV =
         ARMConstantPoolSymbol::Create(*DAG.getContext(), S->getSymbol(),
@@ -2998,34 +2998,34 @@ ARMTargetLowering::LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const {
 }
 
 SDValue
-ARMTargetLowering::LowerPGLT(SDValue Op, SelectionDAG &DAG) const {
+ARMTargetLowering::LowerPOT(SDValue Op, SelectionDAG &DAG) const {
   assert(Subtarget->isPIP() &&
-         "PGLT lowering only supported with PIP relocation model");
+         "POT lowering only supported with PIP relocation model");
 
   SDLoc dl(Op);
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   MachineFunction &MF = DAG.getMachineFunction();
-  unsigned PGLTReg = getPGLTBaseRegister();
-  if (MF.getFunction()->isRandPage()) {
-    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, PGLTReg, PtrVT);
+  unsigned POTReg = getPOTBaseRegister();
+  if (MF.getFunction()->isPagerando()) {
+    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, POTReg, PtrVT);
   } else {
-    // Need to materialize the PGLT address
+    // Need to materialize the POT address
     ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
     unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
     EVT PtrVT = getPointerTy(DAG.getDataLayout());
     SDLoc dl(Op);
     unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
     ARMConstantPoolValue *CPV = ARMConstantPoolSymbol::Create(
-        *DAG.getContext(), "_PGLT_", ARMPCLabelIndex, PCAdj);
+        *DAG.getContext(), "_POT_", ARMPCLabelIndex, PCAdj);
     SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
     CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
     SDValue Result = DAG.getLoad(
         PtrVT, dl, DAG.getEntryNode(), CPAddr,
         MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
     SDValue PICLabel = DAG.getConstant(ARMPCLabelIndex, dl, MVT::i32);
-    SDValue PGLTAddress = DAG.getNode(ARMISD::PIC_ADD, dl, PtrVT, Result, PICLabel);
-    SDValue Chain = DAG.getCopyToReg(DAG.getEntryNode(), dl, PGLTReg, PGLTAddress);
-    SDValue Ops[2] = { PGLTAddress, Chain };
+    SDValue POTAddress = DAG.getNode(ARMISD::PIC_ADD, dl, PtrVT, Result, PICLabel);
+    SDValue Chain = DAG.getCopyToReg(DAG.getEntryNode(), dl, POTReg, POTAddress);
+    SDValue Ops[2] = { POTAddress, Chain };
     return DAG.getMergeValues(Ops, dl);
   }
 }
@@ -3203,35 +3203,34 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
   MachineFunction &MF = DAG.getMachineFunction();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   auto F = dyn_cast<Function>(GV);
-  if (MF.getFunction()->isRandPage() ||
-      (F && F->isRandPage())) {
-    // Position-independent pages, access through the PGLT
+  if (MF.getFunction()->isPagerando() || (F && F->isPagerando())) {
+    // Position-independent pages, access through the POT
     // TODO: Add support for MOVT/W
 
     SDValue BaseAddr;
     ARMConstantPoolValue *OffsetCPV;
-    SDValue PGLTValue = DAG.getNode(ISD::PGLT, dl, DAG.getVTList(MVT::i32, MVT::Other));
-    SDValue Chain = PGLTValue.getValue(1);
-    if (F && F->isRandPage()) {
+    SDValue POTValue = DAG.getNode(ISD::POT, dl, DAG.getVTList(MVT::i32, MVT::Other));
+    SDValue Chain = POTValue.getValue(1);
+    if (F && F->isPagerando()) {
       ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
-          GV, ARMCP::PGLTOFF);
+          GV, ARMCP::POTOFF);
       SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
       CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
-      SDValue PGLTOffset = DAG.getLoad(
+      SDValue POTOffset = DAG.getLoad(
           PtrVT, dl, DAG.getEntryNode(), CPAddr,
           MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
 
-      SDValue PGLTAddr = DAG.getNode(ISD::ADD, dl, PtrVT, PGLTValue, PGLTOffset);
+      SDValue POTAddr = DAG.getNode(ISD::ADD, dl, PtrVT, POTValue, POTOffset);
       BaseAddr = DAG.getLoad(
-          PtrVT, dl, Chain, PGLTAddr,
-          MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
+          PtrVT, dl, Chain, POTAddr,
+          MachinePointerInfo::getPOT(DAG.getMachineFunction()));
 
       OffsetCPV =
         ARMConstantPoolConstant::Create(GV, ARMCP::BINOFF);
     } else {
       BaseAddr = DAG.getLoad(
-          PtrVT, dl, Chain, PGLTValue,
-          MachinePointerInfo::getPGLT(DAG.getMachineFunction()));
+          PtrVT, dl, Chain, POTValue,
+          MachinePointerInfo::getPOT(DAG.getMachineFunction()));
 
       OffsetCPV =
         ARMConstantPoolConstant::Create(GV, UseGOT ? ARMCP::GOT_BREL : ARMCP::GOTOFF);
@@ -7755,7 +7754,7 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
       return LowerGlobalAddressDarwin(Op, DAG);
     }
   case ISD::GlobalTLSAddress: return LowerGlobalTLSAddress(Op, DAG);
-  case ISD::PGLT:          return LowerPGLT(Op, DAG);
+  case ISD::POT:           return LowerPOT(Op, DAG);
   case ISD::SELECT:        return LowerSELECT(Op, DAG);
   case ISD::SELECT_CC:     return LowerSELECT_CC(Op, DAG);
   case ISD::BR_CC:         return LowerBR_CC(Op, DAG);

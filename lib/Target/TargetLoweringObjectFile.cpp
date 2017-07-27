@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Target/TargetLoweringObjectFile.h"
-#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -141,17 +140,13 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
   Reloc::Model ReloModel = TM.getRelocationModel();
 
   // Early exit - functions should be always in text sections.
-  const auto *GVar = dyn_cast<GlobalVariable>(GO);
-  if (!GVar) {
-    const Function *F = dyn_cast<Function>(GO);
-    if (F) {
-      if (F->hasFnAttribute(Attribute::RandPage))
-        return SectionKind::getTextRand();
-      else if (F->hasFnAttribute(Attribute::RandWrapper))
-        return SectionKind::getTextRandWrapper();
-    }
+  if (auto *F = dyn_cast<Function>(GO)) {
+    if (F->isPagerando())
+      return SectionKind::getTextRand();
     return SectionKind::getText();
   }
+
+  const auto *GVar = cast<GlobalVariable>(GO);
 
   // Handle thread-local data first.
   if (GVar->isThreadLocal()) {
@@ -288,7 +283,7 @@ bool TargetLoweringObjectFile::shouldPutJumpTableInFunctionSection(
 
   // If we place the function in a randomly located page, it's faster to have a
   // local jump table, since a global one would require extra indirection.
-  if (F.isRandPage())
+  if (F.isPagerando())
     return true;
 
   return false;

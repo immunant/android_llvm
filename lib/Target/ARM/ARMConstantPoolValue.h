@@ -53,7 +53,7 @@ namespace ARMCP {
                  /// is ok)
     GOT_BREL,    /// Global Offset Table offset, generate a GOT entry (TODO:
                  /// Figure out if adding this is ok)
-    PGLTOFF,     /// Offset in PGLT (TODO: Figure out if this should instead be a CPKind)
+    POTOFF,      /// Offset in POT (TODO: Figure out if this should instead be a CPKind)
     BINOFF,      /// Offset from start of bin (segment) (TODO: Figure out if
                  /// this should instead be a CPKind)
   };

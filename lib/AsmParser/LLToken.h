@@ -210,8 +210,8 @@ enum Kind {
   kw_uwtable,
   kw_writeonly,
   kw_zeroext,
-  kw_randpage,
-  kw_randwrapper,
+  kw_pagerando_binned,
+  kw_pagerando_wrapper,
 
   kw_type,
   kw_opaque,

@@ -2307,7 +2307,7 @@ bool ARMFastISel::SelectCall(const Instruction *I,
 
   // Can't handle PIP
   const Function *F = dyn_cast<Function>(Callee);
-  if (FuncInfo.MF->getFunction()->isRandPage() || (F && F->isRandPage()))
+  if (FuncInfo.MF->getFunction()->isPagerando() || (F && F->isPagerando()))
     return false;
 
   // Check the calling convention.
@@ -2990,12 +2990,12 @@ unsigned ARMFastISel::ARMLowerPICELF(const GlobalValue *GV,
 
   unsigned DestReg = createResultReg(TLI.getRegClassFor(VT));
   if (Subtarget->isPIP()) {
-    // Add PGLT[0] (GOT address)
-    unsigned PGLTReg = MF->addLiveIn(TLI.getPGLTBaseRegister(), &ARM::rGPRRegClass);
+    // Add POT[0] (GOT address)
+    unsigned POTReg = MF->addLiveIn(TLI.getPOTBaseRegister(), &ARM::rGPRRegClass);
 
     Address GOTAddr;
     GOTAddr.BaseType = Address::RegBase;
-    GOTAddr.Base.Reg = PGLTReg;
+    GOTAddr.Base.Reg = POTReg;
     GOTAddr.Offset = 0;
     unsigned GOTReg;
     bool RV = ARMEmitLoad(TLI.getPointerTy(DL), GOTReg, GOTAddr);

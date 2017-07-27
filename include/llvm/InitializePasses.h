@@ -369,7 +369,7 @@ void initializeWinEHPreparePass(PassRegistry&);
 void initializeWriteBitcodePassPass(PassRegistry&);
 void initializeWriteThinLTOBitcodePass(PassRegistry&);
 void initializeXRayInstrumentationPass(PassRegistry&);
-void initializePGLTEntryWrappersPass(PassRegistry&);
+void initializePOTEntryWrappersPass(PassRegistry&);
 }
 
 #endif

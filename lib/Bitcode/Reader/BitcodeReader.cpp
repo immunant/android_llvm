@@ -1068,8 +1068,8 @@ static uint64_t getRawAttributeMask(Attribute::AttrKind Val) {
   case Attribute::SwiftSelf:       return 1ULL << 51;
   case Attribute::SwiftError:      return 1ULL << 52;
   case Attribute::WriteOnly:       return 1ULL << 53;
-  case Attribute::RandPage:        return 1ULL << 54;
-  case Attribute::RandWrapper:     return 1ULL << 55;
+  case Attribute::PagerandoBinned: return 1ULL << 54;
+  case Attribute::PagerandoWrapper:return 1ULL << 55;
   case Attribute::Dereferenceable:
     llvm_unreachable("dereferenceable attribute not supported in raw format");
     break;
@@ -1294,10 +1294,10 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::WriteOnly;
   case bitc::ATTR_KIND_Z_EXT:
     return Attribute::ZExt;
-  case bitc::ATTR_KIND_RAND_PAGE:
-    return Attribute::RandPage;
-  case bitc::ATTR_KIND_RAND_WRAPPER:
-    return Attribute::RandWrapper;
+  case bitc::ATTR_KIND_PAGERANDO_BINNED:
+    return Attribute::PagerandoBinned;
+  case bitc::ATTR_KIND_PAGERANDO_WRAPPER:
+    return Attribute::PagerandoWrapper;
   }
 }
 
