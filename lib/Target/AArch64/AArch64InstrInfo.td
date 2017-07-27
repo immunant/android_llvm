@@ -411,6 +411,9 @@ def : Pat<(AArch64LOADgotr GPR64:$base, GPR64:$offset),
 def : Pat<(AArch64LOADpglt GPR64:$base, timm:$index),
           (LOADpglt GPR64:$base, imm:$index)>;
 
+def : Pat<(AArch64LOADpglt GPR64:$base, tconstpool:$index),
+          (LOADpglt GPR64:$base, tconstpool:$index)>;
+
 //===----------------------------------------------------------------------===//
 // System instructions.
 //===----------------------------------------------------------------------===//

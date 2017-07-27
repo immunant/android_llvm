@@ -151,12 +151,24 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
         Expr, MCConstantExpr::create(MO.getOffset(), Ctx), Ctx);
 
   if (SourceFlag == AArch64II::MO_PGLT) {
-    auto *GO = cast<GlobalObject>(MO.getGlobal());
-    unsigned index = Printer.GetPGLTIndex(GO);
+    unsigned index;
+    if (MO.isGlobal()) {
+      auto *GO = cast<GlobalObject>(MO.getGlobal());
+      index = Printer.GetPGLTIndex(GO);
+    } else {
+      assert(MO.isCPI() && "Can only handle globals or constant pool indices");
+      index = Printer.GetPGLTIndex(MO.getIndex());
+    }
     return MCOperand::createImm(index);
   } else if (SourceFlag == AArch64II::MO_SEC) {
-    auto *GO = cast<GlobalObject>(MO.getGlobal());
-    const MCSymbol *SecSym = Printer.GetSectionSymbol(GO);
+    const MCSymbol *SecSym;
+    if (MO.isGlobal()) {
+      auto *GO = cast<GlobalObject>(MO.getGlobal());
+      SecSym = Printer.GetSectionSymbol(GO);
+    } else {
+      assert(MO.isCPI() && "Can only handle globals or constant pool indices");
+      SecSym = Printer.GetSectionSymbol(MO.getIndex());
+    }
     assert(SecSym && "Could not find a section symbol");
     const MCExpr *SecExpr = MCSymbolRefExpr::create(SecSym, Ctx);
     Expr = MCBinaryExpr::createSub(Expr, SecExpr, Ctx);

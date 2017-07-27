@@ -906,9 +906,13 @@ bool AArch64ExpandPseudo::expandMI(MachineBasicBlock &MBB,
 
     if (Offset.isGlobal()) {
       MIB.addGlobalAddress(Offset.getGlobal(), 0, Flags | AArch64II::MO_PGLT);
-    } else {
-      assert(Offset.isImm() && "Only expect globals, immediates");
+    } else if (Offset.isImm()) {
       MIB.addImm(Offset.getImm());
+    } else {
+      assert(Offset.isCPI() && "Only expect globals, immediates, or constant pools");
+      MIB.addConstantPoolIndex(Offset.getIndex(), Offset.getOffset(),
+                               Flags | AArch64II::MO_PGLT);
+
     }
 
     transferImpOps(MI, MIB, MIB);

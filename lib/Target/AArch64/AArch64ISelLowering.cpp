@@ -4376,6 +4376,31 @@ SDValue AArch64TargetLowering::LowerConstantPool(SDValue Op,
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   SDLoc DL(Op);
 
+  if (DAG.getMachineFunction().getFunction()->isRandPage()) {
+    SDValue BaseAddr, Offset;
+    SDValue PGLTValue = DAG.getNode(ISD::PGLT, DL, DAG.getVTList(MVT::i64, MVT::Other));
+    SDValue Chain = PGLTValue.getValue(1);
+    SDValue PGLTOffset =
+      DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment(),
+                                CP->getOffset(), AArch64II::MO_PGLT);
+    BaseAddr = DAG.getNode(AArch64ISD::LOADpglt, DL, PtrVT, Chain, PGLTValue, PGLTOffset);
+
+    const unsigned char MO_NC = AArch64II::MO_NC;
+    const unsigned char MO_SEC = AArch64II::MO_SEC;
+    Offset = DAG.getNode(
+        AArch64ISD::WrapperLarge, DL, PtrVT,
+        DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment(),
+                                  CP->getOffset(), MO_SEC | AArch64II::MO_G3),
+        DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment(),
+                                  CP->getOffset(), MO_SEC | AArch64II::MO_G2 | MO_NC),
+        DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment(),
+                                  CP->getOffset(), MO_SEC | AArch64II::MO_G1 | MO_NC),
+        DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment(),
+                                  CP->getOffset(), MO_SEC | AArch64II::MO_G0 | MO_NC));
+
+    return DAG.getNode(ISD::ADD, DL, PtrVT, BaseAddr, Offset);
+  }
+
   if (getTargetMachine().getCodeModel() == CodeModel::Large) {
     // Use the GOT for the large code model on iOS.
     if (Subtarget->isTargetMachO()) {
