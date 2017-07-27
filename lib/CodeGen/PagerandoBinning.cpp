@@ -43,6 +43,16 @@ ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
 }
 
+PagerandoBinning::PagerandoBinning() : ModulePass(ID), BinCount(1) {
+  initializePagerandoBinningPass(*PassRegistry::getPassRegistry());
+}
+
+void PagerandoBinning::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.addRequired<MachineModuleInfo>();
+  AU.setPreservesAll();
+  ModulePass::getAnalysisUsage(AU);
+}
+
 bool PagerandoBinning::runOnModule(Module &M) {
   auto &MMI = getAnalysis<MachineModuleInfo>();
 

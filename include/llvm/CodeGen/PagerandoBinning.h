@@ -28,22 +28,15 @@
 
 namespace llvm {
 class MachineFunction;
-class MachineModuleInfo;
 
 class PagerandoBinning : public ModulePass {
 public:
   static char ID;
-  explicit PagerandoBinning() : ModulePass(ID), BinCount(1) {
-    initializePagerandoBinningPass(*PassRegistry::getPassRegistry());
-  }
+
+  explicit PagerandoBinning();
 
   bool runOnModule(Module &M) override;
-
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.addRequired<MachineModuleInfo>();
-    AU.setPreservesAll();
-    ModulePass::getAnalysisUsage(AU);
-  }
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
 
 private:
   static constexpr unsigned BinSize = 4096; // one page
