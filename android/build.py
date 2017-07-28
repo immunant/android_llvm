@@ -47,7 +47,7 @@ def extract_clang_version(stage2_install):
 
 def ndk_base():
     ndk_version = 'r15'
-    return utils.android_path('prebuilts/ndk', ndk_version)
+    return utils.android_path('toolchain/prebuilts/ndk', ndk_version)
 
 
 def android_api(arch):
