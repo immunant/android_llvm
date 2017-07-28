@@ -34,9 +34,15 @@ def logger():
 
 
 def check_call(cmd, *args, **kwargs):
-    """subprocss.check_call with logging."""
+    """subprocess.check_call with logging."""
     logger().info('check_call: %s', subprocess.list2cmdline(cmd))
     subprocess.check_call(cmd, *args, **kwargs)
+
+
+def remove(path):
+    """Proxy for os.remove with logging."""
+    logger().debug('remove %s', path)
+    os.remove(path)
 
 
 def extract_clang_version(stage2_install):
@@ -210,7 +216,7 @@ def build_asan_test(stage2_install):
 def build_libcxx(stage2_install, clang_version):
     support_headers = utils.android_path('bionic', 'libc', 'include')
     for (arch, llvm_triple, libcxx_defines, cflags) in cross_compile_configs(stage2_install):
-        print "Building libcxx for %s" % arch
+        logger().info('Building libcxx for %s', arch)
         libcxx_path = utils.android_path('out', 'lib', 'libcxx-'+arch)
 
         cflags.extend(['-isystem %s' % support_headers])
@@ -243,7 +249,7 @@ def build_crts(stage2_install, clang_version):
     llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
     # Now build compiler-rt for each arch
     for (arch, llvm_triple, crt_defines, cflags) in cross_compile_configs(stage2_install):
-        print "Building compiler-rt for %s" % arch
+        logger().info('Building compiler-rt for %s', arch)
         crt_path = utils.android_path('out', 'lib', 'clangrt-'+arch)
         crt_install = os.path.join(stage2_install, 'lib64', 'clang',
                                    clang_version.short_version())
@@ -274,7 +280,7 @@ def build_libfuzzers(stage2_install, clang_version):
     support_headers = utils.android_path('bionic', 'libc', 'include')
 
     for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(stage2_install):
-        print "Building libfuzzer for %s" % arch
+        logger().info('Building libfuzzer for %s', arch)
         libfuzzer_path = utils.android_path('out', 'lib', 'libfuzzer-'+arch)
         libfuzzer_defines['CMAKE_BUILD_TYPE'] = 'Release'
         libfuzzer_defines['LLVM_USE_SANITIZER'] = 'Address'
@@ -488,6 +494,69 @@ def build_runtimes(stage2_install):
     build_asan_test(stage2_install)
 
 
+def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
+    package_name = 'clang-' + build_name
+    install_host_dir = utils.android_path('out', 'install', host)
+    install_dir = os.path.join(install_host_dir, package_name)
+
+    # Remove any previously installed toolchain so it doesn't pollute the
+    # build.
+    if os.path.exists(install_host_dir):
+        shutil.rmtree(install_host_dir)
+
+    # First copy over the entire set of output objects.
+    shutil.copytree(build_dir, install_dir, symlinks=True)
+
+    # Next, we remove unnecessary binaries.
+    necessary_bin_files = [
+            'clang',
+            'clang++',
+            'clang-5.0',
+            'clang-format',
+            'clang-tidy',
+            'git-clang-format',
+            'llvm-ar',
+            'llvm-as',
+            'llvm-dis',
+            'llvm-link',
+            'llvm-profdata',
+            'llvm-symbolizer',
+            'sancov',
+            'sanstats',
+            ]
+    bin_dir = os.path.join(install_dir, 'bin')
+    bin_files = os.listdir(bin_dir)
+    for bin_filename in bin_files:
+        binary = os.path.join(bin_dir, bin_filename)
+        if os.path.isfile(binary) and bin_filename not in necessary_bin_files:
+            remove(binary)
+
+    # TODO(srhines): Add/install the compiler wrappers.
+
+    # Next, we remove unnecessary static libraries.
+    static_lib_dir = os.path.join(install_dir, 'lib64')
+    lib_files = os.listdir(static_lib_dir)
+    for lib_file in lib_files:
+        if lib_file.endswith(".a"):
+            static_library = os.path.join(static_lib_dir, lib_file)
+            remove(static_library)
+
+    # Add an AndroidVersion.txt file.
+    version = extract_clang_version(build_dir)
+    version_file_path = os.path.join(install_dir, 'AndroidVersion.txt')
+    with open(version_file_path, 'w') as version_file:
+        version_file.write('{}\n'.format(version.long_version()))
+
+    # Package up the resulting trimmed install/ directory.
+    tarball_name = package_name + '-' + host
+    package_path = os.path.join(dist_dir, tarball_name) + '.tar.bz2'
+    logger().info('Packaging %s', package_path)
+    args = [
+        'tar', '-cjC', install_host_dir, '-f', package_path, package_name
+    ]
+    check_call(args)
+
+
 def parse_args():
     """Parses and returns command line arguments."""
     parser = argparse.ArgumentParser()
@@ -495,6 +564,8 @@ def parse_args():
     parser.add_argument(
         '-v', '--verbose', action='count', default=0,
         help='Increase log level. Defaults to logging.INFO.')
+    parser.add_argument(
+        '--build-name', default='dev', help='Release name for the package.')
 
     parser.add_argument('--use-lld', action='store_true', default=False,
                         help='Use lld for linking (only affects stage2)')
@@ -503,6 +574,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    do_build = True
+    do_package = True
 
     log_levels = [logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
@@ -511,10 +584,14 @@ def main():
 
     # TODO(pirama): Once we have a set of prebuilts with lld, pass use_lld for
     # stage1 as well.
-    stage1_install = build_stage1()
-    stage2_install = build_stage2(stage1_install, STAGE2_TARGETS, args.use_lld)
+    if do_build:
+        stage1_install = build_stage1()
+        stage2_install = build_stage2(stage1_install, STAGE2_TARGETS,
+                                      args.use_lld)
+    else:
+        stage2_install = utils.android_path('out', 'stage2-install')
 
-    if utils.build_os_type() == 'linux-x86':
+    if do_build and utils.build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
 
         # Build single-stage clang for Windows
@@ -536,6 +613,13 @@ def main():
                                install_dir=windows32_install,
                                native_clang_install=stage2_install,
                                is_32_bit=True)
+
+    if do_package:
+        # TODO(srhines): This only packages builds for the host OS. It needs
+        # to be extended to package up the Windows build as well.
+        dist_dir = ORIG_ENV.get('DIST_DIR', utils.android_path('out'))
+        package_toolchain(stage2_install, args.build_name,
+                          utils.build_os_type(), dist_dir, strip=False)
 
     return 0
 
