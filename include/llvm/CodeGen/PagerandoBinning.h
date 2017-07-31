@@ -41,13 +41,14 @@ public:
 
 private:
   static constexpr unsigned BinSize = 4096; // one page
-  static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thump
+  static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thumb
 
-  // Map <free space -> bin numbers>
+  // Map <free space -> bin number>
   std::multimap<unsigned, unsigned> Bins;
-  unsigned BinCount;
+  unsigned BinCount = 1;
 
   unsigned AssignToBin(const MachineFunction &MF);
+  unsigned ComputeFunctionSize(const MachineFunction &MF);
 };
 
 } // end namespace llvm

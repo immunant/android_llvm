@@ -42,7 +42,7 @@ ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
 }
 
-PagerandoBinning::PagerandoBinning() : ModulePass(ID), BinCount(1) {
+PagerandoBinning::PagerandoBinning() : ModulePass(ID) {
   initializePagerandoBinningPass(*PassRegistry::getPassRegistry());
 }
 
@@ -65,18 +65,6 @@ bool PagerandoBinning::runOnModule(Module &M) {
   }
 
   return true;
-}
-
-static unsigned ComputeFunctionSize(const MachineFunction &MF) {
-  auto *TII = MF.getSubtarget().getInstrInfo();
-
-  unsigned Size = 0;
-  for (auto &MBB : MF)
-    for (auto &MI : MBB)
-      Size += TII->getInstSizeInBytes(MI);
-
-  assert(Size > 0 && "Function size is assumed to be greater than zero.");
-  return Size;
 }
 
 unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
@@ -107,4 +95,16 @@ unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
                << " with remaining free space " << FreeSpace << '\n');
 
   return Bin;
+}
+
+unsigned PagerandoBinning::ComputeFunctionSize(const MachineFunction &MF) {
+  auto *TII = MF.getSubtarget().getInstrInfo();
+
+  unsigned Size = 0;
+  for (auto &MBB : MF)
+    for (auto &MI : MBB)
+      Size += TII->getInstSizeInBytes(MI);
+
+  assert(Size >= MinFnSize);
+  return Size;
 }
