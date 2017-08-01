@@ -387,9 +387,10 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
     Flags |= ELF::SHF_LINK_ORDER;
   }
 
-  // Pagerando is incompatible with unique sections (enforced by driver)
+  // Pagerando is incompatible with unique sections.
   if (auto *F = dyn_cast<Function>(GO)) {
-    assert(!(F->isPagerando() && EmitUniqueSection));
+    if (F->isPagerando())
+      EmitUniqueSection = false;
   }
 
   MCSectionELF *Section = selectELFSectionForGlobal(
