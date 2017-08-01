@@ -1,8 +1,9 @@
-//===-- PagerandoWrappers.cpp - Pagerando entry wrapper pass --------------===//
+//===----------------------------------------------------------------------===//
+//
+//                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-// Copyright 2016, 2017 Immunant, Inc.
 //
 //===----------------------------------------------------------------------===//
 //

@@ -1,4 +1,4 @@
-//===-- ARMPOTOptimizer.cpp - ARM load / store opt. pass ------------------===//
+//===----------------------------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-/// \file This pass optimizes calls inside the same position-independent bin to
-/// direct calls to avoid the overhead of indirect calls through the POT.
+// This pass optimizes calls inside the same position-independent bin to direct
+// calls to avoid the overhead of indirect calls through the POT.
 //
 //===----------------------------------------------------------------------===//
 
