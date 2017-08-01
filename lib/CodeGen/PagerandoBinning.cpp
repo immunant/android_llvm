@@ -1,4 +1,4 @@
-//===-- PagerandoBinning.cpp - Binning for pagerando ----------------------===//
+//===-- PagerandoBinning.cpp - Pagerando binning pass ---------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -33,10 +33,10 @@ using namespace llvm;
 
 char PagerandoBinning::ID = 0;
 INITIALIZE_PASS_BEGIN(PagerandoBinning, "pagerando-binning",
-                      "Pagerando binning", false, false)
+                      "Pagerando function binning", false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineModuleInfo);
 INITIALIZE_PASS_END(PagerandoBinning, "pagerando-binning",
-                    "Pagerando binning", false, false)
+                    "Pagerando function binning", false, false)
 
 ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();

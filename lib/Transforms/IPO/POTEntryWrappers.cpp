@@ -29,7 +29,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-#include <llvm/Transforms/Utils/ModuleUtils.h>
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 
 using namespace llvm;
 
@@ -64,8 +64,8 @@ private:
 } // end anonymous namespace
 
 char POTEntryWrappers::ID = 0;
-INITIALIZE_PASS(POTEntryWrappers, "pot-entry-wrappers",
-                "POT Entry Wrappers", false, false)
+INITIALIZE_PASS(POTEntryWrappers, "pagerando-entry-wrappers",
+                "Pagerando entry wrappers", false, false)
 
 ModulePass *llvm::createPOTEntryWrappersPass() {
   return new POTEntryWrappers();

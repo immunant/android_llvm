@@ -61,7 +61,8 @@ private:
 } // end anonymous namespace
 
 char ARMPOTOpt::ID = 0;
-INITIALIZE_PASS(ARMPOTOpt, "arm-pot-opt", ARM_POT_OPT_NAME, false, false)
+INITIALIZE_PASS(ARMPOTOpt, "pagerando-optimizer",
+                "Pagerando intra-bin optimizer", false, false)
 
 FunctionPass *llvm::createARMPOTOptimizationPass() {
   return new ARMPOTOpt();
