@@ -28,10 +28,10 @@ using namespace llvm;
 #define ARM_POT_OPT_NAME "ARM POT interwork optimization pass"
 
 namespace {
-class ARMPOTOpt : public MachineFunctionPass {
+class PagerandoOptimizer : public MachineFunctionPass {
 public:
   static char ID;
-  explicit ARMPOTOpt() : MachineFunctionPass(ID) {}
+  explicit PagerandoOptimizer() : MachineFunctionPass(ID) {}
   // TODO(yln): why not self-registering
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
@@ -60,15 +60,15 @@ private:
 };
 } // end anonymous namespace
 
-char ARMPOTOpt::ID = 0;
-INITIALIZE_PASS(ARMPOTOpt, "pagerando-optimizer",
+char PagerandoOptimizer::ID = 0;
+INITIALIZE_PASS(PagerandoOptimizer, "pagerando-optimizer",
                 "Pagerando intra-bin optimizer", false, false)
 
-FunctionPass *llvm::createARMPOTOptimizationPass() {
-  return new ARMPOTOpt();
+FunctionPass *llvm::createPagerandoOptimizerPass() {
+  return new PagerandoOptimizer();
 }
 
-bool ARMPOTOpt::runOnMachineFunction(MachineFunction &Fn) {
+bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   if (!Fn.getFunction()->isPagerando() || skipFunction(*Fn.getFunction()))
     return false;
 
@@ -132,7 +132,7 @@ static unsigned NormalizeCallOpcode(unsigned Opc) {
   }
 }
 
-void ARMPOTOpt::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
+void PagerandoOptimizer::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
   MachineRegisterInfo &MRI = MF->getRegInfo();
 
   std::vector<std::pair<MachineInstr*, const GlobalValue*> > UsesToReplace;
@@ -236,7 +236,7 @@ void ARMPOTOpt::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
   }
 }
 
-void ARMPOTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
+void PagerandoOptimizer::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
   std::sort(CPEntries.begin(), CPEntries.end());
   std::vector<int> IndexMapping;
   int NewI = 0;
@@ -278,7 +278,7 @@ void ARMPOTOpt::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
   }
 }
 
-bool ARMPOTOpt::isSameBin(const GlobalValue *GV) {
+bool PagerandoOptimizer::isSameBin(const GlobalValue *GV) {
   auto F = dyn_cast<Function>(GV);
   return F && F->isPagerando() && F->getSectionPrefix() == CurBinPrefix;
 }
