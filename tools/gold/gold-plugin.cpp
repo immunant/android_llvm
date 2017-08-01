@@ -247,7 +247,7 @@ namespace options {
       DisableVerify = true;
     } else if (opt.startswith("sample-profile=")) {
       sample_profile= opt.substr(strlen("sample-profile="));
-    } else if (opt == "pip") {
+    } else if (opt == "pagerando") {
       RelocationModel = Reloc::PIP;
     } else {
       // Save this option to pass to the code generator.
