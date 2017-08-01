@@ -385,8 +385,6 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   if (AssociatedSymbol) {
     EmitUniqueSection = true;
     Flags |= ELF::SHF_LINK_ORDER;
-  } else if (Kind.isTextRand()) {
-    EmitUniqueSection = false;
   }
 
   MCSectionELF *Section = selectELFSectionForGlobal(
