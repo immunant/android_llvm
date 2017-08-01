@@ -385,8 +385,12 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
   if (AssociatedSymbol) {
     EmitUniqueSection = true;
     Flags |= ELF::SHF_LINK_ORDER;
-  } else if (Kind.isTextRand()) {
-    EmitUniqueSection = false;
+  }
+
+  // Pagerando is incompatible with unique sections.
+  if (auto *F = dyn_cast<Function>(GO)) {
+    if (F->isPagerando())
+      EmitUniqueSection = false;
   }
 
   MCSectionELF *Section = selectELFSectionForGlobal(
