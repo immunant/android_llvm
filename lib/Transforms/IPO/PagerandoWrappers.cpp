@@ -1,4 +1,4 @@
-//===-- POTEntryWrappers.cpp - POT base address entry wrapper pass --------===//
+//===-- PagerandoWrappers.cpp - Pagerando entry wrapper pass --------------===//
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
@@ -36,11 +36,11 @@ using namespace llvm;
 #define DEBUG_TYPE "pagerando"
 
 namespace {
-class POTEntryWrappers : public ModulePass {
+class PagerandoWrappers : public ModulePass {
 public:
   static char ID;
-  explicit POTEntryWrappers() : ModulePass(ID) {
-    initializePOTEntryWrappersPass(*PassRegistry::getPassRegistry());
+  explicit PagerandoWrappers() : ModulePass(ID) {
+    initializePagerandoWrappersPass(*PassRegistry::getPassRegistry());
   }
 
   bool runOnModule(Module &M) override;
@@ -63,12 +63,12 @@ private:
 };
 } // end anonymous namespace
 
-char POTEntryWrappers::ID = 0;
-INITIALIZE_PASS(POTEntryWrappers, "pagerando-entry-wrappers",
+char PagerandoWrappers::ID = 0;
+INITIALIZE_PASS(PagerandoWrappers, "pagerando-wrappers",
                 "Pagerando entry wrappers", false, false)
 
-ModulePass *llvm::createPOTEntryWrappersPass() {
-  return new POTEntryWrappers();
+ModulePass *llvm::createPagerandoWrappersPass() {
+  return new PagerandoWrappers();
 }
 
 static bool SkipFunction(const Function &F) {
@@ -80,7 +80,7 @@ static bool SkipFunction(const Function &F) {
       // include (at least for now).
 }
 
-bool POTEntryWrappers::runOnModule(Module &M) {
+bool PagerandoWrappers::runOnModule(Module &M) {
   std::vector<Function*> Worklist;
   for (auto &F : M) {
     if (!SkipFunction(F)) Worklist.push_back(&F);
@@ -116,7 +116,7 @@ static bool SkipFunctionUse(const Use &U) {
       || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
 }
 
-void POTEntryWrappers::ProcessFunction(Function *F) {
+void PagerandoWrappers::ProcessFunction(Function *F) {
   std::vector<Use*> AddressUses;
   for (Use &U : F->uses()) {
     if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
@@ -150,7 +150,7 @@ static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, Small
   }
 }
 
-Function *POTEntryWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
+Function *PagerandoWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
   auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(),
                                   F.getName() + WrapperSuffix, F.getParent());
   Wrapper->copyAttributesFrom(&F);
@@ -223,7 +223,7 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void POTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy) {
+void PagerandoWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy) {
   auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
@@ -251,7 +251,7 @@ void POTEntryWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Ty
 
 // Replaces the original function with a new function that takes a va_list
 // parameter but is not varargs:  foo(int, ...) -> foo$$origva(int, *va_list)
-Function *POTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
+Function *PagerandoWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   auto VAStarts = FindVAStarts(F);
   if (VAStarts.empty()) return &F;
 
@@ -307,7 +307,7 @@ Function *POTEntryWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   return NF;
 }
 
-void POTEntryWrappers::CreatePOT(Module &M) {
+void PagerandoWrappers::CreatePOT(Module &M) {
   auto PtrTy = Type::getInt8PtrTy(M.getContext());
   auto Ty = ArrayType::get(PtrTy, /* NumElements */ 1);
   auto Init = ConstantAggregateZero::get(Ty);
