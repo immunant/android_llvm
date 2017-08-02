@@ -64,8 +64,10 @@ FunctionPass *llvm::createPagerandoOptimizerPass() {
 }
 
 bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
-  if (!Fn.getFunction()->isPagerando() || skipFunction(*Fn.getFunction()))
+  // This pass is an optimization (optional), therefore check skipFunction.
+  if (skipFunction(*Fn.getFunction()) || !Fn.getFunction()->isPagerando()) {
     return false;
+  }
 
   MF = &Fn;
   MMI = &Fn.getMMI();
