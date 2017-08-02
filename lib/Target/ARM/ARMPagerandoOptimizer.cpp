@@ -63,6 +63,21 @@ FunctionPass *llvm::createPagerandoOptimizerPass() {
   return new PagerandoOptimizer();
 }
 
+static bool isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
+  if (!E.isMachineConstantPoolEntry()) return false;
+
+  // ARMConstantPoolValue lacks casting infrastructure to use dyn_cast directly
+  auto *CPV = static_cast<ARMConstantPoolValue*>(E.Val.MachineCPVal);
+  auto *CPC = dyn_cast<ARMConstantPoolConstant>(CPV);
+  if (!CPC) return false;
+
+  auto M = CPC->getModifier();
+  auto *F = dyn_cast_or_null<Function>(CPC->getGV());
+
+  return (M == ARMCP::POTOFF || M == ARMCP::BINOFF)
+      && F && F->getSectionPrefix() == BinPrefix;
+}
+
 bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   // This pass is an optimization (optional), therefore check skipFunction.
   if (skipFunction(*Fn.getFunction()) || !Fn.getFunction()->isPagerando()) {
@@ -81,11 +96,16 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   isThumb2 = Fn.getInfo<ARMFunctionInfo>()->isThumb2Function();
 
   SmallVector<int, 8> POTCPEntries;
+  std::vector<const MachineConstantPoolEntry*> CPEntries2;
 
   auto &CPEntries = ConstantPool->getConstants();
 
   // Find all constant pool entries referencing POT-indirect symbols in the
   // same bin
+  for (auto &E : CPEntries) {
+    if (isIntraBin(E, CurBinPrefix)) CPEntries2.push_back(&E);
+  }
+
   for (int i = 0, e = CPEntries.size(); i < e; ++i) {
     auto &Entry = CPEntries[i];
     if (!Entry.isMachineConstantPoolEntry())
@@ -103,6 +123,10 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
 
   if (POTCPEntries.empty())
     return false;
+
+  errs() << "orig: " << POTCPEntries.size() << "\n"
+      << "my: " << CPEntries2.size() << "\n";
+  assert(POTCPEntries.size() == CPEntries2.size() && "should be totally the same");
 
   // Replace users of POT-indirect CP entries with direct calls
   replacePOTUses(POTCPEntries);
