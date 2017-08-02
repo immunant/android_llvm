@@ -30,7 +30,6 @@ class PagerandoOptimizer : public MachineFunctionPass {
 public:
   static char ID;
   explicit PagerandoOptimizer() : MachineFunctionPass(ID) {}
-  // TODO(yln): why not self-registering
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
 
@@ -50,9 +49,9 @@ private:
   MachineConstantPool *ConstantPool;
   bool isThumb2;
 
-  bool isSameBin(const GlobalValue *GV);
   void replacePOTUses(SmallVectorImpl<int> &CPEntries);
   void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
+  bool isSameBin(const GlobalValue *GV);
 };
 } // end anonymous namespace
 
@@ -95,7 +94,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
     if (ACPV->getModifier() == ARMCP::POTOFF ||
         ACPV->getModifier() == ARMCP::BINOFF) {
       const GlobalValue *GV = cast<ARMConstantPoolConstant>(ACPV)->getGV();
-      if (isSameBin(GV)) 
+      if (isSameBin(GV))
         POTCPEntries.push_back(i);
     }
   }
@@ -112,11 +111,11 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   return true;
 }
 
-static bool IsIndirectCall(unsigned Opc) {
+static bool isIndirectCall(unsigned Opc) {
   return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 }
 
-static unsigned NormalizeCallOpcode(unsigned Opc) {
+static unsigned normalizeCallOpcode(unsigned Opc) {
   switch (Opc) {
   case ARM::TCRETURNri: return ARM::TCRETURNdi;
   case ARM::BLX:        return ARM::BL;
@@ -175,7 +174,7 @@ void PagerandoOptimizer::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
         continue;
       }
 
-      if (IsIndirectCall(User->getOpcode())) {
+      if (isIndirectCall(User->getOpcode())) {
         // Replace indirect register operand with more efficient local
         // PC-relative access
 
@@ -215,7 +214,7 @@ void PagerandoOptimizer::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
         // Replace register operand
         User->getOperand(0).setReg(DestReg);
       } else {
-        unsigned CallOpc = NormalizeCallOpcode(User->getOpcode());
+        unsigned CallOpc = normalizeCallOpcode(User->getOpcode());
         MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
                                           User->getDebugLoc(), TII->get(CallOpc));
         int OpNum = 1;

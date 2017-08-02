@@ -57,7 +57,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
   for (auto &F : M) {
     auto &MF = MMI.getMachineFunction(F);
     if (F.isPagerando()) {
-      unsigned Bin = AssignToBin(MF);
+      unsigned Bin = assignToBin(MF);
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(SectionPrefix + utostr(Bin));
     }
@@ -66,8 +66,8 @@ bool PagerandoBinning::runOnModule(Module &M) {
   return true;
 }
 
-unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
-  unsigned FnSize = ComputeFunctionSize(MF);
+unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
+  unsigned FnSize = computeFunctionSize(MF);
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -96,7 +96,7 @@ unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
   return Bin;
 }
 
-unsigned PagerandoBinning::ComputeFunctionSize(const MachineFunction &MF) {
+unsigned PagerandoBinning::computeFunctionSize(const MachineFunction &MF) {
   auto *TII = MF.getSubtarget().getInstrInfo();
 
   unsigned Size = 0;

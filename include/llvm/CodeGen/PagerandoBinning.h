@@ -46,8 +46,8 @@ private:
   std::multimap<unsigned, unsigned> Bins;
   unsigned BinCount = 1;
 
-  unsigned AssignToBin(const MachineFunction &MF);
-  unsigned ComputeFunctionSize(const MachineFunction &MF);
+  unsigned assignToBin(const MachineFunction &MF);
+  unsigned computeFunctionSize(const MachineFunction &MF);
 };
 
 } // end namespace llvm

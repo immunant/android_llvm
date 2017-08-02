@@ -56,11 +56,11 @@ private:
   static constexpr const char *OrigVASuffix = "$$origva";
   static constexpr const char *WrapperSuffix = "$$wrap";
 
-  void ProcessFunction(Function *F);
-  Function *RewriteVarargs(Function &F, Type *&VAListTy);
-  Function *CreateWrapper(Function &F, const std::vector<Use*> &AddressUses);
-  void CreateWrapperBody(Function *Wrapper, Function* Callee, Type *VAListTy);
-  void CreatePOT(Module &M);
+  void processFunction(Function *F);
+  Function *rewriteVarargs(Function &F, Type *&VAListTy);
+  Function *createWrapper(Function &F, const std::vector<Use *> &AddressUses);
+  void createWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy);
+  void createPOT(Module &M);
 };
 } // end anonymous namespace
 
@@ -72,7 +72,7 @@ ModulePass *llvm::createPagerandoWrappersPass() {
   return new PagerandoWrappers();
 }
 
-static bool SkipFunction(const Function &F) {
+static bool skipFunction(const Function &F) {
   return F.isDeclaration()
       || F.hasAvailableExternallyLinkage()
       || F.hasComdat()  // TODO: Support COMDAT
@@ -84,28 +84,28 @@ static bool SkipFunction(const Function &F) {
 bool PagerandoWrappers::runOnModule(Module &M) {
   std::vector<Function*> Worklist;
   for (auto &F : M) {
-    if (!SkipFunction(F)) Worklist.push_back(&F);
+    if (!skipFunction(F)) Worklist.push_back(&F);
   }
 
   for (auto F : Worklist) {
-    ProcessFunction(F);
+    processFunction(F);
   }
 
   if (!Worklist.empty()) {
-    CreatePOT(M);
+    createPOT(M);
   }
 
   return !Worklist.empty();
 }
 
-static bool SkipFunctionUse(const Use &U);
+static bool skipFunctionUse(const Use &U);
 static bool IsDirectCallOfBitcast(User *Usr) {
   auto CE = dyn_cast<ConstantExpr>(Usr);
   return CE && CE->getOpcode() == Instruction::BitCast
-      && std::all_of(CE->use_begin(), CE->use_end(), SkipFunctionUse);
+      && std::all_of(CE->use_begin(), CE->use_end(), skipFunctionUse);
 }
 
-static bool SkipFunctionUse(const Use &U) {
+static bool skipFunctionUse(const Use &U) {
   auto User = U.getUser();
   auto UserFn = dyn_cast<Function>(User);
   ImmutableCallSite CS(User);
@@ -117,26 +117,27 @@ static bool SkipFunctionUse(const Use &U) {
       || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
 }
 
-void PagerandoWrappers::ProcessFunction(Function *F) {
+void PagerandoWrappers::processFunction(Function *F) {
   std::vector<Use*> AddressUses;
   for (Use &U : F->uses()) {
-    if (!SkipFunctionUse(U)) AddressUses.push_back(&U);
+    if (!skipFunctionUse(U)) AddressUses.push_back(&U);
   }
 
   if (!F->hasLocalLinkage() || !AddressUses.empty()) {
-    auto Wrapper = CreateWrapper(*F, AddressUses);
+    auto Wrapper = createWrapper(*F, AddressUses);
     Type *VAListTy = nullptr;
     if (F->isVarArg()) {
-      F = RewriteVarargs(*F, /* out */ VAListTy); // Reassign F, it might have been deleted
+      F = rewriteVarargs(*F, /* out */ VAListTy); // Reassign F, it might have been deleted
     }
-    CreateWrapperBody(Wrapper, F, VAListTy);
+    createWrapperBody(Wrapper, F, VAListTy);
   }
 
   F->setSection("");
   F->addFnAttr(Attribute::PagerandoBinned);
 }
 
-static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, SmallSet<Constant*, 8> &Constants) {
+static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
+                                   SmallSet<Constant *, 8> &Constants) {
   if (!U->get()) return; // Already replaced this use?
 
   if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
@@ -151,7 +152,8 @@ static void ReplaceAddressTakenUse(Use *U, Function *F, Function *Wrapper, Small
   }
 }
 
-Function *PagerandoWrappers::CreateWrapper(Function &F, const std::vector<Use*> &AddressUses) {
+Function *PagerandoWrappers::createWrapper(Function &F,
+                                           const std::vector<Use *> &AddressUses) {
   auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(),
                                   F.getName() + WrapperSuffix, F.getParent());
   Wrapper->copyAttributesFrom(&F);
@@ -181,14 +183,14 @@ Function *PagerandoWrappers::CreateWrapper(Function &F, const std::vector<Use*> 
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants;
     for (auto U : AddressUses) {
-      ReplaceAddressTakenUse(U, &F, Wrapper, Constants);
+      replaceAddressTakenUse(U, &F, Wrapper, Constants);
     }
   }
 
   return Wrapper;
 }
 
-static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
+static SmallVector<VAStartInst*, 1> findVAStarts(Function &F) {
   SmallVector<VAStartInst*, 1> Insts;
   for (auto &I : instructions(F)) {
     if (isa<VAStartInst>(&I)) {
@@ -198,7 +200,7 @@ static SmallVector<VAStartInst*, 1> FindVAStarts(Function &F) {
   return Insts;
 }
 
-static AllocaInst *FindAlloca(VAStartInst *VAStart) {
+static AllocaInst *findAlloca(VAStartInst *VAStart) {
   Instruction *Alloca = VAStart;
   while (Alloca && !isa<AllocaInst>(Alloca)) {
     Alloca = dyn_cast<Instruction>(Alloca->op_begin());
@@ -207,7 +209,7 @@ static AllocaInst *FindAlloca(VAStartInst *VAStart) {
   return cast<AllocaInst>(Alloca);
 }
 
-static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
+static AllocaInst* createVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
   auto VAListAlloca = Builder.CreateAlloca(VAListTy);
   Builder.CreateCall(  // @llvm.va_start(i8* <arglist>)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
@@ -216,7 +218,8 @@ static AllocaInst* CreateVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy)
   return VAListAlloca;
 }
 
-static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argument *VAListArg) {
+static void createVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart,
+                             Argument *VAListArg) {
   Builder.SetInsertPoint(VAStart);
   Builder.CreateCall(  // @llvm.va_copy(i8* <destarglist>, i8* <srcarglist>)
       Intrinsic::getDeclaration(VAStart->getModule(), Intrinsic::vacopy),
@@ -224,7 +227,8 @@ static void CreateVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart, Argumen
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
 }
 
-void PagerandoWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy) {
+void PagerandoWrappers::createWrapperBody(Function *Wrapper, Function *Callee,
+                                          Type *VAListTy) {
   auto BB = BasicBlock::Create(Wrapper->getContext(), "", Wrapper);
   IRBuilder<> Builder(BB);
 
@@ -234,7 +238,7 @@ void PagerandoWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, T
     Args.push_back(&A);
   }
   if (VAListTy) {
-    auto VAListAlloca = CreateVAList(Wrapper->getParent(), Builder, VAListTy);
+    auto VAListAlloca = createVAList(Wrapper->getParent(), Builder, VAListTy);
     Args.push_back(VAListAlloca);
   }
 
@@ -252,12 +256,12 @@ void PagerandoWrappers::CreateWrapperBody(Function *Wrapper, Function *Callee, T
 
 // Replaces the original function with a new function that takes a va_list
 // parameter but is not varargs:  foo(int, ...) -> foo$$origva(int, *va_list)
-Function *PagerandoWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
-  auto VAStarts = FindVAStarts(F);
+Function *PagerandoWrappers::rewriteVarargs(Function &F, Type *&VAListTy) {
+  auto VAStarts = findVAStarts(F);
   if (VAStarts.empty()) return &F;
 
   // Determine va_list type
-  auto VAListAlloca = FindAlloca(VAStarts[0]);
+  auto VAListAlloca = findAlloca(VAStarts[0]);
   VAListTy = VAListAlloca->getAllocatedType();
 
   // Adapt function type
@@ -297,7 +301,7 @@ Function *PagerandoWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   } else {
     IRBuilder<> Builder(NF->getContext());
     for (auto VAStart : VAStarts) {
-      CreateVACopyCall(Builder, VAStart, VAListArg);
+      createVACopyCall(Builder, VAStart, VAListArg);
     }
   }
   for (auto VAStart : VAStarts) VAStart->eraseFromParent();
@@ -308,7 +312,7 @@ Function *PagerandoWrappers::RewriteVarargs(Function &F, Type *&VAListTy) {
   return NF;
 }
 
-void PagerandoWrappers::CreatePOT(Module &M) {
+void PagerandoWrappers::createPOT(Module &M) {
   auto PtrTy = Type::getInt8PtrTy(M.getContext());
   auto Ty = ArrayType::get(PtrTy, /* NumElements */ 1);
   auto Init = ConstantAggregateZero::get(Ty);
