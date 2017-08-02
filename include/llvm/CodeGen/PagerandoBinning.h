@@ -42,8 +42,7 @@ private:
   static constexpr unsigned BinSize = 4096; // one page
   static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thumb
 
-  // Map <free space -> bin number>
-  std::multimap<unsigned, unsigned> Bins;
+  std::multimap<unsigned, unsigned> Bins;   // <free space  ->  bin numbers>
   unsigned BinCount = 1;
 
   unsigned assignToBin(const MachineFunction &MF);

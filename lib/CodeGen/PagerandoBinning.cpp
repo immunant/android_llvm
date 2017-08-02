@@ -53,17 +53,18 @@ void PagerandoBinning::getAnalysisUsage(AnalysisUsage &AU) const {
 
 bool PagerandoBinning::runOnModule(Module &M) {
   auto &MMI = getAnalysis<MachineModuleInfo>();
+  bool Changed = false;
 
   for (auto &F : M) {
-    auto &MF = MMI.getMachineFunction(F);
     if (F.isPagerando()) {
-      unsigned Bin = assignToBin(MF);
+      unsigned Bin = assignToBin(MMI.getMachineFunction(F));
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(SectionPrefix + utostr(Bin));
+      Changed = true;
     }
   }
 
-  return true;
+  return Changed;
 }
 
 unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
