@@ -87,15 +87,16 @@ bool PagerandoWrappers::runOnModule(Module &M) {
     if (!skipFunction(F)) Worklist.push_back(&F);
   }
 
+  if (Worklist.empty()) {
+    return false;
+  }
+
   for (auto F : Worklist) {
     processFunction(F);
   }
+  createPOT(M);
 
-  if (!Worklist.empty()) {
-    createPOT(M);
-  }
-
-  return !Worklist.empty();
+  return true;
 }
 
 static bool skipFunctionUse(const Use &U);
