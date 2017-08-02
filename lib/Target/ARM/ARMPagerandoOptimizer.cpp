@@ -25,8 +25,6 @@ using namespace llvm;
 
 #define DEBUG_TYPE "pagerando"
 
-#define ARM_POT_OPT_NAME "ARM POT interwork optimization pass"
-
 namespace {
 class PagerandoOptimizer : public MachineFunctionPass {
 public:
@@ -40,8 +38,6 @@ public:
     return MachineFunctionProperties().set(
         MachineFunctionProperties::Property::TracksLiveness);
   }
-
-  StringRef getPassName() const override { return ARM_POT_OPT_NAME; }
 
 private:
   MachineFunction *MF;
