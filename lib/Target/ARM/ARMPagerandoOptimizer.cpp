@@ -56,9 +56,6 @@ private:
 
   void replaceUses(const CPEntry &CPE);
   void deleteEntries(const std::map<int, CPEntry> &Worklist);
-  void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
-
-  bool isSameBin(const GlobalValue *GV);
 };
 } // end anonymous namespace
 
@@ -110,7 +107,6 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   ConstantPool = Fn.getConstantPool();
   isThumb2 = Fn.getInfo<ARMFunctionInfo>()->isThumb2Function();
 
-  SmallVector<int, 8> POTCPEntries;
   auto &CPEntries = ConstantPool->getConstants();
 
   // TODO(yln): maybe used IndexedMap, make sure it is sorted (so we can safely delete in reverse order)
@@ -143,31 +139,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
     replaceUses(E.second);
   }
 
-  // Find all constant pool entries referencing POT-indirect symbols in the
-  // same bin
-  for (int i = 0, e = CPEntries.size(); i < e; ++i) {
-    auto &Entry = CPEntries[i];
-    if (!Entry.isMachineConstantPoolEntry())
-      continue;
-
-    ARMConstantPoolValue *ACPV =
-      static_cast<ARMConstantPoolValue*>(Entry.Val.MachineCPVal);
-    if (ACPV->getModifier() == ARMCP::POTOFF ||
-        ACPV->getModifier() == ARMCP::BINOFF) {
-      const GlobalValue *GV = cast<ARMConstantPoolConstant>(ACPV)->getGV();
-      if (isSameBin(GV))
-        POTCPEntries.push_back(i);
-    }
-  }
-
-  if (POTCPEntries.empty())
-    return false;
-
-//  // Replace users of POT-indirect CP entries with direct calls
-//  replaceUses(POTCPEntries);
-
-  // Delete unneeded CP entries
-  deleteOldCPEntries(POTCPEntries);
+  deleteEntries(Worklist);
 
   return true;
 }
@@ -295,51 +267,4 @@ void PagerandoOptimizer::deleteEntries(const std::map<int, CPEntry> &Worklist) {
     auto Old = static_cast<unsigned>(I->first);
     ConstantPool->eraseIndex(Old);
   }
-}
-
-void PagerandoOptimizer::deleteOldCPEntries(SmallVectorImpl<int> &CPEntries) {
-  std::sort(CPEntries.begin(), CPEntries.end());
-  std::vector<int> IndexMapping;
-  int NewI = 0;
-  for (int i = 0, e = ConstantPool->getConstants().size(); i < e; ++i) {
-    bool deleted = false;
-    for (auto DeleteI : CPEntries) {
-      if (i == DeleteI) {
-        deleted = true;
-        break;
-      }
-    }
-    if (deleted)
-      IndexMapping.push_back(-1);
-    else
-      IndexMapping.push_back(NewI++);
-  }
-
-  for (int i = 0, e = IndexMapping.size(); i < e; ++i) {
-    DEBUG(dbgs() << "Index mapping " << i << " -> " << IndexMapping[i] << '\n');
-  }
-
-  for (auto &BB : *MF) {
-    for (auto &MI : BB) {
-      for (auto &Op : MI.explicit_uses())
-        if (Op.isCPI()) {
-          int CPIndex = Op.getIndex();
-          assert (IndexMapping[CPIndex] != -1 &&
-                  "We should already have deleted this constant pool use");
-
-          Op.setIndex(IndexMapping[CPIndex]);
-        }
-    }
-  }
-
-  // Iterate entries to delete in reverse order so each deletion will not affect
-  // the index of future deletions.
-  for (auto I = CPEntries.rbegin(), E = CPEntries.rend(); I != E; ++I) {
-    ConstantPool->eraseIndex(*I);
-  }
-}
-
-bool PagerandoOptimizer::isSameBin(const GlobalValue *GV) {
-  auto F = dyn_cast<Function>(GV);
-  return F && F->isPagerando() && F->getSectionPrefix() == CurBinPrefix;
 }
