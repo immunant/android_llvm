@@ -39,8 +39,7 @@ public:
   }
 
 private:
-  struct CPVInfo {
-    const unsigned NewIndex;
+  struct CPCInfo {
     const Function *F;
     SmallVector<MachineInstr*, 2> Uses;
   };
@@ -105,15 +104,14 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   SmallVector<int, 8> POTCPEntries;
 
   // TODO(yln): maybe used IndexedMap
-  std::map<int, CPVInfo> CPMapping;
+  std::map<int, CPCInfo> CPMapping;
 
   unsigned Index = 0;
   for (auto &E : ConstantPool->getConstants()) {
     bool intraBin; const Function *F;
     std::tie(intraBin, F) = isIntraBin(E, CurBinPrefix);
     if (intraBin) {
-      unsigned NewIndex = 1337;
-      CPMapping.emplace(Index, CPVInfo{NewIndex, F, {}});
+      CPMapping.emplace(Index, CPCInfo{F, {}});
     }
     Index++;
   }
@@ -149,17 +147,15 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   return true;
 }
 
-static bool isIndirectCall(unsigned Opc) {
+static bool isBXCall(unsigned Opc) {
   return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 }
 
-static unsigned normalizeCallOpcode(unsigned Opc) {
+static unsigned toDirectCall(unsigned Opc) {
   switch (Opc) {
   case ARM::TCRETURNri: return ARM::TCRETURNdi;
   case ARM::BLX:        return ARM::BL;
   case ARM::tBLXr:      return ARM::tBL;
-  case ARM::BX_CALL:    return Opc;
-  case ARM::tBX_CALL:   return Opc;
   default:
     llvm_unreachable("Unhandled ARM call opcode.");
   }
@@ -206,7 +202,7 @@ void PagerandoOptimizer::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
         continue;
       }
 
-      if (isIndirectCall(User->getOpcode())) {
+      if (isBXCall(User->getOpcode())) {
         // Replace indirect register operand with more efficient local
         // PC-relative access
 
@@ -245,8 +241,8 @@ void PagerandoOptimizer::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
 
         // Replace register operand
         User->getOperand(0).setReg(DestReg);
-      } else {
-        unsigned CallOpc = normalizeCallOpcode(User->getOpcode());
+      } else { // indirect call -> direct call
+        unsigned CallOpc = toDirectCall(User->getOpcode());
         MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
                                           User->getDebugLoc(), TII->get(CallOpc));
         int OpNum = 1;
