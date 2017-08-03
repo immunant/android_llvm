@@ -84,6 +84,13 @@ isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
   return {intraBin, F};
 }
 
+static int getConstantPoolIndex(const MachineInstr &MI) {
+  if (MI.mayLoad() && MI.getNumOperands() > 1 && MI.getOperand(1).isCPI()) {
+    return MI.getOperand(1).getIndex();
+  }
+  return -1;
+}
+
 bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   // This pass is an optimization (optional), therefore check skipFunction.
   if (skipFunction(*Fn.getFunction()) || !Fn.getFunction()->isPagerando()) {
@@ -102,21 +109,33 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   isThumb2 = Fn.getInfo<ARMFunctionInfo>()->isThumb2Function();
 
   SmallVector<int, 8> POTCPEntries;
+  auto &CPEntries = ConstantPool->getConstants();
 
   // TODO(yln): maybe used IndexedMap
   std::map<int, CPCInfo> CPMapping;
 
-  unsigned Index = 0;
-  for (auto &E : ConstantPool->getConstants()) {
+  // Find intra-bin constant pool entries
+  for (int Index = 0; Index < CPEntries.size(); ++Index) {
     bool intraBin; const Function *F;
-    std::tie(intraBin, F) = isIntraBin(E, CurBinPrefix);
+    std::tie(intraBin, F) = isIntraBin(CPEntries[Index], CurBinPrefix);
     if (intraBin) {
       CPMapping.emplace(Index, CPCInfo{F, {}});
     }
-    Index++;
   }
 
-  auto &CPEntries = ConstantPool->getConstants();
+  if (CPMapping.empty()) {
+    return false;
+  }
+
+  // Collect uses for intra-bin constant pool entries
+  for (auto &BB : *MF) {
+    for (auto &MI : BB) {
+      auto I = CPMapping.find(getConstantPoolIndex(MI));
+      if (I != CPMapping.end()) {
+        I->second.Uses.push_back(&MI);
+      }
+    }
+  }
 
   // Find all constant pool entries referencing POT-indirect symbols in the
   // same bin
