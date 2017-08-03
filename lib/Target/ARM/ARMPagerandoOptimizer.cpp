@@ -40,7 +40,7 @@ public:
 
 private:
   struct CPEntry {
-    const Function *F;
+    const Function *Callee;
     SmallVector<MachineInstr*, 2> Uses;
   };
 
@@ -54,7 +54,7 @@ private:
   MachineConstantPool *ConstantPool;
   bool isThumb2;
 
-  void replaceUses(const CPEntry &CPE);
+  void replaceUse(MachineInstr *MI, const Function *Callee);
   void deleteEntries(const std::map<int, CPEntry> &Worklist);
 };
 } // end anonymous namespace
@@ -136,7 +136,9 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   }
 
   for (auto &E : Worklist) {
-    replaceUses(E.second);
+    for (auto *MI : E.second.Uses) {
+      replaceUse(MI, E.second.Callee);
+    }
   }
 
   deleteEntries(Worklist);
@@ -158,81 +160,78 @@ static unsigned toDirectCall(unsigned Opc) {
   }
 }
 
-void PagerandoOptimizer::replaceUses(const CPEntry &CPE) {
+void PagerandoOptimizer::replaceUse(MachineInstr *MI, const Function *Callee) {
   MachineRegisterInfo &MRI = MF->getRegInfo();
 
-  for (auto &MI : CPE.Uses) {
+  SmallVector<MachineInstr*, 4> InstrQueue;
+  InstrQueue.push_back(MI);
 
-    SmallVector<MachineInstr*, 4> InstrQueue;
-    InstrQueue.push_back(MI);
+  while (!InstrQueue.empty()) {
+    MachineInstr *User = InstrQueue.back();
+    InstrQueue.pop_back();
 
-    while (!InstrQueue.empty()) {
-      MachineInstr *User = InstrQueue.back();
-      InstrQueue.pop_back();
-
-      if (!User->isCall()) {
-        for (auto Op : User->defs()) {
-          for (auto &User : MRI.use_instructions(Op.getReg()))
-            InstrQueue.push_back(&User);
-        }
-        User->eraseFromParent();
-        continue;
+    if (!User->isCall()) {
+      for (auto Op : User->defs()) {
+        for (auto &User : MRI.use_instructions(Op.getReg()))
+          InstrQueue.push_back(&User);
       }
+      User->eraseFromParent();
+      continue;
+    }
 
-      if (isBXCall(User->getOpcode())) {
-        // Replace indirect register operand with more efficient local
-        // PC-relative access
+    if (isBXCall(User->getOpcode())) {
+      // Replace indirect register operand with more efficient local
+      // PC-relative access
 
-        // Note that GV can't be GOT_PREL because it is in the same
-        // (anonymous) bin
-        LLVMContext *Context = &MF->getFunction()->getContext();
-        unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
-        unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
-        ARMConstantPoolConstant *CPV = ARMConstantPoolConstant::Create(
-            CPE.F, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
-            ARMCP::no_modifier, false);
+      // Note that GV can't be GOT_PREL because it is in the same
+      // (anonymous) bin
+      LLVMContext *Context = &MF->getFunction()->getContext();
+      unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
+      unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
+      ARMConstantPoolConstant *CPV = ARMConstantPoolConstant::Create(
+          Callee, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
+          ARMCP::no_modifier, false);
 
-        unsigned ConstAlign =
-            MF->getDataLayout().getPrefTypeAlignment(Type::getInt32PtrTy(*Context));
-        unsigned Idx = MF->getConstantPool()->getConstantPoolIndex(CPV, ConstAlign);
+      unsigned ConstAlign =
+          MF->getDataLayout().getPrefTypeAlignment(Type::getInt32PtrTy(*Context));
+      unsigned Idx = MF->getConstantPool()->getConstantPoolIndex(CPV, ConstAlign);
 
-        unsigned TempReg = MF->getRegInfo().createVirtualRegister(&ARM::rGPRRegClass);
-        unsigned Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
-        MachineInstrBuilder MIB =
-            BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), TempReg)
-                .addConstantPoolIndex(Idx);
-        if (Opc == ARM::LDRcp)
-          MIB.addImm(0);
+      unsigned TempReg = MF->getRegInfo().createVirtualRegister(&ARM::rGPRRegClass);
+      unsigned Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
+      MachineInstrBuilder MIB =
+          BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), TempReg)
+              .addConstantPoolIndex(Idx);
+      if (Opc == ARM::LDRcp)
+        MIB.addImm(0);
+      MIB.add(predOps(ARMCC::AL));
+
+      // Fix the address by adding pc.
+      // FIXME: this is ugly
+      unsigned DestReg = MRI.createVirtualRegister(
+          TLI->getRegClassFor(TLI->getPointerTy(MF->getDataLayout())));
+      Opc = Subtarget->isThumb() ? ARM::tPICADD : ARM::PICADD;
+      MIB = BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), DestReg)
+          .addReg(TempReg)
+          .addImm(ARMPCLabelIndex);
+      if (!Subtarget->isThumb())
         MIB.add(predOps(ARMCC::AL));
 
-        // Fix the address by adding pc.
-        // FIXME: this is ugly
-        unsigned DestReg = MRI.createVirtualRegister(
-            TLI->getRegClassFor(TLI->getPointerTy(MF->getDataLayout())));
-        Opc = Subtarget->isThumb() ? ARM::tPICADD : ARM::PICADD;
-        MIB = BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), DestReg)
-            .addReg(TempReg)
-            .addImm(ARMPCLabelIndex);
-        if (!Subtarget->isThumb())
-          MIB.add(predOps(ARMCC::AL));
-
-        // Replace register operand
-        User->getOperand(0).setReg(DestReg);
-      } else { // indirect call -> direct call
-        // Replace users of POT-indirect CP entries with direct calls
-        unsigned CallOpc = toDirectCall(User->getOpcode());
-        MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
-                                          User->getDebugLoc(), TII->get(CallOpc));
-        int OpNum = 1;
-        if (CallOpc == ARM::tBL) {
-          MIB.add(predOps(ARMCC::AL));
-          OpNum += 2;
-        }
-        MIB.addGlobalAddress(CPE.F, 0, 0);
-        for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
-          MIB.add(User->getOperand(OpNum));
-        User->eraseFromParent();
+      // Replace register operand
+      User->getOperand(0).setReg(DestReg);
+    } else { // indirect call -> direct call
+      // Replace users of POT-indirect CP entries with direct calls
+      unsigned CallOpc = toDirectCall(User->getOpcode());
+      MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
+                                        User->getDebugLoc(), TII->get(CallOpc));
+      int OpNum = 1;
+      if (CallOpc == ARM::tBL) {
+        MIB.add(predOps(ARMCC::AL));
+        OpNum += 2;
       }
+      MIB.addGlobalAddress(Callee, 0, 0);
+      for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
+        MIB.add(User->getOperand(OpNum));
+      User->eraseFromParent();
     }
   }
 }
