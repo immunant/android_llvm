@@ -111,7 +111,6 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
 
   // TODO(yln): maybe used IndexedMap, make sure it is sorted (so we can safely delete in reverse order)
   std::map<int, CPEntry> Worklist;
-
   // Find intra-bin constant pool entries
   for (int Index = 0; Index < CPEntries.size(); ++Index) {
     bool intraBin; const Function *F;
@@ -125,6 +124,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
     return false;
   }
 
+  std::vector<MachineInstr*> Uses;
   // Collect uses of intra-bin constant pool entries
   for (auto &BB : *MF) {
     for (auto &MI : BB) {
@@ -135,10 +135,9 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
     }
   }
 
-  for (auto &E : Worklist) {
-    for (auto *MI : E.second.Uses) {
-      replaceUse(MI, E.second.Callee);
-    }
+  for (auto *MI : Uses) {
+    auto Callee = Worklist[getConstantPoolIndex(*MI)];
+    replaceUse(MI, Callee.Callee);
   }
 
   deleteEntries(Worklist);
