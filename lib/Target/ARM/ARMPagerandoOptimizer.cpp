@@ -156,26 +156,20 @@ static unsigned normalizeCallOpcode(unsigned Opc) {
 void PagerandoOptimizer::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
   MachineRegisterInfo &MRI = MF->getRegInfo();
 
-  std::vector<std::pair<MachineInstr*, const GlobalValue*> > UsesToReplace;
+  std::vector<std::pair<MachineInstr*, const GlobalValue*>> UsesToReplace;
   for (auto &BB : *MF) {
     for (auto &MI : BB) {
       if (MI.mayLoad() && MI.getNumOperands() > 1 && MI.getOperand(1).isCPI()) {
         int CPIndex = MI.getOperand(1).getIndex();
 
-        const ARMConstantPoolConstant *ACPC = nullptr;
         for (int i : CPEntries) {
           if (i == CPIndex) {
             const MachineConstantPoolEntry &Entry = ConstantPool->getConstants()[i];
-            // TODO(yln): should the cast below be a dynamic_cast?
-            // If not, then ACPC should probably defined here and there is not reason
-            // UsesToReplace.emplace_back needs to be done outside the loop.
-            ACPC = static_cast<const ARMConstantPoolConstant*>(Entry.Val.MachineCPVal);
+            auto *ACPC = static_cast<const ARMConstantPoolConstant*>(Entry.Val.MachineCPVal);
+            UsesToReplace.emplace_back(&MI, ACPC->getGV());
             break;
           }
         }
-
-        if (ACPC)
-          UsesToReplace.emplace_back(&MI, ACPC->getGV());
       }
     }
   }
