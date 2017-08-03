@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <llvm/CodeGen/MachineConstantPool.h>
 #include "ARM.h"
 #include "ARMBaseInstrInfo.h"
 #include "ARMBaseRegisterInfo.h"
@@ -56,6 +55,7 @@ private:
   bool isThumb2;
 
   void replaceUses(const CPEntry &CPE);
+  void deleteEntries(const std::map<int, CPEntry> &Worklist);
   void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
 
   bool isSameBin(const GlobalValue *GV);
@@ -113,7 +113,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   SmallVector<int, 8> POTCPEntries;
   auto &CPEntries = ConstantPool->getConstants();
 
-  // TODO(yln): maybe used IndexedMap
+  // TODO(yln): maybe used IndexedMap, make sure it is sorted (so we can safely delete in reverse order)
   std::map<int, CPEntry> Worklist;
 
   // Find intra-bin constant pool entries
@@ -189,7 +189,7 @@ static unsigned toDirectCall(unsigned Opc) {
 void PagerandoOptimizer::replaceUses(const CPEntry &CPE) {
   MachineRegisterInfo &MRI = MF->getRegInfo();
 
-  for (auto MI : CPE.Uses) {
+  for (auto &MI : CPE.Uses) {
 
     SmallVector<MachineInstr*, 4> InstrQueue;
     InstrQueue.push_back(MI);
@@ -262,6 +262,38 @@ void PagerandoOptimizer::replaceUses(const CPEntry &CPE) {
         User->eraseFromParent();
       }
     }
+  }
+}
+
+void PagerandoOptimizer::deleteEntries(const std::map<int, CPEntry> &Worklist) {
+  size_t Size = ConstantPool->getConstants().size();
+  int Indices[Size];
+
+  // Create CP index mapping: Indices[Old] -> New
+  for (int Old = 0, New = 0; Old < Size; ++Old) {
+    auto I = Worklist.find(Old);
+    Indices[Old] = (I != Worklist.end()) ? -1 : New++;
+  }
+
+  // Update remaining (inter-bin) CP references
+  for (auto &BB : *MF) {
+    for (auto &MI : BB) {
+      for (auto &Op : MI.explicit_uses()) {
+        if (Op.isCPI()) {
+          int Old = Op.getIndex();
+          int New = Indices[Old];
+          assert (New != -1 && "CP entry use should have been deleted");
+          Op.setIndex(New);
+        }
+      }
+    }
+  }
+
+  // Delete now unreferenced (intra-bin) CP entries (in reverse order so
+  // deletions do not affect the index of future deletions)
+  for (auto I = Worklist.rbegin(), E = Worklist.rend(); I != E; ++I) {
+    auto Old = static_cast<unsigned>(I->first);
+    ConstantPool->eraseIndex(Old);
   }
 }
 
