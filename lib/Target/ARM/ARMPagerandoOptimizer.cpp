@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <llvm/CodeGen/MachineConstantPool.h>
 #include "ARM.h"
 #include "ARMBaseInstrInfo.h"
 #include "ARMBaseRegisterInfo.h"
@@ -39,7 +40,7 @@ public:
   }
 
 private:
-  struct CPCInfo {
+  struct CPEntry {
     const Function *F;
     SmallVector<MachineInstr*, 2> Uses;
   };
@@ -55,7 +56,9 @@ private:
   bool isThumb2;
 
   void replacePOTUses(SmallVectorImpl<int> &CPEntries);
+  void replacePOTUses2(const CPEntry &CPE);
   void deleteOldCPEntries(SmallVectorImpl<int> &CPEntries);
+
   bool isSameBin(const GlobalValue *GV);
 };
 } // end anonymous namespace
@@ -112,29 +115,33 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   auto &CPEntries = ConstantPool->getConstants();
 
   // TODO(yln): maybe used IndexedMap
-  std::map<int, CPCInfo> CPMapping;
+  std::map<int, CPEntry> Worklist;
 
   // Find intra-bin constant pool entries
   for (int Index = 0; Index < CPEntries.size(); ++Index) {
     bool intraBin; const Function *F;
     std::tie(intraBin, F) = isIntraBin(CPEntries[Index], CurBinPrefix);
     if (intraBin) {
-      CPMapping.emplace(Index, CPCInfo{F, {}});
+      Worklist.emplace(Index, CPEntry{F, {}});
     }
   }
 
-  if (CPMapping.empty()) {
+  if (Worklist.empty()) {
     return false;
   }
 
-  // Collect uses for intra-bin constant pool entries
+  // Collect uses of intra-bin constant pool entries
   for (auto &BB : *MF) {
     for (auto &MI : BB) {
-      auto I = CPMapping.find(getConstantPoolIndex(MI));
-      if (I != CPMapping.end()) {
+      auto I = Worklist.find(getConstantPoolIndex(MI));
+      if (I != Worklist.end()) {
         I->second.Uses.push_back(&MI);
       }
     }
+  }
+
+  for (auto &E : Worklist) {
+    replacePOTUses2(E.second);
   }
 
   // Find all constant pool entries referencing POT-indirect symbols in the
@@ -270,6 +277,84 @@ void PagerandoOptimizer::replacePOTUses(SmallVectorImpl<int> &CPEntries) {
           OpNum += 2;
         }
         MIB.addGlobalAddress(GV, 0, 0);
+        for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
+          MIB.add(User->getOperand(OpNum));
+        User->eraseFromParent();
+      }
+    }
+  }
+}
+
+void PagerandoOptimizer::replacePOTUses2(const CPEntry &CPE) {
+  MachineRegisterInfo &MRI = MF->getRegInfo();
+
+  for (auto MI : CPE.Uses) {
+
+    SmallVector<MachineInstr*, 4> InstrQueue;
+    InstrQueue.push_back(MI);
+
+    while (!InstrQueue.empty()) {
+      MachineInstr *User = InstrQueue.back();
+      InstrQueue.pop_back();
+
+      if (!User->isCall()) {
+        for (auto Op : User->defs()) {
+          for (auto &User : MRI.use_instructions(Op.getReg()))
+            InstrQueue.push_back(&User);
+        }
+        User->eraseFromParent();
+        continue;
+      }
+
+      if (isBXCall(User->getOpcode())) {
+        // Replace indirect register operand with more efficient local
+        // PC-relative access
+
+        // Note that GV can't be GOT_PREL because it is in the same
+        // (anonymous) bin
+        LLVMContext *Context = &MF->getFunction()->getContext();
+        unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
+        unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
+        ARMConstantPoolConstant *CPV = ARMConstantPoolConstant::Create(
+            CPE.F, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
+            ARMCP::no_modifier, false);
+
+        unsigned ConstAlign =
+            MF->getDataLayout().getPrefTypeAlignment(Type::getInt32PtrTy(*Context));
+        unsigned Idx = MF->getConstantPool()->getConstantPoolIndex(CPV, ConstAlign);
+
+        unsigned TempReg = MF->getRegInfo().createVirtualRegister(&ARM::rGPRRegClass);
+        unsigned Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
+        MachineInstrBuilder MIB =
+            BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), TempReg)
+                .addConstantPoolIndex(Idx);
+        if (Opc == ARM::LDRcp)
+          MIB.addImm(0);
+        MIB.add(predOps(ARMCC::AL));
+
+        // Fix the address by adding pc.
+        // FIXME: this is ugly
+        unsigned DestReg = MRI.createVirtualRegister(
+            TLI->getRegClassFor(TLI->getPointerTy(MF->getDataLayout())));
+        Opc = Subtarget->isThumb() ? ARM::tPICADD : ARM::PICADD;
+        MIB = BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), DestReg)
+            .addReg(TempReg)
+            .addImm(ARMPCLabelIndex);
+        if (!Subtarget->isThumb())
+          MIB.add(predOps(ARMCC::AL));
+
+        // Replace register operand
+        User->getOperand(0).setReg(DestReg);
+      } else { // indirect call -> direct call
+        unsigned CallOpc = toDirectCall(User->getOpcode());
+        MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
+                                          User->getDebugLoc(), TII->get(CallOpc));
+        int OpNum = 1;
+        if (CallOpc == ARM::tBL) {
+          MIB.add(predOps(ARMCC::AL));
+          OpNum += 2;
+        }
+        MIB.addGlobalAddress(CPE.F, 0, 0);
         for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
           MIB.add(User->getOperand(OpNum));
         User->eraseFromParent();
