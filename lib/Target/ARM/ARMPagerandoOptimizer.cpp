@@ -51,6 +51,7 @@ private:
 
   void optimizeCall(MachineInstr *MI, const Function *Callee);
   void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
+  void replaceWithPCRelativeCall(MachineInstr *MI, const Function *Callee);
   void deleteCPEntries(const SmallSet<int, 8> &Workset);
 };
 } // end anonymous namespace
@@ -151,8 +152,8 @@ static bool isBXCall(unsigned Opc) {
   return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 }
 
-void PagerandoOptimizer::optimizeCall(MachineInstr *MI, const Function *Callee) {
-  auto *MF = MI->getParent()->getParent();
+void PagerandoOptimizer::optimizeCall(MachineInstr *MI,
+                                      const Function *Callee) {
   auto &MRI = MF->getRegInfo();
 
   SmallVector<MachineInstr*, 4> Queue{MI};
@@ -160,54 +161,16 @@ void PagerandoOptimizer::optimizeCall(MachineInstr *MI, const Function *Callee) 
   while (!Queue.empty()) {
     MI = Queue.pop_back_val();
 
-    if (!MI->isCall()) {
+    if (!MI->isCall()) { // Not a call, enqueue users
       for (auto &Op : MI->defs()) {
         for (auto &User : MRI.use_instructions(Op.getReg())) {
           Queue.push_back(&User);
         }
       }
       MI->eraseFromParent();
-      continue;
-    } else  if (isBXCall(MI->getOpcode())) {
-      // Replace indirect register operand with more efficient local
-      // PC-relative access
-
-      // Note that GV can't be GOT_PREL because it is in the same
-      // (anonymous) bin
-      LLVMContext *Context = &MF->getFunction()->getContext();
-      unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
-      unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
-      ARMConstantPoolConstant *CPV = ARMConstantPoolConstant::Create(
-          Callee, ARMPCLabelIndex, ARMCP::CPValue, PCAdj,
-          ARMCP::no_modifier, false);
-
-      unsigned ConstAlign =
-          MF->getDataLayout().getPrefTypeAlignment(Type::getInt32PtrTy(*Context));
-      unsigned Idx = MF->getConstantPool()->getConstantPoolIndex(CPV, ConstAlign);
-
-      unsigned TempReg = MF->getRegInfo().createVirtualRegister(&ARM::rGPRRegClass);
-      unsigned Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
-      MachineInstrBuilder MIB =
-          BuildMI(*MI->getParent(), *MI, MI->getDebugLoc(), TII->get(Opc), TempReg)
-              .addConstantPoolIndex(Idx);
-      if (Opc == ARM::LDRcp)
-        MIB.addImm(0);
-      MIB.add(predOps(ARMCC::AL));
-
-      // Fix the address by adding pc.
-      // FIXME: this is ugly
-      unsigned DestReg = MRI.createVirtualRegister(
-          TLI->getRegClassFor(TLI->getPointerTy(MF->getDataLayout())));
-      Opc = Subtarget->isThumb() ? ARM::tPICADD : ARM::PICADD;
-      MIB = BuildMI(*MI->getParent(), *MI, MI->getDebugLoc(), TII->get(Opc), DestReg)
-          .addReg(TempReg)
-          .addImm(ARMPCLabelIndex);
-      if (!Subtarget->isThumb())
-        MIB.add(predOps(ARMCC::AL));
-
-      // Replace register operand
-      MI->getOperand(0).setReg(DestReg);
-    } else {
+    } else if (isBXCall(MI->getOpcode())) {
+      replaceWithPCRelativeCall(MI, Callee);
+    } else { // Standard indirect call
       replaceWithDirectCall(MI, Callee);
     }
   }
@@ -219,7 +182,7 @@ static unsigned toDirectCall(unsigned Opc) {
   case ARM::BLX:        return ARM::BL;
   case ARM::tBLXr:      return ARM::tBL;
   default:
-    llvm_unreachable("Unhandled ARM call opcode.");
+    llvm_unreachable("Unhandled ARM call opcode");
   }
 }
 
@@ -237,11 +200,52 @@ void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
   MIB.addGlobalAddress(Callee);
 
   // Copy over remaining operands
-  for (int e = MI->getNumOperands(); OpNum < e; ++OpNum) {
+  for (; OpNum < MI->getNumOperands(); ++OpNum) {
     MIB.add(MI->getOperand(OpNum));
   }
 
   MI->eraseFromParent();
+}
+
+// Replace indirect register operand with more efficient PC-relative access
+void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
+                                                   const Function *Callee) {
+  auto &MBB = *MI->getParent();
+  auto &MF = *MBB.getParent();
+  auto &C = MF.getFunction()->getContext();
+  auto &DL = MF.getDataLayout();
+  auto &MRI = MF.getRegInfo();
+  auto isThumb = Subtarget->isThumb();
+
+  // Create updated CP entry for callee
+  auto Label = AFI->createPICLabelUId();
+  auto PCAdj = isThumb ? 4 : 8;
+  auto *CPV = ARMConstantPoolConstant::Create(
+      Callee, Label, ARMCP::CPValue, PCAdj, ARMCP::no_modifier, false);
+  auto Alignment = DL.getPrefTypeAlignment(Type::getInt32PtrTy(C));
+  auto Index = MF.getConstantPool()->getConstantPoolIndex(CPV, Alignment);
+
+  // Load callee offset into register
+  bool isThumb2 = MF.getInfo<ARMFunctionInfo>()->isThumb2Function(); // TODO(yln): why do we query Subtarget and ARMFunctionInfo for thumb thing, is there a difference? Both have isThumb, isThumb2...
+  auto Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
+  auto OffsetReg = MRI.createVirtualRegister(&ARM::rGPRRegClass);
+  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII->get(Opc), OffsetReg)
+      .addConstantPoolIndex(Index);
+  if (Opc == ARM::LDRcp) MIB.addImm(0);
+  MIB.add(predOps(ARMCC::AL));
+
+  // Compute callee address by adding PC
+  // FIXME: this is ugly // comment by Stephen
+  auto RegClass = TLI->getRegClassFor(TLI->getPointerTy(DL));
+  auto AddressReg = MRI.createVirtualRegister(RegClass);
+  Opc = isThumb ? ARM::tPICADD : ARM::PICADD;
+  MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII->get(Opc), AddressReg)
+      .addReg(OffsetReg)
+      .addImm(Label);
+  if (!isThumb) MIB.add(predOps(ARMCC::AL));
+
+  // Replace register operand
+  MI->getOperand(0).setReg(AddressReg);
 }
 
 void PagerandoOptimizer::deleteCPEntries(const SmallSet<int, 8> &Workset) {
