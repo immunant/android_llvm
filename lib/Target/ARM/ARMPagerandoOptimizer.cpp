@@ -49,8 +49,9 @@ private:
   MachineConstantPool *ConstantPool;
   bool isThumb2;
 
-  void replaceUse(MachineInstr *MI, const Function *Callee);
-  void deleteEntries(const SmallSet<int, 8> &Workset);
+  void optimizeCall(MachineInstr *MI, const Function *Callee);
+  void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
+  void deleteCPEntries(const SmallSet<int, 8> &Workset);
 };
 } // end anonymous namespace
 
@@ -82,7 +83,7 @@ static const Function *getCallee(const MachineConstantPoolEntry &E) {
   return cast<Function>(CPC->getGV());
 }
 
-static int getConstantPoolIndex(const MachineInstr &MI) {
+static int getCPIndex(const MachineInstr &MI) {
   if (MI.mayLoad() && MI.getNumOperands() > 1 && MI.getOperand(1).isCPI()) {
     return MI.getOperand(1).getIndex();
   }
@@ -110,7 +111,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
 
   SmallSet<int, 8> Workset;
 
-  // Find intra-bin constant pool entries
+  // Find intra-bin CP entries
   for (int Index = 0; Index < CPEntries.size(); ++Index) {
     bool intraBin = isIntraBin(CPEntries[Index], CurBinPrefix);
     if (intraBin) {
@@ -124,24 +125,24 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
 
   std::vector<MachineInstr*> Uses;
 
-  // Collect uses of intra-bin constant pool entries
+  // Collect uses of intra-bin CP entries
   for (auto &BB : *MF) {
     for (auto &MI : BB) {
-      int Index = getConstantPoolIndex(MI);
+      int Index = getCPIndex(MI);
       if (Workset.count(Index)) {
         Uses.push_back(&MI);
       }
     }
   }
 
-  // Replace uses
+  // Optimize intra-bin calls
   for (auto *MI : Uses) {
-    int Index = getConstantPoolIndex(*MI);
+    int Index = getCPIndex(*MI);
     auto Callee = getCallee(CPEntries[Index]);
-    replaceUse(MI, Callee);
+    optimizeCall(MI, Callee);
   }
 
-  deleteEntries(Workset);
+  deleteCPEntries(Workset);
 
   return true;
 }
@@ -150,36 +151,24 @@ static bool isBXCall(unsigned Opc) {
   return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 }
 
-static unsigned toDirectCall(unsigned Opc) {
-  switch (Opc) {
-  case ARM::TCRETURNri: return ARM::TCRETURNdi;
-  case ARM::BLX:        return ARM::BL;
-  case ARM::tBLXr:      return ARM::tBL;
-  default:
-    llvm_unreachable("Unhandled ARM call opcode.");
-  }
-}
+void PagerandoOptimizer::optimizeCall(MachineInstr *MI, const Function *Callee) {
+  auto *MF = MI->getParent()->getParent();
+  auto &MRI = MF->getRegInfo();
 
-void PagerandoOptimizer::replaceUse(MachineInstr *MI, const Function *Callee) {
-  MachineRegisterInfo &MRI = MF->getRegInfo();
+  SmallVector<MachineInstr*, 4> Queue{MI};
 
-  SmallVector<MachineInstr*, 4> InstrQueue;
-  InstrQueue.push_back(MI);
+  while (!Queue.empty()) {
+    MI = Queue.pop_back_val();
 
-  while (!InstrQueue.empty()) {
-    MachineInstr *User = InstrQueue.back();
-    InstrQueue.pop_back();
-
-    if (!User->isCall()) {
-      for (auto Op : User->defs()) {
-        for (auto &User : MRI.use_instructions(Op.getReg()))
-          InstrQueue.push_back(&User);
+    if (!MI->isCall()) {
+      for (auto &Op : MI->defs()) {
+        for (auto &User : MRI.use_instructions(Op.getReg())) {
+          Queue.push_back(&User);
+        }
       }
-      User->eraseFromParent();
+      MI->eraseFromParent();
       continue;
-    }
-
-    if (isBXCall(User->getOpcode())) {
+    } else  if (isBXCall(MI->getOpcode())) {
       // Replace indirect register operand with more efficient local
       // PC-relative access
 
@@ -199,7 +188,7 @@ void PagerandoOptimizer::replaceUse(MachineInstr *MI, const Function *Callee) {
       unsigned TempReg = MF->getRegInfo().createVirtualRegister(&ARM::rGPRRegClass);
       unsigned Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
       MachineInstrBuilder MIB =
-          BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), TempReg)
+          BuildMI(*MI->getParent(), *MI, MI->getDebugLoc(), TII->get(Opc), TempReg)
               .addConstantPoolIndex(Idx);
       if (Opc == ARM::LDRcp)
         MIB.addImm(0);
@@ -210,33 +199,52 @@ void PagerandoOptimizer::replaceUse(MachineInstr *MI, const Function *Callee) {
       unsigned DestReg = MRI.createVirtualRegister(
           TLI->getRegClassFor(TLI->getPointerTy(MF->getDataLayout())));
       Opc = Subtarget->isThumb() ? ARM::tPICADD : ARM::PICADD;
-      MIB = BuildMI(*User->getParent(), *User, User->getDebugLoc(), TII->get(Opc), DestReg)
+      MIB = BuildMI(*MI->getParent(), *MI, MI->getDebugLoc(), TII->get(Opc), DestReg)
           .addReg(TempReg)
           .addImm(ARMPCLabelIndex);
       if (!Subtarget->isThumb())
         MIB.add(predOps(ARMCC::AL));
 
       // Replace register operand
-      User->getOperand(0).setReg(DestReg);
-    } else { // indirect call -> direct call
-      // Replace users of POT-indirect CP entries with direct calls
-      unsigned CallOpc = toDirectCall(User->getOpcode());
-      MachineInstrBuilder MIB = BuildMI(*User->getParent(), *User,
-                                        User->getDebugLoc(), TII->get(CallOpc));
-      int OpNum = 1;
-      if (CallOpc == ARM::tBL) {
-        MIB.add(predOps(ARMCC::AL));
-        OpNum += 2;
-      }
-      MIB.addGlobalAddress(Callee, 0, 0);
-      for (int e = User->getNumOperands(); OpNum < e; ++OpNum)
-        MIB.add(User->getOperand(OpNum));
-      User->eraseFromParent();
+      MI->getOperand(0).setReg(DestReg);
+    } else {
+      replaceWithDirectCall(MI, Callee);
     }
   }
 }
 
-void PagerandoOptimizer::deleteEntries(const SmallSet<int, 8> &Workset) {
+static unsigned toDirectCall(unsigned Opc) {
+  switch (Opc) {
+  case ARM::TCRETURNri: return ARM::TCRETURNdi;
+  case ARM::BLX:        return ARM::BL;
+  case ARM::tBLXr:      return ARM::tBL;
+  default:
+    llvm_unreachable("Unhandled ARM call opcode.");
+  }
+}
+
+void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
+                                               const Function *Callee) {
+  auto Opc = toDirectCall(MI->getOpcode());
+  auto MIB = BuildMI(*MI->getParent(), *MI, MI->getDebugLoc(), TII->get(Opc));
+
+  // TODO(yln): maybe this can be cleaned up by not emitting a conditional branch/link
+  unsigned OpNum = 1;
+  if (Opc == ARM::tBL) {
+    MIB.add(predOps(ARMCC::AL));
+    OpNum += 2;
+  }
+  MIB.addGlobalAddress(Callee);
+
+  // Copy over remaining operands
+  for (int e = MI->getNumOperands(); OpNum < e; ++OpNum) {
+    MIB.add(MI->getOperand(OpNum));
+  }
+
+  MI->eraseFromParent();
+}
+
+void PagerandoOptimizer::deleteCPEntries(const SmallSet<int, 8> &Workset) {
   int Size = ConstantPool->getConstants().size();
   int Indices[Size];
 
@@ -260,7 +268,7 @@ void PagerandoOptimizer::deleteEntries(const SmallSet<int, 8> &Workset) {
   }
 
   // Delete now unreferenced (intra-bin) CP entries (in reverse order so
-  // deletions do not affect the index of future deletions)
+  // deletion does not affect the index of future deletions)
   for (int Old = Size - 1; Old >= 0; --Old) {
     if (Indices[Old] == -1) {
       ConstantPool->eraseIndex(Old);
