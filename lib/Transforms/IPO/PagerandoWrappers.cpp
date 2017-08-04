@@ -138,7 +138,7 @@ void PagerandoWrappers::processFunction(Function *F) {
 }
 
 static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
-                                   SmallSet<Constant *, 8> &Constants) {
+                                   SmallSet<Constant*, 8> &Constants) {
   if (!U->get()) return; // Already replaced this use?
 
   if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {

@@ -50,7 +50,7 @@ private:
   bool isThumb2;
 
   void replaceUse(MachineInstr *MI, const Function *Callee);
-  void deleteEntries(const std::map<int, const Function*> &Worklist);
+  void deleteEntries(const SmallSet<int, 8> &Workset);
 };
 } // end anonymous namespace
 
@@ -62,20 +62,24 @@ FunctionPass *llvm::createPagerandoOptimizerPass() {
   return new PagerandoOptimizer();
 }
 
-static std::pair<bool, const Function*>
-isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
-  if (!E.isMachineConstantPoolEntry()) return {false, nullptr};
+static bool isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
+  if (!E.isMachineConstantPoolEntry()) return false;
 
   // ARMConstantPoolValue lacks casting infrastructure to use dyn_cast directly
   auto *CPV = static_cast<ARMConstantPoolValue*>(E.Val.MachineCPVal);
   auto *CPC = dyn_cast<ARMConstantPoolConstant>(CPV);
-  if (!CPC) return {false, nullptr};
+  if (!CPC) return false;
 
   auto M = CPC->getModifier();
   auto *F = dyn_cast_or_null<Function>(CPC->getGV());
-  bool intraBin = (M == ARMCP::POTOFF || M == ARMCP::BINOFF)
-                  && F && F->getSectionPrefix() == BinPrefix;
-  return {intraBin, F};
+
+  return (M == ARMCP::POTOFF || M == ARMCP::BINOFF)
+      && F &&F->getSectionPrefix() == BinPrefix;
+}
+
+static const Function *getCallee(const MachineConstantPoolEntry &E) {
+  auto *CPC = static_cast<ARMConstantPoolConstant*>(E.Val.MachineCPVal);
+  return cast<Function>(CPC->getGV());
 }
 
 static int getConstantPoolIndex(const MachineInstr &MI) {
@@ -104,19 +108,17 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
 
   auto &CPEntries = ConstantPool->getConstants();
 
-  // TODO(yln): maybe used IndexedMap, make sure it is sorted (so we can safely delete in reverse order)
-  std::map<int, const Function*> Worklist;
+  SmallSet<int, 8> Workset;
 
   // Find intra-bin constant pool entries
   for (int Index = 0; Index < CPEntries.size(); ++Index) {
-    bool intraBin; const Function *Callee;
-    std::tie(intraBin, Callee) = isIntraBin(CPEntries[Index], CurBinPrefix);
+    bool intraBin = isIntraBin(CPEntries[Index], CurBinPrefix);
     if (intraBin) {
-      Worklist.emplace(Index, Callee);
+      Workset.insert(Index);
     }
   }
 
-  if (Worklist.empty()) {
+  if (Workset.empty()) {
     return false;
   }
 
@@ -126,7 +128,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   for (auto &BB : *MF) {
     for (auto &MI : BB) {
       int Index = getConstantPoolIndex(MI);
-      if (Worklist.find(Index) != Worklist.end()) {
+      if (Workset.count(Index)) {
         Uses.push_back(&MI);
       }
     }
@@ -135,11 +137,11 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   // Replace uses
   for (auto *MI : Uses) {
     int Index = getConstantPoolIndex(*MI);
-    auto Callee = Worklist[Index];
+    auto Callee = getCallee(CPEntries[Index]);
     replaceUse(MI, Callee);
   }
 
-  deleteEntries(Worklist);
+  deleteEntries(Workset);
 
   return true;
 }
@@ -234,14 +236,13 @@ void PagerandoOptimizer::replaceUse(MachineInstr *MI, const Function *Callee) {
   }
 }
 
-void PagerandoOptimizer::deleteEntries(const std::map<int, const Function*> &Worklist) {
-  size_t Size = ConstantPool->getConstants().size();
+void PagerandoOptimizer::deleteEntries(const SmallSet<int, 8> &Workset) {
+  int Size = ConstantPool->getConstants().size();
   int Indices[Size];
 
   // Create CP index mapping: Indices[Old] -> New
   for (int Old = 0, New = 0; Old < Size; ++Old) {
-    auto I = Worklist.find(Old);
-    Indices[Old] = (I != Worklist.end()) ? -1 : New++;
+    Indices[Old] = Workset.count(Old) ? -1 : New++;
   }
 
   // Update remaining (inter-bin) CP references
@@ -260,8 +261,9 @@ void PagerandoOptimizer::deleteEntries(const std::map<int, const Function*> &Wor
 
   // Delete now unreferenced (intra-bin) CP entries (in reverse order so
   // deletions do not affect the index of future deletions)
-  for (auto I = Worklist.rbegin(), E = Worklist.rend(); I != E; ++I) {
-    auto Old = static_cast<unsigned>(I->first);
-    ConstantPool->eraseIndex(Old);
+  for (int Old = Size - 1; Old >= 0; --Old) {
+    if (Indices[Old] == -1) {
+      ConstantPool->eraseIndex(Old);
+    }
   }
 }
