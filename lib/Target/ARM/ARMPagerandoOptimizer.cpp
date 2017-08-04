@@ -39,11 +39,6 @@ public:
   }
 
 private:
-  struct CPEntry {
-    const Function *Callee;
-    SmallVector<MachineInstr*, 2> Uses;
-  };
-
   MachineFunction *MF;
   const MachineModuleInfo *MMI;
   const TargetInstrInfo *TII;
@@ -55,7 +50,7 @@ private:
   bool isThumb2;
 
   void replaceUse(MachineInstr *MI, const Function *Callee);
-  void deleteEntries(const std::map<int, CPEntry> &Worklist);
+  void deleteEntries(const std::map<int, const Function*> &Worklist);
 };
 } // end anonymous namespace
 
@@ -67,7 +62,7 @@ FunctionPass *llvm::createPagerandoOptimizerPass() {
   return new PagerandoOptimizer();
 }
 
-static std::tuple<bool, const Function*>
+static std::pair<bool, const Function*>
 isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
   if (!E.isMachineConstantPoolEntry()) return {false, nullptr};
 
@@ -110,13 +105,14 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   auto &CPEntries = ConstantPool->getConstants();
 
   // TODO(yln): maybe used IndexedMap, make sure it is sorted (so we can safely delete in reverse order)
-  std::map<int, CPEntry> Worklist;
+  std::map<int, const Function*> Worklist;
+
   // Find intra-bin constant pool entries
   for (int Index = 0; Index < CPEntries.size(); ++Index) {
-    bool intraBin; const Function *F;
-    std::tie(intraBin, F) = isIntraBin(CPEntries[Index], CurBinPrefix);
+    bool intraBin; const Function *Callee;
+    std::tie(intraBin, Callee) = isIntraBin(CPEntries[Index], CurBinPrefix);
     if (intraBin) {
-      Worklist.emplace(Index, CPEntry{F, {}});
+      Worklist.emplace(Index, Callee);
     }
   }
 
@@ -125,19 +121,22 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
   }
 
   std::vector<MachineInstr*> Uses;
+
   // Collect uses of intra-bin constant pool entries
   for (auto &BB : *MF) {
     for (auto &MI : BB) {
-      auto I = Worklist.find(getConstantPoolIndex(MI));
-      if (I != Worklist.end()) {
-        I->second.Uses.push_back(&MI);
+      int Index = getConstantPoolIndex(MI);
+      if (Worklist.find(Index) != Worklist.end()) {
+        Uses.push_back(&MI);
       }
     }
   }
 
+  // Replace uses
   for (auto *MI : Uses) {
-    auto Callee = Worklist[getConstantPoolIndex(*MI)];
-    replaceUse(MI, Callee.Callee);
+    int Index = getConstantPoolIndex(*MI);
+    auto Callee = Worklist[Index];
+    replaceUse(MI, Callee);
   }
 
   deleteEntries(Worklist);
@@ -235,7 +234,7 @@ void PagerandoOptimizer::replaceUse(MachineInstr *MI, const Function *Callee) {
   }
 }
 
-void PagerandoOptimizer::deleteEntries(const std::map<int, CPEntry> &Worklist) {
+void PagerandoOptimizer::deleteEntries(const std::map<int, const Function*> &Worklist) {
   size_t Size = ConstantPool->getConstants().size();
   int Indices[Size];
 
