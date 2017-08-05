@@ -31,7 +31,7 @@ public:
   static char ID;
   explicit PagerandoOptimizer() : MachineFunctionPass(ID) {}
 
-  bool runOnMachineFunction(MachineFunction &Fn) override;
+  bool runOnMachineFunction(MachineFunction &MF) override;
 
   MachineFunctionProperties getRequiredProperties() const override {
     return MachineFunctionProperties().set(
@@ -39,20 +39,10 @@ public:
   }
 
 private:
-  MachineFunction *MF;
-  const MachineModuleInfo *MMI;
-  const TargetInstrInfo *TII;
-  const TargetLowering *TLI;
-  ARMFunctionInfo *AFI;
-  const ARMSubtarget *Subtarget;
-  StringRef CurBinPrefix;
-  MachineConstantPool *ConstantPool;
-  bool isThumb2;
-
   void optimizeCall(MachineInstr *MI, const Function *Callee);
   void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
   void replaceWithPCRelativeCall(MachineInstr *MI, const Function *Callee);
-  void deleteCPEntries(const SmallSet<int, 8> &Workset);
+  void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &Workset);
 };
 } // end anonymous namespace
 
@@ -91,30 +81,19 @@ static int getCPIndex(const MachineInstr &MI) {
   return -1;
 }
 
-bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
+bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   // This pass is an optimization (optional), therefore check skipFunction.
-  if (skipFunction(*Fn.getFunction()) || !Fn.getFunction()->isPagerando()) {
+  if (skipFunction(*MF.getFunction()) || !MF.getFunction()->isPagerando()) {
     return false;
   }
 
-  MF = &Fn;
-  MMI = &Fn.getMMI();
-  Subtarget = &static_cast<const ARMSubtarget &>(Fn.getSubtarget());
-  TII = Subtarget->getInstrInfo();
-  TLI = Subtarget->getTargetLowering();
-  AFI = Fn.getInfo<ARMFunctionInfo>();
-  // If we are in a RandPage, it should always have a section prefix
-  CurBinPrefix = Fn.getFunction()->getSectionPrefix().getValue();
-  ConstantPool = Fn.getConstantPool();
-  isThumb2 = Fn.getInfo<ARMFunctionInfo>()->isThumb2Function();
-
-  auto &CPEntries = ConstantPool->getConstants();
-
-  SmallSet<int, 8> Workset;
+  auto BinPrefix = MF.getFunction()->getSectionPrefix().getValue();
+  auto &CPEntries = MF.getConstantPool()->getConstants();
 
   // Find intra-bin CP entries
+  SmallSet<int, 8> Workset;
   for (int Index = 0; Index < CPEntries.size(); ++Index) {
-    bool intraBin = isIntraBin(CPEntries[Index], CurBinPrefix);
+    bool intraBin = isIntraBin(CPEntries[Index], BinPrefix);
     if (intraBin) {
       Workset.insert(Index);
     }
@@ -124,10 +103,9 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
     return false;
   }
 
-  std::vector<MachineInstr*> Uses;
-
   // Collect uses of intra-bin CP entries
-  for (auto &BB : *MF) {
+  std::vector<MachineInstr*> Uses;
+  for (auto &BB : MF) {
     for (auto &MI : BB) {
       int Index = getCPIndex(MI);
       if (Workset.count(Index)) {
@@ -143,7 +121,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &Fn) {
     optimizeCall(MI, Callee);
   }
 
-  deleteCPEntries(Workset);
+  deleteCPEntries(MF, Workset);
 
   return true;
 }
@@ -154,7 +132,7 @@ static bool isBXCall(unsigned Opc) {
 
 void PagerandoOptimizer::optimizeCall(MachineInstr *MI,
                                       const Function *Callee) {
-  auto &MRI = MF->getRegInfo();
+  auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
   SmallVector<MachineInstr*, 4> Queue{MI};
 
@@ -188,8 +166,11 @@ static unsigned toDirectCall(unsigned Opc) {
 
 void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
                                                const Function *Callee) {
+  auto &MBB = *MI->getParent();
+  auto &TTI = *MBB.getParent()->getSubtarget().getInstrInfo();
+
   auto Opc = toDirectCall(MI->getOpcode());
-  auto MIB = BuildMI(*MI->getParent(), *MI, MI->getDebugLoc(), TII->get(Opc));
+  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TTI.get(Opc));
 
   // TODO(yln): maybe this can be cleaned up by not emitting a conditional branch/link
   unsigned OpNum = 1;
@@ -213,12 +194,15 @@ void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
   auto &MBB = *MI->getParent();
   auto &MF = *MBB.getParent();
   auto &C = MF.getFunction()->getContext();
+  auto &AFI = *MF.getInfo<ARMFunctionInfo>();
+  auto &TII = *MF.getSubtarget().getInstrInfo();
+  auto &TLI = *MF.getSubtarget().getTargetLowering();
   auto &DL = MF.getDataLayout();
   auto &MRI = MF.getRegInfo();
-  auto isThumb = Subtarget->isThumb();
+  auto isThumb = AFI.isThumbFunction();
 
   // Create updated CP entry for callee
-  auto Label = AFI->createPICLabelUId();
+  auto Label = AFI.createPICLabelUId();
   auto PCAdj = isThumb ? 4 : 8;
   auto *CPV = ARMConstantPoolConstant::Create(
       Callee, Label, ARMCP::CPValue, PCAdj, ARMCP::no_modifier, false);
@@ -226,20 +210,19 @@ void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
   auto Index = MF.getConstantPool()->getConstantPoolIndex(CPV, Alignment);
 
   // Load callee offset into register
-  bool isThumb2 = MF.getInfo<ARMFunctionInfo>()->isThumb2Function(); // TODO(yln): why do we query Subtarget and ARMFunctionInfo for thumb thing, is there a difference? Both have isThumb, isThumb2...
-  auto Opc = isThumb2 ? ARM::t2LDRpci : ARM::LDRcp;
+  auto Opc = AFI.isThumb2Function() ? ARM::t2LDRpci : ARM::LDRcp;
   auto OffsetReg = MRI.createVirtualRegister(&ARM::rGPRRegClass);
-  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII->get(Opc), OffsetReg)
+  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc), OffsetReg)
       .addConstantPoolIndex(Index);
   if (Opc == ARM::LDRcp) MIB.addImm(0);
   MIB.add(predOps(ARMCC::AL));
 
   // Compute callee address by adding PC
   // FIXME: this is ugly // comment by Stephen
-  auto RegClass = TLI->getRegClassFor(TLI->getPointerTy(DL));
+  auto RegClass = TLI.getRegClassFor(TLI.getPointerTy(DL));
   auto AddressReg = MRI.createVirtualRegister(RegClass);
   Opc = isThumb ? ARM::tPICADD : ARM::PICADD;
-  MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII->get(Opc), AddressReg)
+  MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc), AddressReg)
       .addReg(OffsetReg)
       .addImm(Label);
   if (!isThumb) MIB.add(predOps(ARMCC::AL));
@@ -248,8 +231,10 @@ void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
   MI->getOperand(0).setReg(AddressReg);
 }
 
-void PagerandoOptimizer::deleteCPEntries(const SmallSet<int, 8> &Workset) {
-  int Size = ConstantPool->getConstants().size();
+void PagerandoOptimizer::deleteCPEntries(MachineFunction &MF,
+                                         const SmallSet<int, 8> &Workset) {
+  auto *CP = MF.getConstantPool();
+  int Size = CP->getConstants().size();
   int Indices[Size];
 
   // Create CP index mapping: Indices[Old] -> New
@@ -258,7 +243,7 @@ void PagerandoOptimizer::deleteCPEntries(const SmallSet<int, 8> &Workset) {
   }
 
   // Update remaining (inter-bin) CP references
-  for (auto &BB : *MF) {
+  for (auto &BB : MF) {
     for (auto &MI : BB) {
       for (auto &Op : MI.explicit_uses()) {
         if (Op.isCPI()) {
@@ -275,7 +260,7 @@ void PagerandoOptimizer::deleteCPEntries(const SmallSet<int, 8> &Workset) {
   // deletion does not affect the index of future deletions)
   for (int Old = Size - 1; Old >= 0; --Old) {
     if (Indices[Old] == -1) {
-      ConstantPool->eraseIndex(Old);
+      CP->eraseIndex(Old);
     }
   }
 }
