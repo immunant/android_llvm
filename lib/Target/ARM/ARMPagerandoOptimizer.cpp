@@ -17,9 +17,8 @@
 #include "ARMBaseRegisterInfo.h"
 #include "ARMConstantPoolValue.h"
 #include "ARMMachineFunctionInfo.h"
-#include "ARMSubtarget.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/Target/TargetLowering.h"
 
 using namespace llvm;
 
