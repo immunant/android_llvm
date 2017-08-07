@@ -216,6 +216,8 @@ public:
 
   MCSymbol *getSymbol(const GlobalValue *GV) const;
 
+  MCSection *getSectionForCPI(unsigned CPID) const;
+
   //===------------------------------------------------------------------===//
   // XRay instrumentation implementation.
   //===------------------------------------------------------------------===//
@@ -433,10 +435,15 @@ public:
   /// Return the MCSymbol for the start of the section containing this global
   /// object, if available.
   MCSymbol *GetSectionSymbol(const GlobalObject *GO) const;
+  MCSymbol *GetSectionSymbol(unsigned CPID) const;
 
   /// Return the index of the section containing this global object, if
   /// available.
   unsigned GetPOTIndex(const GlobalObject *GO);
+
+  /// Return the index of the section containing this constant pool ID, if
+  /// available
+  unsigned GetPOTIndex(unsigned CPID);
 
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.

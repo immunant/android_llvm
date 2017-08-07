@@ -35,6 +35,9 @@ public:
     VK_GOTTPREL = 0x005,
     VK_TPREL    = 0x006,
     VK_TLSDESC  = 0x007,
+    VK_GOTOFF   = 0x008,
+    VK_POT     = 0x009,
+    VK_SEC      = 0x00a,
     VK_SymLocBits = 0x00f,
 
     // Variants specifying which part of the final address calculation is
@@ -97,6 +100,23 @@ public:
     VK_TPREL_LO12_NC     = VK_TPREL    | VK_PAGEOFF | VK_NC,
     VK_TLSDESC_LO12      = VK_TLSDESC  | VK_PAGEOFF | VK_NC,
     VK_TLSDESC_PAGE      = VK_TLSDESC  | VK_PAGE,
+    VK_GOTOFF_G3         = VK_GOTOFF   | VK_G3,
+    VK_GOTOFF_G2         = VK_GOTOFF   | VK_G2,
+    VK_GOTOFF_G2_NC      = VK_GOTOFF   | VK_G2      | VK_NC,
+    VK_GOTOFF_G1         = VK_GOTOFF   | VK_G1,
+    VK_GOTOFF_G1_NC      = VK_GOTOFF   | VK_G1      | VK_NC,
+    VK_GOTOFF_G0         = VK_GOTOFF   | VK_G0,
+    VK_GOTOFF_G0_NC      = VK_GOTOFF   | VK_G0      | VK_NC,
+    VK_SEC_HI12          = VK_SEC      | VK_HI12,
+    VK_SEC_LO12          = VK_SEC      | VK_PAGEOFF,
+    VK_SEC_LO12_NC       = VK_SEC      | VK_PAGEOFF | VK_NC,
+    VK_SEC_G3            = VK_SEC      | VK_G3,
+    VK_SEC_G2            = VK_SEC      | VK_G2,
+    VK_SEC_G2_NC         = VK_SEC      | VK_G2      | VK_NC,
+    VK_SEC_G1            = VK_SEC      | VK_G1,
+    VK_SEC_G1_NC         = VK_SEC      | VK_G1      | VK_NC,
+    VK_SEC_G0            = VK_SEC      | VK_G0,
+    VK_SEC_G0_NC         = VK_SEC      | VK_G0      | VK_NC,
 
     VK_INVALID  = 0xfff
   };

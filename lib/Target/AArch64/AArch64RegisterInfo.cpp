@@ -130,6 +130,9 @@ AArch64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   if (hasBasePointer(MF))
     markSuperRegs(Reserved, AArch64::W19);
 
+  if (MF.getSubtarget<AArch64Subtarget>().isPIP())
+    markSuperRegs(Reserved, AArch64::W20); // POT register
+
   assert(checkAllSuperRegsMarked(Reserved));
   return Reserved;
 }
@@ -155,6 +158,9 @@ bool AArch64RegisterInfo::isReservedReg(const MachineFunction &MF,
   case AArch64::W19:
   case AArch64::X19:
     return hasBasePointer(MF);
+  case AArch64::W20:
+  case AArch64::X20:
+    return MF.getSubtarget<AArch64Subtarget>().isPIP();
   }
 
   return false;
@@ -420,7 +426,9 @@ unsigned AArch64RegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
               - (TFI->hasFP(MF) || TT.isOSDarwin()) // FP
               - MF.getSubtarget<AArch64Subtarget>()
                     .isX18Reserved() // X18 reserved as platform register
-              - hasBasePointer(MF);  // X19
+              - hasBasePointer(MF)   // X19
+              - MF.getSubtarget<AArch64Subtarget>()
+                    .isPIP();        // X20 reserved as POT register
   case AArch64::FPR8RegClassID:
   case AArch64::FPR16RegClassID:
   case AArch64::FPR32RegClassID:

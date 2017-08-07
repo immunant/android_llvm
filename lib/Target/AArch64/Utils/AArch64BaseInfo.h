@@ -503,21 +503,29 @@ namespace AArch64II {
     /// by-12-bits instruction.
     MO_HI12 = 7,
 
+    MO_SOURCE = 0x70,
+
     /// MO_GOT - This flag indicates that a symbol operand represents the
     /// address of the GOT entry for the symbol, rather than the address of
     /// the symbol itself.
     MO_GOT = 0x10,
 
-    /// MO_NC - Indicates whether the linker is expected to check the symbol
-    /// reference for overflow. For example in an ADRP/ADD pair of relocations
-    /// the ADRP usually does check, but not the ADD.
-    MO_NC = 0x20,
+    MO_GOTOFF = 0x20,
+
+    MO_POT = 0x30,
 
     /// MO_TLS - Indicates that the operand being accessed is some kind of
     /// thread-local symbol. On Darwin, only one type of thread-local access
     /// exists (pre linker-relaxation), but on ELF the TLSModel used for the
     /// referee will affect interpretation.
-    MO_TLS = 0x40
+    MO_TLS = 0x40,
+
+    MO_SEC = 0x50,
+
+    /// MO_NC - Indicates whether the linker is expected to check the symbol
+    /// reference for overflow. For example in an ADRP/ADD pair of relocations
+    /// the ADRP usually does check, but not the ADD.
+    MO_NC = 0x80,
   };
 } // end namespace AArch64II
 

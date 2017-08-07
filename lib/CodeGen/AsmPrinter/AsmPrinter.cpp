@@ -417,6 +417,23 @@ MCSymbol *AsmPrinter::getSymbol(const GlobalValue *GV) const {
   return TM.getSymbol(GV);
 }
 
+MCSection *AsmPrinter::getSectionForCPI(unsigned CPID) const {
+  const MachineConstantPool *MCP = MF->getConstantPool();
+  const MachineConstantPoolEntry &CPE = MCP->getConstants()[CPID];
+
+  // TODO(sjc): refactor this with redundant code in EmitConstantPool()
+  unsigned Align = CPE.getAlignment();
+
+  SectionKind Kind = CPE.getSectionKind(&getDataLayout());
+
+  const Constant *C = nullptr;
+  if (!CPE.isMachineConstantPoolEntry())
+    C = CPE.Val.ConstVal;
+
+  return getObjFileLowering().getSectionForConstant(getDataLayout(),
+                                                    Kind, C, Align);
+}
+
 /// EmitGlobalVariable - Emit the specified global variable to the .s file.
 void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
   bool IsEmuTLSVar = TM.Options.EmulatedTLS && GV->isThreadLocal();
@@ -1414,15 +1431,7 @@ void AsmPrinter::EmitConstantPool() {
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
     unsigned Align = CPE.getAlignment();
-
-    SectionKind Kind = CPE.getSectionKind(&getDataLayout());
-
-    const Constant *C = nullptr;
-    if (!CPE.isMachineConstantPoolEntry())
-      C = CPE.Val.ConstVal;
-
-    MCSection *S = getObjFileLowering().getSectionForConstant(getDataLayout(),
-                                                              Kind, C, Align);
+    MCSection *S = getSectionForCPI(i);
 
     // The number of sections are small, just do a linear search from the
     // last section to the first.
@@ -2547,8 +2556,25 @@ MCSymbol *AsmPrinter::GetSectionSymbol(const GlobalObject *GO) const {
   return Sec->getBeginSymbol();
 }
 
+MCSymbol *AsmPrinter::GetSectionSymbol(unsigned CPID) const {
+  MCSection *Sec = getSectionForCPI(CPID);
+  return Sec->getBeginSymbol();
+}
+
 unsigned AsmPrinter::GetPOTIndex(const GlobalObject *GO) {
   const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
+  auto I = std::find(POT.begin(), POT.end(), Sec);
+  auto Index = static_cast<unsigned>(I - POT.begin());
+  if (I == POT.end()) {
+    POT.push_back(Sec);
+  }
+  return Index + 1;  // Index 0 denotes the default bin #0
+}
+
+// TODO(sjc): Refactor out common code
+unsigned AsmPrinter::GetPOTIndex(unsigned CPID) {
+  const MCSection *Sec = getSectionForCPI(CPID);
+
   auto I = std::find(POT.begin(), POT.end(), Sec);
   auto Index = static_cast<unsigned>(I - POT.begin());
   if (I == POT.end()) {
