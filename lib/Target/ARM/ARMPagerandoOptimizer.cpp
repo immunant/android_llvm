@@ -171,11 +171,11 @@ void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
   auto Opc = toDirectCall(MI->getOpcode());
   auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TTI.get(Opc));
 
-  // TODO(yln): maybe this can be cleaned up by not emitting a conditional branch/link
   unsigned OpNum = 1;
-  if (Opc == ARM::tBL) {
-    MIB.add(predOps(ARMCC::AL));
-    OpNum += 2;
+  if (MI->getOpcode() == ARM::tBLXr) { // Short instruction
+    auto CondOp = predOps(ARMCC::AL);
+    MIB.add(CondOp);
+    OpNum += CondOp.size();
   }
   MIB.addGlobalAddress(Callee);
 
