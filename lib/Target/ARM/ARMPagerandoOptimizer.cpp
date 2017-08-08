@@ -174,17 +174,19 @@ void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
   auto Opc = toDirectCall(MI->getOpcode());
   auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc));
 
-  unsigned OpNum = 1;
+  int SkipOps = 1;
   if (MI->getOpcode() == ARM::tBLXr) { // Short instruction
     auto CondOp = predOps(ARMCC::AL);
     MIB.add(CondOp);
-    OpNum += CondOp.size();
+    SkipOps += CondOp.size();
   }
   MIB.addGlobalAddress(Callee);
 
   // Copy over remaining operands
-  for (; OpNum < MI->getNumOperands(); ++OpNum) {
-    MIB.add(MI->getOperand(OpNum));
+  auto RemainingOps = make_range(MI->operands_begin() + SkipOps,
+                                 MI->operands_end());
+  for (auto &Op : RemainingOps) {
+    MIB.add(Op);
   }
 
   MI->eraseFromParent();
