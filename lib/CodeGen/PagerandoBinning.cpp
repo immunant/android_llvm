@@ -1,10 +1,9 @@
-//===-- PagerandoBinning.cpp - Binning for pagerando ----------------------===//
+//===-- PagerandoBinning.cpp - Binning for Pagerando ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-// Copyright 2016, 2017 Immunant, Inc.
 //
 //===----------------------------------------------------------------------===//
 //
@@ -33,10 +32,10 @@ using namespace llvm;
 
 char PagerandoBinning::ID = 0;
 INITIALIZE_PASS_BEGIN(PagerandoBinning, "pagerando-binning",
-                      "Pagerando binning", false, false)
+                      "Pagerando function binning", false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineModuleInfo);
 INITIALIZE_PASS_END(PagerandoBinning, "pagerando-binning",
-                    "Pagerando binning", false, false)
+                    "Pagerando function binning", false, false)
 
 ModulePass *llvm::createPagerandoBinningPass() {
   return new PagerandoBinning();
@@ -54,21 +53,22 @@ void PagerandoBinning::getAnalysisUsage(AnalysisUsage &AU) const {
 
 bool PagerandoBinning::runOnModule(Module &M) {
   auto &MMI = getAnalysis<MachineModuleInfo>();
+  bool Changed = false;
 
   for (auto &F : M) {
-    auto &MF = MMI.getMachineFunction(F);
     if (F.isPagerando()) {
-      unsigned Bin = AssignToBin(MF);
+      unsigned Bin = assignToBin(MMI.getMachineFunction(F));
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(SectionPrefix + utostr(Bin));
+      Changed = true;
     }
   }
 
-  return true;
+  return Changed;
 }
 
-unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
-  unsigned FnSize = ComputeFunctionSize(MF);
+unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
+  unsigned FnSize = computeFunctionSize(MF);
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -97,7 +97,7 @@ unsigned PagerandoBinning::AssignToBin(const MachineFunction &MF) {
   return Bin;
 }
 
-unsigned PagerandoBinning::ComputeFunctionSize(const MachineFunction &MF) {
+unsigned PagerandoBinning::computeFunctionSize(const MachineFunction &MF) {
   auto *TII = MF.getSubtarget().getInstrInfo();
 
   unsigned Size = 0;

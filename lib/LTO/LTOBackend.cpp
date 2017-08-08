@@ -246,7 +246,7 @@ static void runOldPMPasses(Config &Conf, Module &Mod, TargetMachine *TM,
   else
     PMB.populateLTOPassManager(passes);
   if (TM->getRelocationModel() == Reloc::PIP)
-    passes.add(createPOTEntryWrappersPass());
+    passes.add(createPagerandoWrappersPass());
   passes.run(Mod);
 }
 

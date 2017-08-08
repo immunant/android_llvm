@@ -1,10 +1,9 @@
-//===-- PagerandoBinning.h - Binning for pagerando ------------------------===//
+//===-- PagerandoBinning.h - Binning for Pagerando ------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-// Copyright 2016, 2017 Immunant, Inc.
 //
 //===----------------------------------------------------------------------===//
 //
@@ -43,12 +42,11 @@ private:
   static constexpr unsigned BinSize = 4096; // one page
   static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thumb
 
-  // Map <free space -> bin number>
-  std::multimap<unsigned, unsigned> Bins;
+  std::multimap<unsigned, unsigned> Bins;   // <free space  ->  bin numbers>
   unsigned BinCount = 1;
 
-  unsigned AssignToBin(const MachineFunction &MF);
-  unsigned ComputeFunctionSize(const MachineFunction &MF);
+  unsigned assignToBin(const MachineFunction &MF);
+  unsigned computeFunctionSize(const MachineFunction &MF);
 };
 
 } // end namespace llvm
