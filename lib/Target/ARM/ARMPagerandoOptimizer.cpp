@@ -25,10 +25,10 @@ using namespace llvm;
 #define DEBUG_TYPE "pagerando"
 
 namespace {
-class PagerandoOptimizer : public MachineFunctionPass {
+class ARMPagerandoOptimizer : public MachineFunctionPass {
 public:
   static char ID;
-  explicit PagerandoOptimizer() : MachineFunctionPass(ID) {}
+  explicit ARMPagerandoOptimizer() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
@@ -45,12 +45,12 @@ private:
 };
 } // end anonymous namespace
 
-char PagerandoOptimizer::ID = 0;
-INITIALIZE_PASS(PagerandoOptimizer, "pagerando-optimizer",
-                "Pagerando intra-bin optimizer", false, false)
+char ARMPagerandoOptimizer::ID = 0;
+INITIALIZE_PASS(ARMPagerandoOptimizer, "pagerando-optimizer",
+                "Pagerando intra-bin optimizer for ARM", false, false)
 
-FunctionPass *llvm::createPagerandoOptimizerPass() {
-  return new PagerandoOptimizer();
+FunctionPass *llvm::createARMPagerandoOptimizerPass() {
+  return new ARMPagerandoOptimizer();
 }
 
 static bool isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
@@ -80,7 +80,7 @@ static int getCPIndex(const MachineInstr &MI) {
   return -1;
 }
 
-bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
+bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   // This pass is an optimization (optional), therefore check skipFunction
   if (skipFunction(*MF.getFunction()) || !MF.getFunction()->isPagerando()) {
     return false;
@@ -133,7 +133,7 @@ static bool isBXCall(unsigned Opc) {
   return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 }
 
-void PagerandoOptimizer::optimizeCall(MachineInstr *MI,
+void ARMPagerandoOptimizer::optimizeCall(MachineInstr *MI,
                                       const Function *Callee) {
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
@@ -167,7 +167,7 @@ static unsigned toDirectCall(unsigned Opc) {
   }
 }
 
-void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
+void ARMPagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
                                                const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
@@ -194,7 +194,7 @@ void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
 }
 
 // Replace indirect register operand with more efficient PC-relative access
-void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
+void ARMPagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
                                                    const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &MF = *MBB.getParent();
@@ -236,7 +236,7 @@ void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
   MI->getOperand(0).setReg(AddressReg);
 }
 
-void PagerandoOptimizer::deleteCPEntries(MachineFunction &MF,
+void ARMPagerandoOptimizer::deleteCPEntries(MachineFunction &MF,
                                          const SmallSet<int, 8> &Workset) {
   auto *CP = MF.getConstantPool();
   int Size = CP->getConstants().size();

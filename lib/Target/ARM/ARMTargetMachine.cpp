@@ -94,7 +94,7 @@ extern "C" void LLVMInitializeARMTarget() {
   initializeARMPreAllocLoadStoreOptPass(Registry);
   initializeARMConstantIslandsPass(Registry);
   initializeARMExecutionDepsFixPass(Registry);
-  initializePagerandoOptimizerPass(Registry);
+  initializeARMPagerandoOptimizerPass(Registry);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -545,7 +545,7 @@ bool ARMPassConfig::addGlobalInstructionSelect() {
 
 void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None) {
-    addPass(createPagerandoOptimizerPass());
+    addPass(createARMPagerandoOptimizerPass());
 
     addPass(createMLxExpansionPass());
 
