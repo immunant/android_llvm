@@ -46,7 +46,7 @@ private:
 } // end anonymous namespace
 
 char ARMPagerandoOptimizer::ID = 0;
-INITIALIZE_PASS(ARMPagerandoOptimizer, "pagerando-optimizer",
+INITIALIZE_PASS(ARMPagerandoOptimizer, "pagerando-optimizer-arm",
                 "Pagerando intra-bin optimizer for ARM", false, false)
 
 FunctionPass *llvm::createARMPagerandoOptimizerPass() {

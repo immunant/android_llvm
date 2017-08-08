@@ -47,7 +47,7 @@ private:
 } // end anonymous namespace
 
 char AArch64PagerandoOptimizer::ID = 0;
-INITIALIZE_PASS(AArch64PagerandoOptimizer, "pagerando-optimizer",
+INITIALIZE_PASS(AArch64PagerandoOptimizer, "pagerando-optimizer-aarch64",
                 "Pagerando intra-bin optimizer for AArch64", false, false)
 
 FunctionPass *llvm::createAArch64PagerandoOptimizerPass() {
