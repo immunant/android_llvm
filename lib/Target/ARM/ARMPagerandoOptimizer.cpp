@@ -81,13 +81,14 @@ static int getCPIndex(const MachineInstr &MI) {
 }
 
 bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
+  auto &F = *MF.getFunction();
   // This pass is an optimization (optional), therefore check skipFunction
-  if (skipFunction(*MF.getFunction()) || !MF.getFunction()->isPagerando()) {
+  if (!F.isPagerando() || skipFunction(F)) {
     return false;
   }
 
   // Section prefix is assigned by PagerandoBinning pass
-  auto BinPrefix = MF.getFunction()->getSectionPrefix().getValue();
+  auto BinPrefix = F.getSectionPrefix().getValue();
   auto &CPEntries = MF.getConstantPool()->getConstants();
 
   // Find intra-bin CP entries
