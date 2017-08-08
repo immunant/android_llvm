@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+//===-- ARMPagerandoOptimizer.cpp - Optimizes intra-bin function calls ----===//
 //
 //                     The LLVM Compiler Infrastructure
 //

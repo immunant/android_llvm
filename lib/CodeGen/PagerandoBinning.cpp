@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+//===-- PagerandoBinning.cpp - Binning for Pagerando ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

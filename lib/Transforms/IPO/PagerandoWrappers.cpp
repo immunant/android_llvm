@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+//===-- PagerandoWrappers.cpp - Pagerando entry wrappers ------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
