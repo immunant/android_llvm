@@ -164,6 +164,7 @@ extern "C" void LLVMInitializeAArch64Target() {
   initializeAArch64PromoteConstantPass(*PR);
   initializeAArch64RedundantCopyEliminationPass(*PR);
   initializeAArch64StorePairSuppressPass(*PR);
+  initializeAArch64PagerandoOptimizerPass(*PR);
   initializeLDTLSCleanupPass(*PR);
 }
 
@@ -494,6 +495,9 @@ bool AArch64PassConfig::addILPOpts() {
 }
 
 void AArch64PassConfig::addPreRegAlloc() {
+  if (TM->getOptLevel() != CodeGenOpt::None) // TODO(yln): Maybe factor out the TM->getOptLevel() != CodeGenOpt::None check
+    addPass(createAArch64PagerandoOptimizerPass()); // TODO(sjc): yln: is this the right place to hook the pass?
+
   // Change dead register definitions to refer to the zero register.
   if (TM->getOptLevel() != CodeGenOpt::None && EnableDeadRegisterElimination)
     addPass(createAArch64DeadRegisterDefinitions());
