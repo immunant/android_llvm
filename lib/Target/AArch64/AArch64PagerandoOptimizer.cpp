@@ -80,7 +80,13 @@ FunctionPass *llvm::createAArch64PagerandoOptimizerPass() {
 //  }
 //  return -1;
 //}
-//
+
+static bool isIntraBinLoad(const MachineInstr &MI) {
+  return MI.mayLoad()
+      && MI.getNumOperands() > 1
+      && (MI.getOperand(1).getTargetFlags() & AArch64II::MO_POT) != 0;
+}
+
 bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   auto &F = *MF.getFunction();
   // This pass is an optimization (optional), therefore check skipFunction
@@ -104,20 +110,20 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 //    }
 //  }
 //
-//  if (Workset.empty()) {
-//    return false;
-//  }
-//
-//  // Collect uses of intra-bin CP entries
-//  std::vector<MachineInstr*> Uses;
-//  for (auto &BB : MF) {
-//    for (auto &MI : BB) {
-//      int Index = getCPIndex(MI);
-//      if (Workset.count(Index)) {
-//        Uses.push_back(&MI);
-//      }
-//    }
-//  }
+  // Collect intra-bin references
+  std::vector<MachineInstr*> Worklist;
+  for (auto &BB : MF) {
+    for (auto &MI : BB) {
+      if (isIntraBinLoad(MI)) {
+        Worklist.push_back(&MI);
+      }
+    }
+  }
+
+  if (Worklist.empty()) {
+    return false;
+  }
+
 //
 //  // Optimize intra-bin calls
 //  for (auto *MI : Uses) {
