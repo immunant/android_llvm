@@ -41,7 +41,7 @@ private:
   void optimizeCall(MachineInstr *MI, const Function *Callee);
   void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
   void replaceWithPCRelativeCall(MachineInstr *MI, const Function *Callee);
-  void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &Workset);
+  void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &CPIndices);
 };
 } // end anonymous namespace
 
@@ -92,18 +92,18 @@ bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   auto &CPEntries = MF.getConstantPool()->getConstants();
 
   // Find intra-bin CP entries
-  SmallSet<int, 8> Workset;
+  SmallSet<int, 8> CPIndices;
   {
     int Index = 0;
     for (auto &E : CPEntries) {
       if (isIntraBin(E, BinPrefix)) {
-        Workset.insert(Index);
+        CPIndices.insert(Index);
       }
       Index++;
     }
   }
 
-  if (Workset.empty()) {
+  if (CPIndices.empty()) {
     return false;
   }
 
@@ -112,7 +112,7 @@ bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   for (auto &BB : MF) {
     for (auto &MI : BB) {
       int Index = getCPIndex(MI);
-      if (Workset.count(Index)) {
+      if (CPIndices.count(Index)) {
         Uses.push_back(&MI);
       }
     }
@@ -125,7 +125,7 @@ bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
     optimizeCall(MI, Callee);
   }
 
-  deleteCPEntries(MF, Workset);
+  deleteCPEntries(MF, CPIndices);
 
   return true;
 }
@@ -238,14 +238,14 @@ void ARMPagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
 }
 
 void ARMPagerandoOptimizer::deleteCPEntries(MachineFunction &MF,
-                                         const SmallSet<int, 8> &Workset) {
+                                         const SmallSet<int, 8> &CPIndices) {
   auto *CP = MF.getConstantPool();
   int Size = CP->getConstants().size();
   int Indices[Size];
 
   // Create CP index mapping: Indices[Old] -> New
   for (int Old = 0, New = 0; Old < Size; ++Old) {
-    Indices[Old] = Workset.count(Old) ? -1 : New++;
+    Indices[Old] = CPIndices.count(Old) ? -1 : New++;
   }
 
   // Update remaining (inter-bin) CP references
