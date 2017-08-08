@@ -65,7 +65,7 @@ static bool isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
   auto *F = dyn_cast_or_null<Function>(CPC->getGV());
 
   return (M == ARMCP::POTOFF || M == ARMCP::BINOFF)
-      && F &&F->getSectionPrefix() == BinPrefix;
+      && F && F->getSectionPrefix() == BinPrefix;
 }
 
 static const Function *getCallee(const MachineConstantPoolEntry &E) {
@@ -91,10 +91,13 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 
   // Find intra-bin CP entries
   SmallSet<int, 8> Workset;
-  for (int Index = 0; Index < CPEntries.size(); ++Index) {
-    bool intraBin = isIntraBin(CPEntries[Index], BinPrefix);
-    if (intraBin) {
-      Workset.insert(Index);
+  {
+    int Index = 0;
+    for (auto &E : CPEntries) {
+      if (isIntraBin(E, BinPrefix)) {
+        Workset.insert(Index);
+      }
+      Index++;
     }
   }
 
@@ -166,10 +169,10 @@ static unsigned toDirectCall(unsigned Opc) {
 void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
                                                const Function *Callee) {
   auto &MBB = *MI->getParent();
-  auto &TTI = *MBB.getParent()->getSubtarget().getInstrInfo();
+  auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
   auto Opc = toDirectCall(MI->getOpcode());
-  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TTI.get(Opc));
+  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc));
 
   unsigned OpNum = 1;
   if (MI->getOpcode() == ARM::tBLXr) { // Short instruction
