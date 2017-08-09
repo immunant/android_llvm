@@ -495,8 +495,10 @@ bool AArch64PassConfig::addILPOpts() {
 }
 
 void AArch64PassConfig::addPreRegAlloc() {
-  if (TM->getOptLevel() != CodeGenOpt::None) // TODO(yln): Maybe factor out the TM->getOptLevel() != CodeGenOpt::None check
-    addPass(createAArch64PagerandoOptimizerPass()); // TODO(sjc): yln: is this the right place to hook the pass?
+  if (TM->getOptLevel() != CodeGenOpt::None) { // TODO(yln): Maybe factor out the TM->getOptLevel() != CodeGenOpt::None check
+    addPass(createAArch64PagerandoOptimizerPass());
+    addPass(&DeadMachineInstructionElimID);
+  }
 
   // Change dead register definitions to refer to the zero register.
   if (TM->getOptLevel() != CodeGenOpt::None && EnableDeadRegisterElimination)
