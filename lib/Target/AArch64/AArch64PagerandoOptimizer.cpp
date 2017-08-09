@@ -98,12 +98,18 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
                                               const Function *Callee) {
   assert(MI->getOpcode() == AArch64::MOVaddrBIN);
+
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
+  SmallVector<MachineInstr*, 2> Calls;
   for (auto &Op : MI->defs()) {
-    for (auto &Call : MRI.use_instructions(Op.getReg())) {
-      replaceWithDirectCall(&Call, Callee);
+    for (auto &User : MRI.use_instructions(Op.getReg())) {
+      Calls.push_back(&User);
     }
+  }
+
+  for (auto *Call : Calls) {
+    replaceWithDirectCall(Call, Callee);
   }
 
   MI->eraseFromParent();
@@ -115,6 +121,7 @@ void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
 void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
                                                       const Function *Callee) {
   assert(MI->getOpcode() == AArch64::BLR);
+
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
