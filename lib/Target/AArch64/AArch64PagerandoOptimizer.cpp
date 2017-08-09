@@ -40,7 +40,7 @@ public:
   }
 
 private:
-  void optimizeCalls(MachineInstr *MI, const Function *Callee);
+  void optimizeCalls(MachineInstr *MI);
   void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
 };
 } // end anonymous namespace
@@ -54,6 +54,7 @@ FunctionPass *llvm::createAArch64PagerandoOptimizerPass() {
 }
 
 static const Function *getCallee(const MachineInstr &MI) {
+  assert(MI.getOpcode() == AArch64::MOVaddrBIN);
   return cast<Function>(MI.getOperand(2).getGlobal());
 }
 
@@ -88,17 +89,13 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 
   // Optimize intra-bin calls
   for (auto *MI : Worklist) {
-    auto *Callee = getCallee(*MI);
-    optimizeCalls(MI, Callee);
+    optimizeCalls(MI);
   }
 
   return true;
 }
 
-void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
-                                              const Function *Callee) {
-  assert(MI->getOpcode() == AArch64::MOVaddrBIN);
-
+void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI) {
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
   SmallVector<MachineInstr*, 2> Calls;
@@ -108,6 +105,7 @@ void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
     }
   }
 
+  auto *Callee = getCallee(*MI);
   for (auto *Call : Calls) {
     replaceWithDirectCall(Call, Callee);
   }
@@ -120,11 +118,10 @@ void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
 
 void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
                                                       const Function *Callee) {
-  assert(MI->getOpcode() == AArch64::BLR);
-
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
+  assert(MI->getOpcode() == AArch64::BLR);
   auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(AArch64::BL))
       .addGlobalAddress(Callee);
 
