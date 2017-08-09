@@ -40,8 +40,8 @@ public:
   }
 
 private:
-  void createDirectCall(MachineInstr *MI, const Function *Callee);
   void optimizeCalls(MachineInstr *MI, const Function *Callee);
+  void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
 };
 } // end anonymous namespace
 
@@ -97,47 +97,28 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 
 void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
                                               const Function *Callee) {
+  assert(MI->getOpcode() == AArch64::MOVaddrBIN);
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
-  SmallVector<MachineInstr*, 4> Queue{MI};
-
-  while (!Queue.empty()) {
-    MI = Queue.pop_back_val();
-
-    if (!MI->isCall()) { // Not a call, enqueue users
-      for (auto &Op : MI->defs()) {
-        for (auto &User : MRI.use_instructions(Op.getReg())) {
-          Queue.push_back(&User);
-        }
-      }
-    } else {
-      createDirectCall(MI, Callee);
+  for (auto &Op : MI->defs()) {
+    for (auto &Call : MRI.use_instructions(Op.getReg())) {
+      replaceWithDirectCall(&Call, Callee);
     }
-    MI->eraseFromParent();
-    // Note: this might be the only use of the preceding AArch64::LOADpot pseudo
-    // instruction. We schedule the DeadMachineInstructionElim pass after this
-    // pass to get rid of it.
   }
+
+  MI->eraseFromParent();
+  // Note: this might be the only use of the preceding AArch64::LOADpot pseudo
+  // instruction. We schedule the DeadMachineInstructionElim pass after this
+  // pass to get rid of it.
 }
 
-// TODO(yln): compile all of AOSP, then inline.
-static unsigned toDirectCall(unsigned Opc) {
-  assert(Opc == AArch64::BLR);
-  return AArch64::BL;
-}
-
-void AArch64PagerandoOptimizer::createDirectCall(MachineInstr *MI,
-                                                 const Function *Callee) {
+void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
+                                                      const Function *Callee) {
+  assert(MI->getOpcode() == AArch64::BLR);
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
-  // TODO(yln): remove
-  if (MI->getOpcode() != AArch64::BLR) {
-    errs() << MI << "\n";
-    std::exit(-7);
-  }
-  auto Opc = toDirectCall(MI->getOpcode());
-  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc))
+  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(AArch64::BL))
       .addGlobalAddress(Callee);
 
   // Copy over remaining operands
@@ -145,4 +126,6 @@ void AArch64PagerandoOptimizer::createDirectCall(MachineInstr *MI,
   for (auto &Op : RemainingOps) {
     MIB.add(Op);
   }
+
+  MI->eraseFromParent();
 }
