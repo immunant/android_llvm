@@ -28,7 +28,9 @@ namespace {
 class AArch64PagerandoOptimizer : public MachineFunctionPass {
 public:
   static char ID;
-  explicit AArch64PagerandoOptimizer() : MachineFunctionPass(ID) {}
+  explicit AArch64PagerandoOptimizer() : MachineFunctionPass(ID) {
+    initializeAArch64PagerandoOptimizerPass(*PassRegistry::getPassRegistry());
+  }
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 

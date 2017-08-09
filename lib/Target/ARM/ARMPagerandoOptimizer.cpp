@@ -28,7 +28,9 @@ namespace {
 class ARMPagerandoOptimizer : public MachineFunctionPass {
 public:
   static char ID;
-  explicit ARMPagerandoOptimizer() : MachineFunctionPass(ID) {}
+  explicit ARMPagerandoOptimizer() : MachineFunctionPass(ID) {
+    initializeARMPagerandoOptimizerPass(*PassRegistry::getPassRegistry());
+  }
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
