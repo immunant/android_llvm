@@ -115,15 +115,10 @@ void AArch64PagerandoOptimizer::optimizeCall(MachineInstr *MI,
   }
 }
 
+// TODO(yln): compile all of AOSP, then inline.
 static unsigned toDirectCall(unsigned Opc) {
-  switch (Opc) {
-  case AArch64::BLR:  return AArch64::BL;
-//  case ARM::TCRETURNri: return ARM::TCRETURNdi;
-//  case ARM::BLX:        return ARM::BL;
-//  case ARM::tBLXr:      return ARM::tBL;
-  default:
-    llvm_unreachable("Unhandled ARM call opcode");
-  }
+  assert(Opc == AArch64::BLR);
+  return AArch64::BL;
 }
 
 void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
@@ -131,14 +126,17 @@ void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
+  // TODO(yln): remove
+  if (MI->getOpcode() != AArch64::BLR) {
+    errs() << MI << "\n";
+    std::exit(-7);
+  }
   auto Opc = toDirectCall(MI->getOpcode());
   auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc))
       .addGlobalAddress(Callee);
 
-  int SkipOps = 1;
   // Copy over remaining operands
-  auto RemainingOps = make_range(MI->operands_begin() + SkipOps,
-                                 MI->operands_end());
+  auto RemainingOps = make_range(MI->operands_begin() + 1, MI->operands_end());
   for (auto &Op : RemainingOps) {
     MIB.add(Op);
   }
