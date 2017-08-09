@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This pass assigns pagerando-enabled functions to bins. Normal functions
-// (and pagerando wrappers) are put into to the default bin #0.
+// (and pagerando wrappers) are not assigned to a bin.
 // Function sizes are estimated by adding up the size of all instructions
 // inside the corresponding MachineFunction. The default bin size is 4KB.
 // The current bin allocation strategy is a greedy algorithm that, for every
@@ -16,6 +16,8 @@
 // accommodates the function. If such a bin does not exist, a new one is
 // created. Functions that are larger than the default bin size are assigned to
 // a new bin which forces the expansion of said bin.
+// Note: Because this pass estimates function sizes it should run as late as
+// possible.
 //
 //===----------------------------------------------------------------------===//
 
@@ -68,7 +70,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
 }
 
 unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
-  unsigned FnSize = computeFunctionSize(MF);
+  unsigned FnSize = estimateFunctionSize(MF);
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -97,7 +99,7 @@ unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
   return Bin;
 }
 
-unsigned PagerandoBinning::computeFunctionSize(const MachineFunction &MF) {
+unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
   auto *TII = MF.getSubtarget().getInstrInfo();
 
   unsigned Size = 0;
