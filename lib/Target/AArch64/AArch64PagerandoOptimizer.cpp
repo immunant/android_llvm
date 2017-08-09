@@ -41,7 +41,7 @@ public:
 
 private:
   void optimizeCall(MachineInstr *MI, const Function *Callee);
-  void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
+  void createDirectCall(MachineInstr *MI, const Function *Callee);
 };
 } // end anonymous namespace
 
@@ -110,10 +110,13 @@ void AArch64PagerandoOptimizer::optimizeCall(MachineInstr *MI,
           Queue.push_back(&User);
         }
       }
-      MI->eraseFromParent();
     } else {
-      replaceWithDirectCall(MI, Callee);
+      createDirectCall(MI, Callee);
     }
+    MI->eraseFromParent();
+    // Note: this might be the only use of the preceding AArch64::LOADpot pseudo
+    // instruction. We schedule the DeadMachineInstructionElim pass after this
+    // pass to get rid of it.
   }
 }
 
@@ -123,8 +126,8 @@ static unsigned toDirectCall(unsigned Opc) {
   return AArch64::BL;
 }
 
-void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
-                                               const Function *Callee) {
+void AArch64PagerandoOptimizer::createDirectCall(MachineInstr *MI,
+                                                 const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
@@ -142,6 +145,4 @@ void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
   for (auto &Op : RemainingOps) {
     MIB.add(Op);
   }
-
-  MI->eraseFromParent();
 }
