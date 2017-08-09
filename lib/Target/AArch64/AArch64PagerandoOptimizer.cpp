@@ -40,8 +40,8 @@ public:
   }
 
 private:
-  void optimizeCall(MachineInstr *MI, const Function *Callee);
   void createDirectCall(MachineInstr *MI, const Function *Callee);
+  void optimizeCalls(MachineInstr *MI, const Function *Callee);
 };
 } // end anonymous namespace
 
@@ -89,14 +89,14 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   // Optimize intra-bin calls
   for (auto *MI : Worklist) {
     auto *Callee = getCallee(*MI);
-    optimizeCall(MI, Callee);
+    optimizeCalls(MI, Callee);
   }
 
   return true;
 }
 
-void AArch64PagerandoOptimizer::optimizeCall(MachineInstr *MI,
-                                             const Function *Callee) {
+void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
+                                              const Function *Callee) {
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
   SmallVector<MachineInstr*, 4> Queue{MI};

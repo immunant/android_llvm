@@ -40,7 +40,7 @@ public:
   }
 
 private:
-  void optimizeCall(MachineInstr *MI, const Function *Callee);
+  void optimizeCalls(MachineInstr *MI, const Function *Callee);
   void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
   void replaceWithPCRelativeCall(MachineInstr *MI, const Function *Callee);
   void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &CPIndices);
@@ -124,7 +124,7 @@ bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   for (auto *MI : Uses) {
     int Index = getCPIndex(*MI);
     auto *Callee = getCallee(CPEntries[Index]);
-    optimizeCall(MI, Callee);
+    optimizeCalls(MI, Callee);
   }
 
   deleteCPEntries(MF, CPIndices);
@@ -136,8 +136,8 @@ static bool isBXCall(unsigned Opc) {
   return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 }
 
-void ARMPagerandoOptimizer::optimizeCall(MachineInstr *MI,
-                                      const Function *Callee) {
+void ARMPagerandoOptimizer::optimizeCalls(MachineInstr *MI,
+                                          const Function *Callee) {
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
   SmallVector<MachineInstr*, 4> Queue{MI};
