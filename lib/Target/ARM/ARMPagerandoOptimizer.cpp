@@ -121,7 +121,7 @@ bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   // Optimize intra-bin calls
   for (auto *MI : Uses) {
     int Index = getCPIndex(*MI);
-    auto Callee = getCallee(CPEntries[Index]);
+    auto *Callee = getCallee(CPEntries[Index]);
     optimizeCall(MI, Callee);
   }
 

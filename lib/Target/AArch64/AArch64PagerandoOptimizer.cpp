@@ -18,7 +18,9 @@
 //#include "ARMConstantPoolValue.h"
 #include "AArch64MachineFunctionInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLowering.h"
 
 using namespace llvm;
@@ -39,8 +41,8 @@ public:
   }
 
 private:
-//  void optimizeCall(MachineInstr *MI, const Function *Callee);
-//  void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
+  void optimizeCall(MachineInstr *MI, const Function *Callee);
+  void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
 //  void replaceWithPCRelativeCall(MachineInstr *MI, const Function *Callee);
 //  void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &Workset);
 };
@@ -81,10 +83,13 @@ FunctionPass *llvm::createAArch64PagerandoOptimizerPass() {
 //  return -1;
 //}
 
-static bool isIntraBinLoad(const MachineInstr &MI) {
-  return MI.mayLoad()
-      && MI.getNumOperands() > 1
-      && (MI.getOperand(1).getTargetFlags() & AArch64II::MO_POT) != 0;
+static const Function *getCallee(const MachineInstr &MI) {
+  return cast<Function>(MI.getOperand(2).getGlobal());
+}
+
+static bool isIntraBin(const MachineInstr &MI, StringRef BinPrefix) {
+  return MI.getOpcode() == AArch64::MOVaddrBIN
+      && getCallee(MI)->getSectionPrefix() == BinPrefix;
 }
 
 bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
@@ -95,26 +100,13 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   }
 
   // Section prefix is assigned by PagerandoBinning pass
-//  auto BinPrefix = F.getSectionPrefix().getValue();
-//  auto &CPEntries = MF.getConstantPool()->getConstants();
-//
-//  // Find intra-bin CP entries
-//  SmallSet<int, 8> Workset;
-//  {
-//    int Index = 0;
-//    for (auto &E : CPEntries) {
-//      if (isIntraBin(E, BinPrefix)) {
-//        Workset.insert(Index);
-//      }
-//      Index++;
-//    }
-//  }
-//
+  auto BinPrefix = F.getSectionPrefix().getValue();
+
   // Collect intra-bin references
   std::vector<MachineInstr*> Worklist;
   for (auto &BB : MF) {
     for (auto &MI : BB) {
-      if (isIntraBinLoad(MI)) {
+      if (isIntraBin(MI, BinPrefix)) {
         Worklist.push_back(&MI);
       }
     }
@@ -124,13 +116,15 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
     return false;
   }
 
-//
-//  // Optimize intra-bin calls
-//  for (auto *MI : Uses) {
-//    int Index = getCPIndex(*MI);
-//    auto Callee = getCallee(CPEntries[Index]);
-//    optimizeCall(MI, Callee);
-//  }
+  // Optimize intra-bin calls
+  for (auto *MI : Worklist) {
+    auto *Callee = getCallee(*MI);
+    errs() << "before optimze:\n";
+    MI->getParent()->dump();
+    optimizeCall(MI, Callee);
+    errs() << "AFTER optimze:\n";
+    MI->getParent()->dump();
+  }
 //
 //  deleteCPEntries(MF, Workset);
 //
@@ -140,50 +134,52 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 //static bool isBXCall(unsigned Opc) {
 //  return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 //}
-//
-//void AArch64PagerandoOptimizer::optimizeCall(MachineInstr *MI,
-//                                      const Function *Callee) {
-//  auto &MRI = MI->getParent()->getParent()->getRegInfo();
-//
-//  SmallVector<MachineInstr*, 4> Queue{MI};
-//
-//  while (!Queue.empty()) {
-//    MI = Queue.pop_back_val();
-//
-//    if (!MI->isCall()) { // Not a call, enqueue users
-//      for (auto &Op : MI->defs()) {
-//        for (auto &User : MRI.use_instructions(Op.getReg())) {
-//          Queue.push_back(&User);
-//        }
-//      }
-//      MI->eraseFromParent();
+
+void AArch64PagerandoOptimizer::optimizeCall(MachineInstr *MI,
+                                             const Function *Callee) {
+  auto &MRI = MI->getParent()->getParent()->getRegInfo();
+
+  SmallVector<MachineInstr*, 4> Queue{MI};
+
+  while (!Queue.empty()) {
+    MI = Queue.pop_back_val();
+
+    if (!MI->isCall()) { // Not a call, enqueue users
+      for (auto &Op : MI->defs()) {
+        for (auto &User : MRI.use_instructions(Op.getReg())) {
+          Queue.push_back(&User);
+        }
+      }
+      MI->eraseFromParent();
 //    } else if (isBXCall(MI->getOpcode())) {
 //      replaceWithPCRelativeCall(MI, Callee);
-//    } else { // Standard indirect call
-//      replaceWithDirectCall(MI, Callee);
-//    }
-//  }
-//}
-//
-//static unsigned toDirectCall(unsigned Opc) {
-//  switch (Opc) {
+    } else { // Standard indirect call
+      replaceWithDirectCall(MI, Callee);
+    }
+  }
+}
+
+static unsigned toDirectCall(unsigned Opc) {
+  switch (Opc) {
+  case AArch64::BLR:  return AArch64::BL;
 //  case ARM::TCRETURNri: return ARM::TCRETURNdi;
 //  case ARM::BLX:        return ARM::BL;
 //  case ARM::tBLXr:      return ARM::tBL;
-//  default:
-//    llvm_unreachable("Unhandled ARM call opcode");
-//  }
-//}
-//
-//void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
-//                                               const Function *Callee) {
-//  auto &MBB = *MI->getParent();
-//  auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
-//
-//  auto Opc = toDirectCall(MI->getOpcode());
-//  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc));
-//
-//  int SkipOps = 1;
+  default:
+    llvm_unreachable("Unhandled ARM call opcode");
+  }
+}
+
+void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
+                                               const Function *Callee) {
+  auto &MBB = *MI->getParent();
+  auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
+
+  auto Opc = toDirectCall(MI->getOpcode());
+  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc))
+      .addGlobalAddress(Callee);
+
+  int SkipOps = 1;
 //  if (MI->getOpcode() == ARM::tBLXr) { // Short instruction
 //    auto CondOp = predOps(ARMCC::AL);
 //    MIB.add(CondOp);
@@ -191,16 +187,16 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 //  }
 //  MIB.addGlobalAddress(Callee);
 //
-//  // Copy over remaining operands
-//  auto RemainingOps = make_range(MI->operands_begin() + SkipOps,
-//                                 MI->operands_end());
-//  for (auto &Op : RemainingOps) {
-//    MIB.add(Op);
-//  }
-//
-//  MI->eraseFromParent();
-//}
-//
+  // Copy over remaining operands
+  auto RemainingOps = make_range(MI->operands_begin() + SkipOps,
+                                 MI->operands_end());
+  for (auto &Op : RemainingOps) {
+    MIB.add(Op);
+  }
+
+  MI->eraseFromParent();
+}
+
 //// Replace indirect register operand with more efficient PC-relative access
 //void AArch64PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
 //                                                   const Function *Callee) {
