@@ -160,7 +160,8 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
       index = Printer.GetPOTIndex(MO.getIndex());
     }
     return MCOperand::createImm(index);
-  } else if (SourceFlag == AArch64II::MO_SEC) {
+  }
+  if (SourceFlag == AArch64II::MO_SEC) {
     const MCSymbol *SecSym;
     if (MO.isGlobal()) {
       auto *GO = cast<GlobalObject>(MO.getGlobal());
