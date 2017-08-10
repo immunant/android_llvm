@@ -83,16 +83,12 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
     }
   }
 
-  if (Worklist.empty()) {
-    return false;
-  }
-
   // Optimize intra-bin calls
   for (auto *MI : Worklist) {
     optimizeCalls(MI);
   }
 
-  return true;
+  return !Worklist.empty();
 }
 
 void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI) {
