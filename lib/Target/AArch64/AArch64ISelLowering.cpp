@@ -123,7 +123,7 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
   addRegisterClass(MVT::i64, &AArch64::GPR64allRegClass);
 
   // TODO: Decide if we want to stick with the platform register
-  if (TM.getRelocationModel() == Reloc::PIP)
+  if (TM.isPagerando())
     setPOTBaseRegister(AArch64::X20);
 
   if (Subtarget->hasFPARMv8()) {
@@ -4120,7 +4120,7 @@ SDValue AArch64TargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
 }
 
 SDValue AArch64TargetLowering::LowerPOT(SDValue Op, SelectionDAG &DAG) const {
-  assert(Subtarget->isPIP() &&
+  assert(getTargetMachine().isPagerando() &&
          "POT lowering only supported with PIP relocation model");
 
   SDLoc dl(Op);
