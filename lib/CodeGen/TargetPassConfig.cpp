@@ -607,7 +607,8 @@ void TargetPassConfig::addMachinePasses() {
     addPass(&LocalStackSlotAllocationID, false);
   }
 
-  addPass(createPagerandoBinningPass());
+  if (TM->isPagerando())
+    addPass(createPagerandoBinningPass());
 
   // Run pre-ra passes.
   addPreRegAlloc();

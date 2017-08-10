@@ -495,7 +495,7 @@ bool AArch64PassConfig::addILPOpts() {
 }
 
 void AArch64PassConfig::addPreRegAlloc() {
-  if (TM->getOptLevel() != CodeGenOpt::None) { // TODO(yln): Maybe factor out the TM->getOptLevel() != CodeGenOpt::None check
+  if (TM->getOptLevel() != CodeGenOpt::None && TM->isPagerando()) {
     addPass(createAArch64PagerandoOptimizerPass());
     addPass(&DeadMachineInstructionElimID);
   }
