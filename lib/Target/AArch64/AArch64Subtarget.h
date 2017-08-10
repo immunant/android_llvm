@@ -248,10 +248,6 @@ public:
   bool isTargetELF() const { return TargetTriple.isOSBinFormatELF(); }
   bool isTargetMachO() const { return TargetTriple.isOSBinFormatMachO(); }
 
-  bool isPIP() const {
-    return TLInfo.getTargetMachine().getRelocationModel() == Reloc::PIP;
-  }
-
   bool useAA() const override { return UseAA; }
 
   bool useSmallAddressing() const {
