@@ -25,10 +25,12 @@ using namespace llvm;
 #define DEBUG_TYPE "pagerando"
 
 namespace {
-class PagerandoOptimizer : public MachineFunctionPass {
+class ARMPagerandoOptimizer : public MachineFunctionPass {
 public:
   static char ID;
-  explicit PagerandoOptimizer() : MachineFunctionPass(ID) {}
+  explicit ARMPagerandoOptimizer() : MachineFunctionPass(ID) {
+    initializeARMPagerandoOptimizerPass(*PassRegistry::getPassRegistry());
+  }
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
@@ -38,19 +40,19 @@ public:
   }
 
 private:
-  void optimizeCall(MachineInstr *MI, const Function *Callee);
+  void optimizeCalls(MachineInstr *MI, const Function *Callee);
   void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
   void replaceWithPCRelativeCall(MachineInstr *MI, const Function *Callee);
-  void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &Workset);
+  void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &CPIndices);
 };
 } // end anonymous namespace
 
-char PagerandoOptimizer::ID = 0;
-INITIALIZE_PASS(PagerandoOptimizer, "pagerando-optimizer",
-                "Pagerando intra-bin optimizer", false, false)
+char ARMPagerandoOptimizer::ID = 0;
+INITIALIZE_PASS(ARMPagerandoOptimizer, "pagerando-optimizer-arm",
+                "Pagerando intra-bin optimizer for ARM", false, false)
 
-FunctionPass *llvm::createPagerandoOptimizerPass() {
-  return new PagerandoOptimizer();
+FunctionPass *llvm::createARMPagerandoOptimizerPass() {
+  return new ARMPagerandoOptimizer();
 }
 
 static bool isIntraBin(const MachineConstantPoolEntry &E, StringRef BinPrefix) {
@@ -80,29 +82,30 @@ static int getCPIndex(const MachineInstr &MI) {
   return -1;
 }
 
-bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
+bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
+  auto &F = *MF.getFunction();
   // This pass is an optimization (optional), therefore check skipFunction
-  if (skipFunction(*MF.getFunction()) || !MF.getFunction()->isPagerando()) {
+  if (!F.isPagerando() || skipFunction(F)) {
     return false;
   }
 
   // Section prefix is assigned by PagerandoBinning pass
-  auto BinPrefix = MF.getFunction()->getSectionPrefix().getValue();
+  auto BinPrefix = F.getSectionPrefix().getValue();
   auto &CPEntries = MF.getConstantPool()->getConstants();
 
   // Find intra-bin CP entries
-  SmallSet<int, 8> Workset;
+  SmallSet<int, 8> CPIndices;
   {
     int Index = 0;
     for (auto &E : CPEntries) {
       if (isIntraBin(E, BinPrefix)) {
-        Workset.insert(Index);
+        CPIndices.insert(Index);
       }
       Index++;
     }
   }
 
-  if (Workset.empty()) {
+  if (CPIndices.empty()) {
     return false;
   }
 
@@ -111,7 +114,7 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   for (auto &BB : MF) {
     for (auto &MI : BB) {
       int Index = getCPIndex(MI);
-      if (Workset.count(Index)) {
+      if (CPIndices.count(Index)) {
         Uses.push_back(&MI);
       }
     }
@@ -120,11 +123,11 @@ bool PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   // Optimize intra-bin calls
   for (auto *MI : Uses) {
     int Index = getCPIndex(*MI);
-    auto Callee = getCallee(CPEntries[Index]);
-    optimizeCall(MI, Callee);
+    auto *Callee = getCallee(CPEntries[Index]);
+    optimizeCalls(MI, Callee);
   }
 
-  deleteCPEntries(MF, Workset);
+  deleteCPEntries(MF, CPIndices);
 
   return true;
 }
@@ -133,8 +136,8 @@ static bool isBXCall(unsigned Opc) {
   return Opc == ARM::BX_CALL || Opc == ARM::tBX_CALL;
 }
 
-void PagerandoOptimizer::optimizeCall(MachineInstr *MI,
-                                      const Function *Callee) {
+void ARMPagerandoOptimizer::optimizeCalls(MachineInstr *MI,
+                                          const Function *Callee) {
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
   SmallVector<MachineInstr*, 4> Queue{MI};
@@ -167,7 +170,7 @@ static unsigned toDirectCall(unsigned Opc) {
   }
 }
 
-void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
+void ARMPagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
                                                const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
@@ -194,7 +197,7 @@ void PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
 }
 
 // Replace indirect register operand with more efficient PC-relative access
-void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
+void ARMPagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
                                                    const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &MF = *MBB.getParent();
@@ -236,15 +239,15 @@ void PagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
   MI->getOperand(0).setReg(AddressReg);
 }
 
-void PagerandoOptimizer::deleteCPEntries(MachineFunction &MF,
-                                         const SmallSet<int, 8> &Workset) {
+void ARMPagerandoOptimizer::deleteCPEntries(MachineFunction &MF,
+                                         const SmallSet<int, 8> &CPIndices) {
   auto *CP = MF.getConstantPool();
   int Size = CP->getConstants().size();
   int Indices[Size];
 
   // Create CP index mapping: Indices[Old] -> New
   for (int Old = 0, New = 0; Old < Size; ++Old) {
-    Indices[Old] = Workset.count(Old) ? -1 : New++;
+    Indices[Old] = CPIndices.count(Old) ? -1 : New++;
   }
 
   // Update remaining (inter-bin) CP references
