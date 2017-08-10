@@ -217,7 +217,7 @@ namespace {
     bool isThumb;
     bool isThumb1;
     bool isThumb2;
-    bool isPositionIndependentOrROPI;
+    bool isPositionIndependent_ROPI_PIP;
 
   public:
     static char ID;
@@ -348,7 +348,7 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
 
   STI = &static_cast<const ARMSubtarget &>(MF->getSubtarget());
   TII = STI->getInstrInfo();
-  isPositionIndependentOrROPI =
+  isPositionIndependent_ROPI_PIP =
       STI->getTargetLowering()->isPositionIndependent() ||
       STI->isROPI() || STI->isPIP();
   AFI = MF->getInfo<ARMFunctionInfo>();
@@ -2160,7 +2160,7 @@ bool ARMConstantIslands::optimizeThumb2JumpTables() {
 
       // If we're in PIC mode, there should be another ADD following.
       auto *TRI = STI->getRegisterInfo();
-      if (isPositionIndependentOrROPI) {
+      if (isPositionIndependent_ROPI_PIP) {
         MachineInstr *Add = Load->getNextNode();
         if (Add->getOpcode() != ARM::tADDrr ||
             Add->getOperand(2).getReg() != Load->getOperand(0).getReg() ||

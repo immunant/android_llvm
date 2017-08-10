@@ -60,7 +60,7 @@ cl::opt<Reloc::Model> RelocModel(
         clEnumValN(Reloc::ROPI_RWPI, "ropi-rwpi",
                    "Combination of ropi and rwpi"),
         clEnumValN(Reloc::PIP, "pip",
-                   "Position independent pages")));
+                   "Position independent pages for Pagerando")));
 
 static inline Optional<Reloc::Model> getRelocModel() {
   if (RelocModel.getNumOccurrences()) {

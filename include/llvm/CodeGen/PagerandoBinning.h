@@ -16,8 +16,8 @@
 // accommodates the function. If such a bin does not exist, a new one is
 // created. Functions that are larger than the default bin size are assigned to
 // a new bin which forces the expansion of said bin.
-// Note: Because this pass estimates function sizes it should run as late as
-// possible.
+// Because this pass estimates function sizes it should run as late as possible,
+// but before Pagerando optimizer passes (since they rely on bin assignments).
 //
 //===----------------------------------------------------------------------===//
 

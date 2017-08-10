@@ -545,7 +545,8 @@ bool ARMPassConfig::addGlobalInstructionSelect() {
 
 void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None) {
-    addPass(createARMPagerandoOptimizerPass());
+    if (TM->isPagerando())
+      addPass(createARMPagerandoOptimizerPass());
 
     addPass(createMLxExpansionPass());
 

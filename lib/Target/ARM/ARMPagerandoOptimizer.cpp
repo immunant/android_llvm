@@ -9,6 +9,8 @@
 //
 // This pass optimizes calls inside the same position-independent bin to direct
 // calls to avoid the overhead of indirect calls through the POT.
+// The implementation relies on SSA form to follow def-use chains, therefore,
+// this pass must be scheduled before register allocation.
 //
 //===----------------------------------------------------------------------===//
 
