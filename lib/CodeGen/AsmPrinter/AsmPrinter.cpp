@@ -2563,18 +2563,15 @@ MCSymbol *AsmPrinter::GetSectionSymbol(unsigned CPID) const {
 
 unsigned AsmPrinter::GetPOTIndex(const GlobalObject *GO) {
   const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
-  auto I = std::find(POT.begin(), POT.end(), Sec);
-  auto Index = static_cast<unsigned>(I - POT.begin());
-  if (I == POT.end()) {
-    POT.push_back(Sec);
-  }
-  return Index + 1;  // Index 0 denotes the default bin #0
+  return GetPOTIndex(Sec);
 }
 
-// TODO(sjc): Refactor out common code
 unsigned AsmPrinter::GetPOTIndex(unsigned CPID) {
   const MCSection *Sec = getSectionForCPI(CPID);
+  return GetPOTIndex(Sec);
+}
 
+unsigned AsmPrinter::GetPOTIndex(const MCSection *Sec) {
   auto I = std::find(POT.begin(), POT.end(), Sec);
   auto Index = static_cast<unsigned>(I - POT.begin());
   if (I == POT.end()) {

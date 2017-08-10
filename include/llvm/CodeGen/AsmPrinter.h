@@ -437,13 +437,12 @@ public:
   MCSymbol *GetSectionSymbol(const GlobalObject *GO) const;
   MCSymbol *GetSectionSymbol(unsigned CPID) const;
 
-  /// Return the index of the section containing this global object, if
-  /// available.
+  /// Return the POT index of the section containing this global object.
   unsigned GetPOTIndex(const GlobalObject *GO);
-
-  /// Return the index of the section containing this constant pool ID, if
-  /// available
+  /// Return the POT index of the section containing this constant pool ID.
   unsigned GetPOTIndex(unsigned CPID);
+  /// Return the POT index of the section.
+  unsigned GetPOTIndex(const MCSection *Sec);
 
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.
