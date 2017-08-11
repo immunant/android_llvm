@@ -322,15 +322,4 @@ void PagerandoWrappers::createPOT(Module &M) {
   POT->setVisibility(GlobalValue::ProtectedVisibility);
 
   llvm::appendToUsed(M, {POT});
-
-  LLVMContext &C = M.getContext();
-  // TODO(yln): this can be removed, maybe, alternatively remove some redundant code in AsmPrinter::EmitPOT
-  // Set the POT base address
-  auto POTAddress = M.getGlobalVariable("_POT_");
-  if (!POTAddress) {
-    POTAddress = new GlobalVariable(M, Type::getInt8Ty(C), true,
-                                     GlobalValue::ExternalLinkage,
-                                     nullptr, "_POT_");
-    POTAddress->setVisibility(GlobalValue::ProtectedVisibility);
-  }
 }
