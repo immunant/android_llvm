@@ -327,6 +327,8 @@ def build_crts(stage2_install, clang_version):
 
         # libcxxabi is statically linked into libc++ and we need to add libc++
         # manually here.
+        crt_defines['SANITIZER_CXX_ABI_LIBNAME'] = 'libc++'
+        # The following two lines can be removed after r309074.
         crt_defines['ASAN_DYNAMIC_LIBS'] = 'c++'
         crt_defines['UBSAN_DYNAMIC_LIBS'] = 'c++'
         crt_defines.update(base_cmake_defines())
