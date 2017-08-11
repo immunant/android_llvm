@@ -1644,8 +1644,10 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
       GV->hasAvailableExternallyLinkage())
     return true;
 
-  if (GV->getName() == "llvm.pot")
+  if (GV->getName() == "llvm.pot") {
     EmitPOT(GV);
+    return true;
+  }
 
   if (!GV->hasAppendingLinkage()) return false;
 
