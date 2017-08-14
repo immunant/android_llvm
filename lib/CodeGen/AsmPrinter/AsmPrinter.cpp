@@ -1679,25 +1679,24 @@ void AsmPrinter::EmitPOT() {
   OutStreamer->SwitchSection(Section);
 
   // Emit POT start label
-  MCSymbol *POTSym = OutContext.getOrCreateSymbol(StringRef("_POT_"));
+  MCSymbol *POTSym = OutContext.getOrCreateSymbol("_POT_");
   OutStreamer->EmitSymbolAttribute(POTSym, MCSA_Global);
   OutStreamer->EmitSymbolAttribute(POTSym, MAI->getProtectedVisibilityAttr());
   OutStreamer->EmitValueToAlignment(Alignment);
   OutStreamer->EmitLabel(POTSym);
 
   // Entry 0 is GOT reference
-  auto *GOTSym = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
-  auto *GOTRef = MCSymbolRefExpr::create(GOTSym, OutContext);
-  OutStreamer->EmitValue(GOTRef, PtrSize);
+  auto *GOTSym = OutContext.getOrCreateSymbol("_GLOBAL_OFFSET_TABLE_");
+  OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSym, OutContext), PtrSize);
 
   // Emit Bin references
   for (auto *Bin : POT) {
-    auto *BinRef = MCSymbolRefExpr::create(Bin->getBeginSymbol(), OutContext);
-    OutStreamer->EmitValue(BinRef, PtrSize);
+    auto *BinSym = Bin->getBeginSymbol();
+    OutStreamer->EmitValue(MCSymbolRefExpr::create(BinSym, OutContext), PtrSize);
   }
 
   // Emit POT end label
-  auto *POTEndSym = OutContext.getOrCreateSymbol(StringRef("_POT_END_"));
+  auto *POTEndSym = OutContext.getOrCreateSymbol("_POT_END_");
   OutStreamer->EmitSymbolAttribute(POTEndSym, MCSA_Global);
   OutStreamer->EmitSymbolAttribute(POTEndSym, MAI->getProtectedVisibilityAttr());
   OutStreamer->EmitLabel(POTEndSym);
