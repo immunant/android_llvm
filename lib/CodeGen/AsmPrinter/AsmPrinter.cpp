@@ -1645,7 +1645,7 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
     return true;
 
   if (GV->getName() == "llvm.pot") {
-    EmitPOT(GV);
+    EmitPOT();
     return true;
   }
 
@@ -1670,42 +1670,34 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
   report_fatal_error("unknown special variable");
 }
 
-void AsmPrinter::EmitPOT(const GlobalVariable *GV) {
-  // FIXME: This duplicates a lot of code from EmitGlobalVariable. Might be
-  // better to create the global variable earlier somehow and emit it normally.
-  MCSymbol *POTSym = OutContext.getOrCreateSymbol(StringRef("_POT_"));
-  EmitVisibility(POTSym, GlobalValue::ProtectedVisibility);
-
-  // uint64_t Size = DL->getTypeAllocSize(GV->getType()->getElementType());
-
+void AsmPrinter::EmitPOT() {
+  unsigned Alignment = getDataLayout().getPointerPrefAlignment(0);
   unsigned PtrSize = getDataLayout().getPointerSize(0);
-  unsigned Align = getDataLayout().getPointerPrefAlignment(0);
 
-  // for (const HandlerInfo &HI : Handlers) {
-  //   NamedRegionTimer T(HI.TimerName, HI.TimerGroupName, TimePassesIsEnabled);
-  //   HI.Handler->setSymbolSize(POTSym, Size);
-  // }
+  auto *Section = getObjFileLowering().getSectionForConstant(
+      getDataLayout(), SectionKind::getReadOnlyWithRel(), nullptr, Alignment);
+  OutStreamer->SwitchSection(Section);
 
-  MCSection *TheSection =
-    getObjFileLowering().getSectionForConstant(getDataLayout(),
-                                               SectionKind::getReadOnlyWithRel(),
-                                               /*C=*/nullptr, Align);
-
-  OutStreamer->SwitchSection(TheSection);
-
-  // External linkage and alignment
+  // Emit POT start label
+  MCSymbol *POTSym = OutContext.getOrCreateSymbol(StringRef("_POT_"));
   OutStreamer->EmitSymbolAttribute(POTSym, MCSA_Global);
-  OutStreamer->EmitValueToAlignment(1u << Align);
-
+  OutStreamer->EmitSymbolAttribute(POTSym, MAI->getProtectedVisibilityAttr());
+  OutStreamer->EmitValueToAlignment(Alignment);
   OutStreamer->EmitLabel(POTSym);
 
-  MCSymbol *GOTSymbol = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
-  OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSymbol, OutContext), PtrSize);
+  // Entry 0 is GOT reference
+  auto *GOTSym = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
+  auto *GOTRef = MCSymbolRefExpr::create(GOTSym, OutContext);
+  OutStreamer->EmitValue(GOTRef, PtrSize);
 
-  for (auto *Sec : POT)
-    OutStreamer->EmitValue(MCSymbolRefExpr::create(Sec->getBeginSymbol(), OutContext), PtrSize);
+  // Emit Bin references
+  for (auto *Bin : POT) {
+    auto *BinRef = MCSymbolRefExpr::create(Bin->getBeginSymbol(), OutContext);
+    OutStreamer->EmitValue(BinRef, PtrSize);
+  }
 
-  MCSymbol *POTEndSym = OutContext.getOrCreateSymbol(StringRef("_POT_END_"));
+  // Emit POT end label
+  auto *POTEndSym = OutContext.getOrCreateSymbol(StringRef("_POT_END_"));
   OutStreamer->EmitSymbolAttribute(POTEndSym, MCSA_Global);
   OutStreamer->EmitSymbolAttribute(POTEndSym, MAI->getProtectedVisibilityAttr());
   OutStreamer->EmitLabel(POTEndSym);
