@@ -1247,7 +1247,7 @@ bool AsmPrinter::doFinalization(Module &M) {
   // Emit remaining GOT equivalent globals.
   emitGlobalGOTEquivs();
 
-  // Emit POT (page offset table) if Pagerando is enabled
+  // Emit POT (page offset table) if Pagerando is enabled.
   if (TM.isPagerando())
     EmitPOT();
 
