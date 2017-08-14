@@ -1674,12 +1674,12 @@ void AsmPrinter::EmitPOT(const GlobalVariable *GV) {
   // FIXME: This duplicates a lot of code from EmitGlobalVariable. Might be
   // better to create the global variable earlier somehow and emit it normally.
   MCSymbol *POTSym = OutContext.getOrCreateSymbol(StringRef("_POT_"));
-  EmitVisibility(POTSym, GV->getVisibility(), !GV->isDeclaration());
+  EmitVisibility(POTSym, GlobalValue::ProtectedVisibility);
 
   // uint64_t Size = DL->getTypeAllocSize(GV->getType()->getElementType());
 
-  unsigned AlignLog = getGVAlignmentLog2(GV, getDataLayout());
-  unsigned Align = 1 << AlignLog;
+  unsigned PtrSize = getDataLayout().getPointerSize(0);
+  unsigned Align = getDataLayout().getPointerPrefAlignment(0);
 
   // for (const HandlerInfo &HI : Handlers) {
   //   NamedRegionTimer T(HI.TimerName, HI.TimerGroupName, TimePassesIsEnabled);
@@ -1693,12 +1693,11 @@ void AsmPrinter::EmitPOT(const GlobalVariable *GV) {
 
   OutStreamer->SwitchSection(TheSection);
 
-  EmitLinkage(GV, POTSym);
-  EmitAlignment(AlignLog, GV);
+  // External linkage and alignment
+  OutStreamer->EmitSymbolAttribute(POTSym, MCSA_Global);
+  OutStreamer->EmitValueToAlignment(1u << Align);
 
   OutStreamer->EmitLabel(POTSym);
-
-  unsigned PtrSize = getDataLayout().getPointerSize(0);
 
   MCSymbol *GOTSymbol = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
   OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSymbol, OutContext), PtrSize);
