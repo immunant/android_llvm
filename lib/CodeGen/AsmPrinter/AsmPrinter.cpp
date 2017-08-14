@@ -1247,6 +1247,10 @@ bool AsmPrinter::doFinalization(Module &M) {
   // Emit remaining GOT equivalent globals.
   emitGlobalGOTEquivs();
 
+  // Emit POT (page offset table) if Pagerando is enabled
+  if (TM.isPagerando())
+    EmitPOT();
+
   // Emit visibility info for declarations
   for (const Function &F : M) {
     if (!F.isDeclarationForLinker())
@@ -1643,11 +1647,6 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
   if (GV->getSection() == "llvm.metadata" ||
       GV->hasAvailableExternallyLinkage())
     return true;
-
-  if (GV->getName() == "llvm.pot") {
-    EmitPOT();
-    return true;
-  }
 
   if (!GV->hasAppendingLinkage()) return false;
 
