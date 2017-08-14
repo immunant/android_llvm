@@ -60,7 +60,6 @@ private:
   Function *rewriteVarargs(Function &F, Type *&VAListTy);
   Function *createWrapper(Function &F, const std::vector<Use *> &AddressUses);
   void createWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy);
-  void createPOT(Module &M);
 };
 } // end anonymous namespace
 
@@ -94,7 +93,6 @@ bool PagerandoWrappers::runOnModule(Module &M) {
   for (auto F : Worklist) {
     processFunction(F);
   }
-  createPOT(M);
 
   return true;
 }
@@ -311,15 +309,4 @@ Function *PagerandoWrappers::rewriteVarargs(Function &F, Type *&VAListTy) {
   F.eraseFromParent();
 
   return NF;
-}
-
-void PagerandoWrappers::createPOT(Module &M) {
-  auto PtrTy = Type::getInt8PtrTy(M.getContext());
-  auto Ty = ArrayType::get(PtrTy, /* NumElements */ 1);
-  auto Init = ConstantAggregateZero::get(Ty);
-  auto POT = new GlobalVariable(
-      M, Ty, /* constant */ true, GlobalValue::ExternalLinkage, Init, "llvm.pot");
-  POT->setVisibility(GlobalValue::ProtectedVisibility);
-
-  llvm::appendToUsed(M, {POT});
 }
