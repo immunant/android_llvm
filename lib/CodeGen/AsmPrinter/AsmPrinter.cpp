@@ -1678,7 +1678,7 @@ void AsmPrinter::EmitPOT() {
   OutStreamer->SwitchSection(Section);
 
   // Emit POT start label
-  MCSymbol *POTSym = OutContext.getOrCreateSymbol("_POT_");
+  auto *POTSym = OutContext.getOrCreateSymbol("_PAGE_OFFSET_TABLE_");
   OutStreamer->EmitValueToAlignment(Alignment);
   OutStreamer->EmitLabel(POTSym);
 
@@ -1692,7 +1692,7 @@ void AsmPrinter::EmitPOT() {
   }
 
   // Emit POT end label
-  auto *POTEndSym = OutContext.getOrCreateSymbol("_POT_END_");
+  auto *POTEndSym = OutContext.getOrCreateSymbol("_PAGE_OFFSET_TABLE_END_");
   OutStreamer->EmitLabel(POTEndSym);
 
   OutStreamer->AddBlankLine();
