@@ -437,12 +437,9 @@ public:
   MCSymbol *GetSectionSymbol(const GlobalObject *GO) const;
   MCSymbol *GetSectionSymbol(unsigned CPID) const;
 
-  /// Return the index of the section containing this global object, if
-  /// available.
+  /// Return the POT index of the section containing this global object.
   unsigned GetPOTIndex(const GlobalObject *GO);
-
-  /// Return the index of the section containing this constant pool ID, if
-  /// available
+  /// Return the POT index of the section containing this constant pool ID.
   unsigned GetPOTIndex(unsigned CPID);
 
   //===------------------------------------------------------------------===//
@@ -627,16 +624,17 @@ private:
 
   void EmitJumpTableEntry(const MachineJumpTableInfo *MJTI,
                           const MachineBasicBlock *MBB, unsigned uid) const;
+  void EmitPOT();
   void EmitLLVMUsedList(const ConstantArray *InitList);
-  void EmitPOT(const GlobalVariable *GV);
   /// Emit llvm.ident metadata in an '.ident' directive.
   void EmitModuleIdents(Module &M);
   void EmitXXStructorList(const DataLayout &DL, const Constant *List,
                           bool isCtor);
   GCMetadataPrinter *GetOrCreateGCPrinter(GCStrategy &C);
   /// Emit GlobalAlias or GlobalIFunc.
-  void emitGlobalIndirectSymbol(Module &M,
-                                const GlobalIndirectSymbol& GIS);
+  void emitGlobalIndirectSymbol(Module &M, const GlobalIndirectSymbol &GIS);
+  /// Return the POT index of the section.
+  unsigned GetPOTIndex(const MCSection *Sec);
 };
 
 } // end namespace llvm

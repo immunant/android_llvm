@@ -3016,7 +3016,7 @@ ARMTargetLowering::LowerPOT(SDValue Op, SelectionDAG &DAG) const {
     SDLoc dl(Op);
     unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
     ARMConstantPoolValue *CPV = ARMConstantPoolSymbol::Create(
-        *DAG.getContext(), "_POT_", ARMPCLabelIndex, PCAdj);
+        *DAG.getContext(), "_PAGE_OFFSET_TABLE_", ARMPCLabelIndex, PCAdj);
     SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
     CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
     SDValue Result = DAG.getLoad(

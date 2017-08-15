@@ -1247,6 +1247,10 @@ bool AsmPrinter::doFinalization(Module &M) {
   // Emit remaining GOT equivalent globals.
   emitGlobalGOTEquivs();
 
+  // Emit POT (page offset table) if Pagerando is enabled.
+  if (TM.isPagerando())
+    EmitPOT();
+
   // Emit visibility info for declarations
   for (const Function &F : M) {
     if (!F.isDeclarationForLinker())
@@ -1644,9 +1648,6 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
       GV->hasAvailableExternallyLinkage())
     return true;
 
-  if (GV->getName() == "llvm.pot")
-    EmitPOT(GV);
-
   if (!GV->hasAppendingLinkage()) return false;
 
   assert(GV->hasInitializer() && "Not a special LLVM global!");
@@ -1668,45 +1669,30 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
   report_fatal_error("unknown special variable");
 }
 
-void AsmPrinter::EmitPOT(const GlobalVariable *GV) {
-  // FIXME: This duplicates a lot of code from EmitGlobalVariable. Might be
-  // better to create the global variable earlier somehow and emit it normally.
-  MCSymbol *POTSym = OutContext.getOrCreateSymbol(StringRef("_POT_"));
-  EmitVisibility(POTSym, GV->getVisibility(), !GV->isDeclaration());
-
-  // uint64_t Size = DL->getTypeAllocSize(GV->getType()->getElementType());
-
-  unsigned AlignLog = getGVAlignmentLog2(GV, getDataLayout());
-  unsigned Align = 1 << AlignLog;
-
-  // for (const HandlerInfo &HI : Handlers) {
-  //   NamedRegionTimer T(HI.TimerName, HI.TimerGroupName, TimePassesIsEnabled);
-  //   HI.Handler->setSymbolSize(POTSym, Size);
-  // }
-
-  MCSection *TheSection =
-    getObjFileLowering().getSectionForConstant(getDataLayout(),
-                                               SectionKind::getReadOnlyWithRel(),
-                                               /*C=*/nullptr, Align);
-
-  OutStreamer->SwitchSection(TheSection);
-
-  EmitLinkage(GV, POTSym);
-  EmitAlignment(AlignLog, GV);
-
-  OutStreamer->EmitLabel(POTSym);
-
+void AsmPrinter::EmitPOT() {
+  unsigned Alignment = getDataLayout().getPointerPrefAlignment(0);
   unsigned PtrSize = getDataLayout().getPointerSize(0);
 
-  MCSymbol *GOTSymbol = OutContext.getOrCreateSymbol(StringRef("_GLOBAL_OFFSET_TABLE_"));
-  OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSymbol, OutContext), PtrSize);
+  auto *Section = getObjFileLowering().getSectionForConstant(
+      getDataLayout(), SectionKind::getReadOnlyWithRel(), nullptr, Alignment);
+  OutStreamer->SwitchSection(Section);
 
-  for (auto *Sec : POT)
-    OutStreamer->EmitValue(MCSymbolRefExpr::create(Sec->getBeginSymbol(), OutContext), PtrSize);
+  // Emit POT start label
+  auto *POTSym = OutContext.getOrCreateSymbol("_PAGE_OFFSET_TABLE_");
+  OutStreamer->EmitValueToAlignment(Alignment);
+  OutStreamer->EmitLabel(POTSym);
 
-  MCSymbol *POTEndSym = OutContext.getOrCreateSymbol(StringRef("_POT_END_"));
-  OutStreamer->EmitSymbolAttribute(POTEndSym, MCSA_Global);
-  OutStreamer->EmitSymbolAttribute(POTEndSym, MAI->getProtectedVisibilityAttr());
+  // Entry 0 is GOT reference
+  auto *GOTSym = OutContext.getOrCreateSymbol("_GLOBAL_OFFSET_TABLE_");
+  EmitLabelReference(GOTSym, PtrSize);
+
+  // Emit Bin references
+  for (auto *Bin : POT) {
+    EmitLabelReference(Bin->getBeginSymbol(), PtrSize);
+  }
+
+  // Emit POT end label
+  auto *POTEndSym = OutContext.getOrCreateSymbol("_PAGE_OFFSET_TABLE_END_");
   OutStreamer->EmitLabel(POTEndSym);
 
   OutStreamer->AddBlankLine();
@@ -2563,18 +2549,15 @@ MCSymbol *AsmPrinter::GetSectionSymbol(unsigned CPID) const {
 
 unsigned AsmPrinter::GetPOTIndex(const GlobalObject *GO) {
   const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
-  auto I = std::find(POT.begin(), POT.end(), Sec);
-  auto Index = static_cast<unsigned>(I - POT.begin());
-  if (I == POT.end()) {
-    POT.push_back(Sec);
-  }
-  return Index + 1;  // Index 0 denotes the default bin #0
+  return GetPOTIndex(Sec);
 }
 
-// TODO(sjc): Refactor out common code
 unsigned AsmPrinter::GetPOTIndex(unsigned CPID) {
   const MCSection *Sec = getSectionForCPI(CPID);
+  return GetPOTIndex(Sec);
+}
 
+unsigned AsmPrinter::GetPOTIndex(const MCSection *Sec) {
   auto I = std::find(POT.begin(), POT.end(), Sec);
   auto Index = static_cast<unsigned>(I - POT.begin());
   if (I == POT.end()) {
