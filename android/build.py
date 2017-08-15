@@ -176,11 +176,11 @@ def invoke_cmake(out_path, defines, env, cmake_path, target=None, install=True):
 
 def cross_compile_configs(stage2_install):
     configs = [
-        # Bug: http://b/35404115: Use armv7 triple - some assembly sources in
-        # builtins fail to build with arm
+        # Bug: http://b/35404115: Switch to armv7-linux-android once armv5 is
+        # deprecated from the NDK
         ('arm', 'arm',
             'arm/arm-linux-androideabi-4.9/arm-linux-androideabi',
-            'armv7-linux-android', ''),
+            'arm-linux-android', ''),
         ('aarch64', 'arm64',
             'aarch64/aarch64-linux-android-4.9/aarch64-linux-android',
             'aarch64-linux-android', ''),
@@ -217,6 +217,11 @@ def cross_compile_configs(stage2_install):
         defines = {}
         defines['CMAKE_C_COMPILER'] = cc
         defines['CMAKE_CXX_COMPILER'] = cxx
+
+        # Bug: http://b/35404115: Re-enable builtins for arm32 once armv5 is
+        # deprecated from the NDK
+        if arch == 'arm':
+            defines['COMPILER_RT_BUILD_BUILTINS']='OFF'
 
         # Include the directory with libgcc.a to the linker search path.
         toolchain_builtins = os.path.join(toolchain_root, toolchain_path, '..',
