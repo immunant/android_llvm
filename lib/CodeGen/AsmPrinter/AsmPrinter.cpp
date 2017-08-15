@@ -1679,8 +1679,6 @@ void AsmPrinter::EmitPOT() {
 
   // Emit POT start label
   MCSymbol *POTSym = OutContext.getOrCreateSymbol("_POT_");
-  OutStreamer->EmitSymbolAttribute(POTSym, MCSA_Global);
-  OutStreamer->EmitSymbolAttribute(POTSym, MAI->getProtectedVisibilityAttr());
   OutStreamer->EmitValueToAlignment(Alignment);
   OutStreamer->EmitLabel(POTSym);
 
@@ -1696,8 +1694,6 @@ void AsmPrinter::EmitPOT() {
 
   // Emit POT end label
   auto *POTEndSym = OutContext.getOrCreateSymbol("_POT_END_");
-  OutStreamer->EmitSymbolAttribute(POTEndSym, MCSA_Global);
-  OutStreamer->EmitSymbolAttribute(POTEndSym, MAI->getProtectedVisibilityAttr());
   OutStreamer->EmitLabel(POTEndSym);
 
   OutStreamer->AddBlankLine();
