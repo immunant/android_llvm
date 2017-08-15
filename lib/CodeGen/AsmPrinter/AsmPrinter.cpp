@@ -1684,12 +1684,11 @@ void AsmPrinter::EmitPOT() {
 
   // Entry 0 is GOT reference
   auto *GOTSym = OutContext.getOrCreateSymbol("_GLOBAL_OFFSET_TABLE_");
-  OutStreamer->EmitValue(MCSymbolRefExpr::create(GOTSym, OutContext), PtrSize);
+  EmitLabelReference(GOTSym, PtrSize);
 
   // Emit Bin references
   for (auto *Bin : POT) {
-    auto *BinSym = Bin->getBeginSymbol();
-    OutStreamer->EmitValue(MCSymbolRefExpr::create(BinSym, OutContext), PtrSize);
+    EmitLabelReference(Bin->getBeginSymbol(), PtrSize);
   }
 
   // Emit POT end label
