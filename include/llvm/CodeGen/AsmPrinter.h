@@ -441,8 +441,6 @@ public:
   unsigned GetPOTIndex(const GlobalObject *GO);
   /// Return the POT index of the section containing this constant pool ID.
   unsigned GetPOTIndex(unsigned CPID);
-  /// Return the POT index of the section.
-  unsigned GetPOTIndex(const MCSection *Sec);
 
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.
@@ -634,8 +632,9 @@ private:
                           bool isCtor);
   GCMetadataPrinter *GetOrCreateGCPrinter(GCStrategy &C);
   /// Emit GlobalAlias or GlobalIFunc.
-  void emitGlobalIndirectSymbol(Module &M,
-                                const GlobalIndirectSymbol& GIS);
+  void emitGlobalIndirectSymbol(Module &M, const GlobalIndirectSymbol &GIS);
+  /// Return the POT index of the section.
+  unsigned GetPOTIndex(const MCSection *Sec);
 };
 
 } // end namespace llvm
