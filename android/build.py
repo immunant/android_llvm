@@ -622,14 +622,6 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
             static_library = os.path.join(static_lib_dir, lib_file)
             remove(static_library)
 
-    # Remove additional files for windows.
-    if is_windows:
-        lib_dir = os.path.join(install_dir, 'lib')
-        if os.path.exists(lib_dir):
-            logger().debug('rmtree %s', lib_dir)
-            shutil.rmtree(lib_dir)
-        bin_dir
-
     # Add an AndroidVersion.txt file.
     version = extract_clang_version(build_dir)
     version_file_path = os.path.join(install_dir, 'AndroidVersion.txt')
@@ -680,7 +672,7 @@ def main():
                                       args.use_lld)
     else:
         stage2_install = utils.android_path('out', 'stage2-install')
-        windows32_install = utils.android_path('out', 'windows-i386')
+        windows32_install = utils.android_path('out', 'windows-i386-install')
 
     if do_build and utils.build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
@@ -698,7 +690,7 @@ def main():
 
         # Build 32-bit clang for Windows
         windows32_path = utils.android_path('out', 'windows-i386')
-        windows32_install = utils.android_path('out', 'windows-i386')
+        windows32_install = utils.android_path('out', 'windows-i386-install')
         build_llvm_for_windows(targets=windows_targets,
                                build_dir=windows32_path,
                                install_dir=windows32_install,
