@@ -3012,19 +3012,24 @@ ARMTargetLowering::LowerPOT(SDValue Op, SelectionDAG &DAG) const {
     // Need to materialize the POT address
     ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
     unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
-    EVT PtrVT = getPointerTy(DAG.getDataLayout());
-    SDLoc dl(Op);
     unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
     ARMConstantPoolValue *CPV = ARMConstantPoolSymbol::Create(
-        *DAG.getContext(), "_PAGE_OFFSET_TABLE_", ARMPCLabelIndex, PCAdj);
+        *DAG.getContext(), "_PAGE_OFFSET_TABLE_", ARMPCLabelIndex, PCAdj,
+        ARMCP::GOT_PREL);
     SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
     CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
     SDValue Result = DAG.getLoad(
         PtrVT, dl, DAG.getEntryNode(), CPAddr,
         MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+    SDValue Chain = Result.getValue(1);
     SDValue PICLabel = DAG.getConstant(ARMPCLabelIndex, dl, MVT::i32);
     SDValue POTAddress = DAG.getNode(ARMISD::PIC_ADD, dl, PtrVT, Result, PICLabel);
-    SDValue Chain = DAG.getCopyToReg(DAG.getEntryNode(), dl, POTReg, POTAddress);
+    POTAddress =
+      DAG.getLoad(PtrVT, dl, Chain, POTAddress,
+                  MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    Chain = POTAddress.getValue(1);
+
+    Chain = DAG.getCopyToReg(Chain, dl, POTReg, POTAddress);
     SDValue Ops[2] = { POTAddress, Chain };
     return DAG.getMergeValues(Ops, dl);
   }

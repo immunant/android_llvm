@@ -1670,11 +1670,13 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
 }
 
 void AsmPrinter::EmitPOT() {
+  assert(TM.getTargetTriple().isOSBinFormatELF() &&
+         "Pagerando is only supported on ELF");
   unsigned Alignment = getDataLayout().getPointerPrefAlignment(0);
   unsigned PtrSize = getDataLayout().getPointerSize(0);
 
-  auto *Section = getObjFileLowering().getSectionForConstant(
-      getDataLayout(), SectionKind::getReadOnlyWithRel(), nullptr, Alignment);
+  auto *Section = OutContext.getELFSection(".pot", ELF::SHT_PROGBITS,
+                                           ELF::SHF_ALLOC | ELF::SHF_WRITE);
   OutStreamer->SwitchSection(Section);
 
   // Emit POT start label

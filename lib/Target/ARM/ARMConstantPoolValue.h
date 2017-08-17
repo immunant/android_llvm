@@ -220,12 +220,13 @@ class ARMConstantPoolSymbol : public ARMConstantPoolValue {
   const std::string S;          // ExtSymbol being loaded.
 
   ARMConstantPoolSymbol(LLVMContext &C, StringRef s, unsigned id,
-                        unsigned char PCAdj, ARMCP::ARMCPModifier Modifier,
+                        unsigned char PCAdj, ARMCP::ARMCPModifier Mvodifier,
                         bool AddCurrentAddress);
 
 public:
   static ARMConstantPoolSymbol *Create(LLVMContext &C, StringRef s, unsigned ID,
-                                       unsigned char PCAdj);
+                                       unsigned char PCAdj,
+                                       ARMCP::ARMCPModifier Modifier = ARMCP::no_modifier);
 
   static ARMConstantPoolSymbol *Create(LLVMContext &C, StringRef s,
                                        ARMCP::ARMCPModifier Modifier);

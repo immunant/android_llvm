@@ -4130,12 +4130,9 @@ SDValue AArch64TargetLowering::LowerPOT(SDValue Op, SelectionDAG &DAG) const {
   if (MF.getFunction()->isPagerando()) {
     return DAG.getCopyFromReg(DAG.getEntryNode(), dl, POTReg, PtrVT);
   } else {
-    SDValue Hi = DAG.getTargetExternalSymbol(
-        "_PAGE_OFFSET_TABLE_", PtrVT, AArch64II::MO_PAGE);
-    SDValue Lo = DAG.getTargetExternalSymbol(
-        "_PAGE_OFFSET_TABLE_", PtrVT, AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
-    SDValue ADRP = DAG.getNode(AArch64ISD::ADRP, dl, PtrVT, Hi);
-    SDValue POTAddress = DAG.getNode(AArch64ISD::ADDlow, dl, PtrVT, ADRP, Lo);
+    SDValue POTAddress = DAG.getTargetExternalSymbol("_PAGE_OFFSET_TABLE_", PtrVT,
+                                                     AArch64II::MO_GOT);
+    POTAddress = DAG.getNode(AArch64ISD::LOADgot, dl, PtrVT, POTAddress);
     SDValue Chain = DAG.getCopyToReg(DAG.getEntryNode(), dl, POTReg, POTAddress);
     SDValue Ops[2] = { POTAddress, Chain };
     return DAG.getMergeValues(Ops, dl);

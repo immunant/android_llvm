@@ -240,8 +240,9 @@ ARMConstantPoolSymbol::ARMConstantPoolSymbol(LLVMContext &C, StringRef s,
 
 ARMConstantPoolSymbol *ARMConstantPoolSymbol::Create(LLVMContext &C,
                                                      StringRef s, unsigned ID,
-                                                     unsigned char PCAdj) {
-  return new ARMConstantPoolSymbol(C, s, ID, PCAdj, ARMCP::no_modifier, false);
+                                                     unsigned char PCAdj,
+                                                     ARMCP::ARMCPModifier Modifier) {
+  return new ARMConstantPoolSymbol(C, s, ID, PCAdj, Modifier, false);
 }
 
 ARMConstantPoolSymbol *ARMConstantPoolSymbol::Create(LLVMContext &C,
