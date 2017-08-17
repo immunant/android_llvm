@@ -439,9 +439,10 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
     windows_extra_defines['CMAKE_C_COMPILER'] = mingw_cc
     windows_extra_defines['CMAKE_CXX_COMPILER'] = mingw_cxx
     windows_extra_defines['CMAKE_SYSTEM_NAME'] = 'Windows'
-    # Don't buld compiler-rt, libcxx etc. for Windows
+    # Don't build compiler-rt, libcxx etc. for Windows
     windows_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
-    windows_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'OFF'
+    # Build clang-tidy/clang-format for Windows.
+    windows_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'ON'
     windows_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
 
     windows_extra_defines['CROSS_TOOLCHAIN_FLAGS_NATIVE'] = \
@@ -568,6 +569,7 @@ def build_runtimes(stage2_install):
 
 
 def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
+    is_windows = host.startswith('windows')
     package_name = 'clang-' + build_name
     install_host_dir = utils.android_path('out', 'install', host)
     install_dir = os.path.join(install_host_dir, package_name)
@@ -580,29 +582,35 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     # First copy over the entire set of output objects.
     shutil.copytree(build_dir, install_dir, symlinks=True)
 
+    ext = '.exe' if is_windows else ''
+
     # Next, we remove unnecessary binaries.
     necessary_bin_files = [
-            'clang',
-            'clang++',
-            'clang-5.0',
-            'clang-format',
-            'clang-tidy',
-            'git-clang-format',
-            'llvm-ar',
-            'llvm-as',
-            'llvm-dis',
-            'llvm-link',
-            'llvm-profdata',
-            'llvm-symbolizer',
-            'sancov',
-            'sanstats',
+            'clang' + ext,
+            'clang++' + ext,
+            'clang-5.0' + ext,
+            'clang-format' + ext,
+            'clang-tidy' + ext,
+            'git-clang-format',  # No extension here
+            'llvm-ar' + ext,
+            'llvm-as' + ext,
+            'llvm-dis' + ext,
+            'llvm-link' + ext,
+            'llvm-profdata' + ext,
+            'llvm-symbolizer' + ext,
+            'sancov' + ext,
+            'sanstats' + ext,
             ]
     bin_dir = os.path.join(install_dir, 'bin')
     bin_files = os.listdir(bin_dir)
     for bin_filename in bin_files:
         binary = os.path.join(bin_dir, bin_filename)
-        if os.path.isfile(binary) and bin_filename not in necessary_bin_files:
-            remove(binary)
+        if os.path.isfile(binary):
+            if bin_filename not in necessary_bin_files:
+                remove(binary)
+            elif strip:
+                if not bin_filename.startswith('git-clang-format'):
+                    check_call(['strip', binary])
 
     # TODO(srhines): Add/install the compiler wrappers.
 
@@ -613,6 +621,14 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
         if lib_file.endswith(".a"):
             static_library = os.path.join(static_lib_dir, lib_file)
             remove(static_library)
+
+    # Remove additional files for windows.
+    if is_windows:
+        lib_dir = os.path.join(install_dir, 'lib')
+        if os.path.exists(lib_dir):
+            logger().debug('rmtree %s', lib_dir)
+            shutil.rmtree(lib_dir)
+        bin_dir
 
     # Add an AndroidVersion.txt file.
     version = extract_clang_version(build_dir)
@@ -649,6 +665,7 @@ def main():
     args = parse_args()
     do_build = True
     do_package = True
+    do_strip = True
 
     log_levels = [logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
@@ -663,6 +680,7 @@ def main():
                                       args.use_lld)
     else:
         stage2_install = utils.android_path('out', 'stage2-install')
+        windows32_install = utils.android_path('out', 'windows-i386')
 
     if do_build and utils.build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
@@ -692,7 +710,11 @@ def main():
         # to be extended to package up the Windows build as well.
         dist_dir = ORIG_ENV.get('DIST_DIR', utils.android_path('out'))
         package_toolchain(stage2_install, args.build_name,
-                          utils.build_os_type(), dist_dir, strip=False)
+                          utils.build_os_type(), dist_dir, strip=do_strip)
+
+        if utils.build_os_type() == 'linux-x86':
+            package_toolchain(windows32_install, args.build_name,
+                              'windows-i386', dist_dir, strip=do_strip)
 
     return 0
 
