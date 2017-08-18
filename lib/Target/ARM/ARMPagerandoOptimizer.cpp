@@ -163,9 +163,9 @@ void ARMPagerandoOptimizer::optimizeCalls(MachineInstr *MI,
 
 static unsigned toDirectCall(unsigned Opc) {
   switch (Opc) {
-  case ARM::TCRETURNri: return ARM::TCRETURNdi;
   case ARM::BLX:        return ARM::BL;
   case ARM::tBLXr:      return ARM::tBL;
+  case ARM::TCRETURNri: return ARM::TCRETURNdi;
   default:
     llvm_unreachable("Unhandled ARM call opcode");
   }

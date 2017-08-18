@@ -118,13 +118,22 @@ void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
   }
 }
 
+static unsigned toDirectCall(unsigned Opc) {
+  switch (Opc) {
+  case AArch64::BLR:        return AArch64::BL;
+  case AArch64::TCRETURNri: return AArch64::TCRETURNri;
+  default:
+    llvm_unreachable("Unhandled AArch64 call opcode");
+  }
+}
+
 void AArch64PagerandoOptimizer::addDirectCall(MachineInstr *MI,
                                               const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
-  assert(MI->getOpcode() == AArch64::BLR);
-  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(AArch64::BL))
+  auto Opc = toDirectCall(MI->getOpcode());
+  auto MIB = BuildMI(MBB, *MI, MI->getDebugLoc(), TII.get(Opc))
       .addGlobalAddress(Callee);
 
   // Copy over remaining operands
@@ -132,6 +141,4 @@ void AArch64PagerandoOptimizer::addDirectCall(MachineInstr *MI,
   for (auto &Op : RemainingOps) {
     MIB.add(Op);
   }
-
-  MI->eraseFromParent();
 }
