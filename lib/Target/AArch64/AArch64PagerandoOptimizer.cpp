@@ -42,8 +42,8 @@ public:
   }
 
 private:
-  void optimizeCalls(MachineInstr *MI, const Function *Callee);
-  void addDirectCall(MachineInstr *MI, const Function *Callee);
+  void optimizeCalls(MachineInstr *MI);
+  void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
 };
 } // end anonymous namespace
 
@@ -87,48 +87,44 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 
   // Optimize intra-bin calls
   for (auto *MI : Worklist) {
-    auto *Callee = getCallee(*MI);
-    optimizeCalls(MI, Callee);
+    optimizeCalls(MI);
   }
 
   return !Worklist.empty();
 }
 
-void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI,
-                                              const Function *Callee) {
+void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI) {
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
-  SmallVector<MachineInstr*, 4> Queue{MI};
-  while (!Queue.empty()) {
-    MI = Queue.pop_back_val();
-
-    if (!MI->isCall()) { // Not a call, enqueue users
-      for (auto &Op : MI->defs()) {
-        for (auto &User : MRI.use_instructions(Op.getReg())) {
-          Queue.push_back(&User);
-        }
-      }
-    } else {
-      addDirectCall(MI, Callee);
+  SmallVector<MachineInstr*, 2> Calls;
+  for (auto &Op : MI->defs()) {
+    for (auto &User : MRI.use_instructions(Op.getReg())) {
+      Calls.push_back(&User);
     }
-    // Note: the deleted instructions (MOVaddrBIN, call, ...) might be the only
-    // use of the preceding AArch64::LOADpot pseudo instruction. We schedule the
-    // DeadMachineInstructionElim pass after this pass to get rid of it.
-    MI->eraseFromParent();
   }
+
+  auto *Callee = getCallee(*MI);
+  for (auto *Call : Calls) {
+    replaceWithDirectCall(Call, Callee);
+  }
+
+  MI->eraseFromParent();
+  // Note: this might be the only use of the preceding AArch64::LOADpot pseudo
+  // instruction. We schedule the DeadMachineInstructionElim pass after this
+  // pass to get rid of it.
 }
 
 static unsigned toDirectCall(unsigned Opc) {
   switch (Opc) {
   case AArch64::BLR:        return AArch64::BL;
-  case AArch64::TCRETURNri: return AArch64::TCRETURNri;
+  case AArch64::TCRETURNri: return AArch64::TCRETURNdi;
   default:
     llvm_unreachable("Unhandled AArch64 call opcode");
   }
 }
 
-void AArch64PagerandoOptimizer::addDirectCall(MachineInstr *MI,
-                                              const Function *Callee) {
+void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
+                                                      const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &TII = *MBB.getParent()->getSubtarget().getInstrInfo();
 
@@ -141,4 +137,6 @@ void AArch64PagerandoOptimizer::addDirectCall(MachineInstr *MI,
   for (auto &Op : RemainingOps) {
     MIB.add(Op);
   }
+
+  MI->eraseFromParent();
 }
