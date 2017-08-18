@@ -44,7 +44,7 @@ public:
 private:
   void optimizeCalls(MachineInstr *MI, const Function *Callee);
   void replaceWithDirectCall(MachineInstr *MI, const Function *Callee);
-  void replaceWithPCRelativeCall(MachineInstr *MI, const Function *Callee);
+  void changeToPCRelativeCall(MachineInstr *MI, const Function *Callee);
   void deleteCPEntries(MachineFunction &MF, const SmallSet<int, 8> &CPIndices);
 };
 } // end anonymous namespace
@@ -143,7 +143,6 @@ void ARMPagerandoOptimizer::optimizeCalls(MachineInstr *MI,
   auto &MRI = MI->getParent()->getParent()->getRegInfo();
 
   SmallVector<MachineInstr*, 4> Queue{MI};
-
   while (!Queue.empty()) {
     MI = Queue.pop_back_val();
 
@@ -155,7 +154,7 @@ void ARMPagerandoOptimizer::optimizeCalls(MachineInstr *MI,
       }
       MI->eraseFromParent();
     } else if (isBXCall(MI->getOpcode())) {
-      replaceWithPCRelativeCall(MI, Callee);
+      changeToPCRelativeCall(MI, Callee);
     } else { // Standard indirect call
       replaceWithDirectCall(MI, Callee);
     }
@@ -199,7 +198,7 @@ void ARMPagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
 }
 
 // Replace indirect register operand with more efficient PC-relative access
-void ARMPagerandoOptimizer::replaceWithPCRelativeCall(MachineInstr *MI,
+void ARMPagerandoOptimizer::changeToPCRelativeCall(MachineInstr *MI,
                                                    const Function *Callee) {
   auto &MBB = *MI->getParent();
   auto &MF = *MBB.getParent();
