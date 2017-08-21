@@ -39,6 +39,13 @@ def check_call(cmd, *args, **kwargs):
     subprocess.check_call(cmd, *args, **kwargs)
 
 
+def install_file(src, dst):
+    """Proxy for shutil.copy2 with logging and dry-run support."""
+    import shutil
+    logger().info('copy %s %s', src, dst)
+    shutil.copy2(src, dst)
+
+
 def remove(path):
     """Proxy for os.remove with logging."""
     logger().debug('remove %s', path)
@@ -221,7 +228,7 @@ def cross_compile_configs(stage2_install):
         # Bug: http://b/35404115: Re-enable builtins for arm32 once armv5 is
         # deprecated from the NDK
         if arch == 'arm':
-            defines['COMPILER_RT_BUILD_BUILTINS']='OFF'
+            defines['COMPILER_RT_BUILD_BUILTINS'] = 'OFF'
 
         # Include the directory with libgcc.a to the linker search path.
         toolchain_builtins = os.path.join(toolchain_root, toolchain_path, '..',
@@ -284,7 +291,7 @@ def build_asan_test(stage2_install):
 def build_libcxx(stage2_install, clang_version):
     for (arch, llvm_triple, libcxx_defines, cflags) in cross_compile_configs(stage2_install):
         logger().info('Building libcxx for %s', arch)
-        libcxx_path = utils.android_path('out', 'lib', 'libcxx-'+arch)
+        libcxx_path = utils.android_path('out', 'lib', 'libcxx-' + arch)
 
         libcxx_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libcxx_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
@@ -314,7 +321,7 @@ def build_crts(stage2_install, clang_version):
     # Now build compiler-rt for each arch
     for (arch, llvm_triple, crt_defines, cflags) in cross_compile_configs(stage2_install):
         logger().info('Building compiler-rt for %s', arch)
-        crt_path = utils.android_path('out', 'lib', 'clangrt-'+arch)
+        crt_path = utils.android_path('out', 'lib', 'clangrt-' + arch)
         crt_install = os.path.join(stage2_install, 'lib64', 'clang',
                                    clang_version.short_version())
 
@@ -350,7 +357,7 @@ def build_libfuzzers(stage2_install, clang_version):
 
     for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(stage2_install):
         logger().info('Building libfuzzer for %s', arch)
-        libfuzzer_path = utils.android_path('out', 'lib', 'libfuzzer-'+arch)
+        libfuzzer_path = utils.android_path('out', 'lib', 'libfuzzer-' + arch)
         libfuzzer_defines['CMAKE_BUILD_TYPE'] = 'Release'
         libfuzzer_defines['LLVM_USE_SANITIZER'] = 'Address'
         libfuzzer_defines['LLVM_USE_SANITIZE_COVERAGE'] = 'YES'
@@ -456,6 +463,9 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
         cxxflags = ['-m32']
         ldflags = ['-m32']
 
+        # 32-bit libraries belong in lib/.
+        windows_extra_defines['LLVM_LIBDIR_SUFFIX'] = ''
+
         windows_extra_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         windows_extra_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
         windows_extra_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
@@ -466,10 +476,9 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
                extra_defines=windows_extra_defines)
 
 
-def build_stage1():
+def build_stage1(stage1_install):
     # Build/install the stage 1 toolchain
     stage1_path = utils.android_path('out', 'stage1')
-    stage1_install = utils.android_path('out', 'stage1-install')
     stage1_targets = 'X86'
 
     stage1_extra_defines = dict()
@@ -511,17 +520,15 @@ def build_stage1():
 
     build_llvm(targets=stage1_targets, build_dir=stage1_path,
                install_dir=stage1_install, extra_defines=stage1_extra_defines)
-    return stage1_install
 
 
-def build_stage2(stage1_install, stage2_targets, use_lld=False):
+def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
     # Build/install the stage2 toolchain
     stage2_cc = os.path.join(stage1_install, 'bin', 'clang')
     stage2_cxx = os.path.join(stage1_install, 'bin', 'clang++')
     stage2_path = utils.android_path('out', 'stage2')
-    stage2_install = utils.android_path('out', 'stage2-install')
 
     stage2_extra_defines = dict()
     stage2_extra_defines['CMAKE_C_COMPILER'] = stage2_cc
@@ -557,7 +564,6 @@ def build_stage2(stage1_install, stage2_targets, use_lld=False):
     build_llvm(targets=stage2_targets, build_dir=stage2_path,
                install_dir=stage2_install, extra_defines=stage2_extra_defines,
                extra_env=stage2_extra_env)
-    return stage2_install
 
 
 def build_runtimes(stage2_install):
@@ -570,8 +576,40 @@ def build_runtimes(stage2_install):
     build_asan_test(stage2_install)
 
 
+def install_winpthreads(install_dir):
+    """Installs the winpthreads runtime to the Windows bin directory."""
+    lib_name = 'libwinpthread-1.dll'
+    mingw_dir = utils.android_path(
+        'prebuilts/gcc/linux-x86/host/x86_64-w64-mingw32-4.8')
+    lib_path = os.path.join(mingw_dir, 'x86_64-w64-mingw32/bin', lib_name)
+    lib32_path = os.path.join(mingw_dir, 'x86_64-w64-mingw32/lib32', lib_name)
+
+    lib_install = os.path.join(install_dir, 'bin', lib_name)
+    # The 32-bit library will be renamed appropriately by the NDK build process
+    # for 32-bit Windows.
+    lib32_install = os.path.join(install_dir, 'bin', lib_name + '.32')
+    install_file(lib_path, lib_install)
+    install_file(lib32_path, lib32_install)
+
+    # Also need to install it alongside LLVMgold.dll/libLLVM.dll.
+    check_create_path(os.path.join(install_dir, 'lib64'))
+    install_file(lib_path, os.path.join(install_dir, 'lib64', lib_name))
+    check_create_path(os.path.join(install_dir, 'lib'))
+    install_file(lib32_path, os.path.join(install_dir, 'lib', lib_name))
+
+
+def remove_static_libraries(static_lib_dir):
+    if os.path.isdir(static_lib_dir):
+        lib_files = os.listdir(static_lib_dir)
+        for lib_file in lib_files:
+            if lib_file.endswith('.a'):
+                static_library = os.path.join(static_lib_dir, lib_file)
+                remove(static_library)
+
+
 def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     is_windows = host.startswith('windows')
+    is_linux = host == 'linux-x86'
     package_name = 'clang-' + build_name
     install_host_dir = utils.android_path('out', 'install', host)
     install_dir = os.path.join(install_host_dir, package_name)
@@ -585,6 +623,7 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     shutil.copytree(build_dir, install_dir, symlinks=True)
 
     ext = '.exe' if is_windows else ''
+    shlib_ext = '.dll' if is_windows else '.so' if is_linux else '.dylib'
 
     # Next, we remove unnecessary binaries.
     necessary_bin_files = [
@@ -602,6 +641,7 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
             'llvm-symbolizer' + ext,
             'sancov' + ext,
             'sanstats' + ext,
+            'LLVMgold' + shlib_ext,
             ]
     bin_dir = os.path.join(install_dir, 'bin')
     bin_files = os.listdir(bin_dir)
@@ -617,12 +657,12 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     # TODO(srhines): Add/install the compiler wrappers.
 
     # Next, we remove unnecessary static libraries.
-    static_lib_dir = os.path.join(install_dir, 'lib64')
-    lib_files = os.listdir(static_lib_dir)
-    for lib_file in lib_files:
-        if lib_file.endswith(".a"):
-            static_library = os.path.join(static_lib_dir, lib_file)
-            remove(static_library)
+    remove_static_libraries(os.path.join(install_dir, 'lib64'))
+
+    # For Windows, remove lib/ static libraries, and add relevant libraries.
+    if is_windows:
+        remove_static_libraries(os.path.join(install_dir, 'lib'))
+        install_winpthreads(install_dir)
 
     # Add an AndroidVersion.txt file.
     version = extract_clang_version(build_dir)
@@ -666,14 +706,16 @@ def main():
     log_level = log_levels[verbosity]
     logging.basicConfig(level=log_level)
 
+    stage1_install = utils.android_path('out', 'stage1-install')
+    stage2_install = utils.android_path('out', 'stage2-install')
+
     # TODO(pirama): Once we have a set of prebuilts with lld, pass use_lld for
     # stage1 as well.
     if do_build:
-        stage1_install = build_stage1()
-        stage2_install = build_stage2(stage1_install, STAGE2_TARGETS,
-                                      args.use_lld)
+        build_stage1(stage1_install)
+        build_stage2(stage1_install, stage2_install, STAGE2_TARGETS,
+                     args.use_lld)
     else:
-        stage2_install = utils.android_path('out', 'stage2-install')
         windows32_install = utils.android_path('out', 'windows-i386-install')
 
     if do_build and utils.build_os_type() == 'linux-x86':

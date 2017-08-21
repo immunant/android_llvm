@@ -208,8 +208,10 @@ def install_wrappers(llvm_install_path):
 
 
 def build_clang():
-    stage1_install = build.build_stage1()
-    stage2_install = build.build_stage2(stage1_install, build.STAGE2_TARGETS)
+    stage1_install = utils.android_path('out', 'stage1-install')
+    stage2_install = utils.android_path('out', 'stage2-install')
+    build.build_stage1(stage1_install)
+    build.build_stage2(stage1_install, stage2_install, build.STAGE2_TARGETS)
     build.build_runtimes(stage2_install)
     version = build.extract_clang_version(stage2_install)
     return stage2_install, version
