@@ -107,6 +107,5 @@ unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
     for (auto &MI : MBB)
       Size += TII->getInstSizeInBytes(MI);
 
-  assert(Size >= MinFnSize);
-  return Size;
+  return std::max(Size, MinFnSize+0);
 }
