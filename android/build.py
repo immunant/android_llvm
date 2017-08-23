@@ -399,6 +399,8 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None,
     cmake_defines['LLVM_TARGETS_TO_BUILD'] = targets
     cmake_defines['LLVM_BUILD_LLVM_DYLIB'] = 'ON'
     cmake_defines['CLANG_VENDOR'] = 'Android '
+    cmake_defines['LLVM_BINUTILS_INCDIR'] = utils.android_path(
+        'toolchain/binutils/binutils-2.25/include')
 
     if extra_defines is not None:
         cmake_defines.update(extra_defines)
