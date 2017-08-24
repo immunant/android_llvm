@@ -313,7 +313,7 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
 
   // Can't handle PIP
   const Function *CalleeF = Callee.isGlobal() ? dyn_cast<Function>(Callee.getGlobal()) : nullptr;
-  if (F->isPagerando() || (CalleeF && CalleeF->isPagerando()))
+  if (F.isPagerando() || (CalleeF && CalleeF->isPagerando()))
     return false;
 
   SmallVector<ArgInfo, 8> SplitArgs;
