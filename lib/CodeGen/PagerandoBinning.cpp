@@ -59,7 +59,8 @@ bool PagerandoBinning::runOnModule(Module &M) {
 
   for (auto &F : M) {
     if (F.isPagerando()) {
-      unsigned Bin = assignToBin(MMI.getMachineFunction(F));
+      unsigned FnSize = estimateFunctionSize(MMI.getMachineFunction(F));
+      unsigned Bin = Algo.assignToBin(FnSize);
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(SectionPrefix + utostr(Bin));
       Changed = true;
@@ -69,8 +70,18 @@ bool PagerandoBinning::runOnModule(Module &M) {
   return Changed;
 }
 
-unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
-  unsigned FnSize = estimateFunctionSize(MF);
+unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
+  auto *TII = MF.getSubtarget().getInstrInfo();
+
+  unsigned Size = 0;
+  for (auto &MBB : MF)
+    for (auto &MI : MBB)
+      Size += TII->getInstSizeInBytes(MI);
+
+  return std::max(Size, MinFnSize+0);
+}
+
+unsigned PagerandoBinning::Algorithm::assignToBin(unsigned FnSize) {
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -91,21 +102,5 @@ unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
     Bins.emplace(FreeSpace, Bin);
   }
 
-  DEBUG(dbgs() << "Assigning function '" << MF.getName()
-               << "' with size " << FnSize
-               << " to bin #" << Bin
-               << " with remaining free space " << FreeSpace << '\n');
-
   return Bin;
-}
-
-unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
-  auto *TII = MF.getSubtarget().getInstrInfo();
-
-  unsigned Size = 0;
-  for (auto &MBB : MF)
-    for (auto &MI : MBB)
-      Size += TII->getInstSizeInBytes(MI);
-
-  return std::max(Size, MinFnSize+0);
 }
