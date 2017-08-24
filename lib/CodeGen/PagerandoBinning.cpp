@@ -85,17 +85,14 @@ unsigned PagerandoBinning::Algorithm::assignToBin(unsigned FnSize) {
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
-  if (I == Bins.end()) {  // No bin with enough free space
-    Bin = BinCount++;
-    if (FnSize % BinSize == 0) { // Function size is a multiple of bin size
-      FreeSpace = 0;
-    } else {
-      FreeSpace = BinSize - (FnSize % BinSize);
-    }
-  } else {                // Found eligible bin
-    Bin = I->second;
-    FreeSpace = I->first - FnSize;
+  if (I != Bins.end()) {
+    std::tie(FreeSpace, Bin) = *I;
+    FreeSpace -= FnSize;
     Bins.erase(I);
+  } else {  // No bin with enough free space
+    Bin = BinCount++;
+    auto Size = FnSize % BinSize;
+    FreeSpace = (Size == 0) ? 0 : (BinSize - Size);
   }
 
   if (FreeSpace >= MinFnSize) {
