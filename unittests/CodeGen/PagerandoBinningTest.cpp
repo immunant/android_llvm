@@ -75,7 +75,14 @@ TEST_F(PagerandoBinningTest, BinSizedFunctionsAlwaysGetTheirOwnBin) {
   ASSERT_ASSIGNMENTS({
       {4096, 1},
       {8192, 2},
-      {   1, 3}
+      {   1, 3},
+  });
+}
+
+TEST_F(PagerandoBinningTest, LargeFunctionsAreStillPacked) {
+  ASSERT_ASSIGNMENTS({
+     {8000, 1},
+     { 100, 1},
   });
 }
 
