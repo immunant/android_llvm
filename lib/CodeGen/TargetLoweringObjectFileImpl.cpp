@@ -17,7 +17,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
-#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -294,8 +293,7 @@ static StringRef getSectionPrefixForGlobal(SectionKind Kind) {
 static MCSectionELF *selectELFSectionForGlobal(
     MCContext &Ctx, const GlobalObject *GO, SectionKind Kind, Mangler &Mang,
     const TargetMachine &TM, bool EmitUniqueSection, unsigned Flags,
-    unsigned *NextUniqueID, const MCSymbolELF *AssociatedSymbol,
-    unsigned Bin = 0) {
+    unsigned *NextUniqueID, const MCSymbolELF *AssociatedSymbol) {
   unsigned EntrySize = 0;
   if (Kind.isMergeableCString()) {
     if (Kind.isMergeable2ByteCString()) {
@@ -366,8 +364,7 @@ static MCSectionELF *selectELFSectionForGlobal(
 }
 
 MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
-    MachineModuleInfo *MMI) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
   unsigned Flags = getELFSectionFlags(Kind);
 
   // If we have -ffunction-section or -fdata-section then we should emit the
@@ -683,8 +680,7 @@ MCSection *TargetLoweringObjectFileMachO::getExplicitSectionGlobal(
 }
 
 MCSection *TargetLoweringObjectFileMachO::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
-    MachineModuleInfo *MMI) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
   checkMachOComdat(GO);
 
   // Handle thread local data.
@@ -1025,8 +1021,7 @@ static const char *getCOFFSectionNameForUniqueGlobal(SectionKind Kind) {
 }
 
 MCSection *TargetLoweringObjectFileCOFF::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
-    MachineModuleInfo *MMI) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
   // If we have -ffunction-sections then we should emit the global value to a
   // uniqued section specifically for it.
   bool EmitUniquedSection;
@@ -1246,8 +1241,7 @@ selectWasmSectionForGlobal(MCContext &Ctx, const GlobalObject *GO,
 }
 
 MCSection *TargetLoweringObjectFileWasm::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
-    MachineModuleInfo *MMI) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
 
   if (Kind.isCommon())
     report_fatal_error("mergable sections not supported yet on wasm");

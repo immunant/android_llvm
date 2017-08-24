@@ -235,23 +235,13 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
 /// variable or function definition.  This should not be passed external (or
 /// available externally) globals.
 MCSection *TargetLoweringObjectFile::SectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
-    MachineModuleInfo *MMI) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
   // Select section name.
   if (GO->hasSection())
     return getExplicitSectionGlobal(GO, Kind, TM);
 
   // Use default section depending on the 'type' of global
-  return SelectSectionForGlobal(GO, Kind, TM, MMI);
-}
-
-MCSection *TargetLoweringObjectFile::getSectionForFunction(
-    const MachineFunction *MF, Mangler &Mang, const TargetMachine &TM,
-    MachineModuleInfo *MMI) const {
-  const Function *F = MF->getFunction();
-  SectionKind Kind = getKindForGlobal(F, TM);
-
-  return SelectSectionForGlobal(F, Kind, TM, MMI);
+  return SelectSectionForGlobal(GO, Kind, TM);
 }
 
 MCSection *TargetLoweringObjectFile::getSectionForJumpTable(

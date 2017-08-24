@@ -647,7 +647,7 @@ void AsmPrinter::EmitFunctionHeader() {
   // Print the 'header' of function.
   const Function *F = MF->getFunction();
 
-  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, TM, MMI));
+  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, TM));
   EmitVisibility(CurrentFnSym, F->getVisibility());
 
   EmitLinkage(F, CurrentFnSym);
@@ -2540,7 +2540,7 @@ MCSymbol *AsmPrinter::GetExternalSymbolSymbol(StringRef Sym) const {
 }
 
 MCSymbol *AsmPrinter::GetSectionSymbol(const GlobalObject *GO) const {
-  MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
+  MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM);
   return Sec->getBeginSymbol();
 }
 
@@ -2550,7 +2550,7 @@ MCSymbol *AsmPrinter::GetSectionSymbol(unsigned CPID) const {
 }
 
 unsigned AsmPrinter::GetPOTIndex(const GlobalObject *GO) {
-  const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM, MMI);
+  const MCSection *Sec = getObjFileLowering().SectionForGlobal(GO, TM);
   return GetPOTIndex(Sec);
 }
 

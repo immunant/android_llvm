@@ -114,8 +114,7 @@ IsGlobalInSmallSectionImpl(const GlobalObject *GO,
 }
 
 MCSection *MipsTargetObjectFile::SelectSectionForGlobal(
-    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM,
-    MachineModuleInfo *MMI) const {
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
   // TODO: Could also support "weak" symbols as well with ".gnu.linkonce.s.*"
   // sections?
 
@@ -126,7 +125,7 @@ MCSection *MipsTargetObjectFile::SelectSectionForGlobal(
     return SmallDataSection;
 
   // Otherwise, we work the same as ELF.
-  return TargetLoweringObjectFileELF::SelectSectionForGlobal(GO, Kind, TM, MMI);
+  return TargetLoweringObjectFileELF::SelectSectionForGlobal(GO, Kind, TM);
 }
 
 /// Return true if this constant should be placed into small data section.
