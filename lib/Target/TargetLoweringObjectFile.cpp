@@ -140,10 +140,9 @@ SectionKind TargetLoweringObjectFile::getKindForGlobal(const GlobalObject *GO,
   Reloc::Model ReloModel = TM.getRelocationModel();
 
   // Early exit - functions should be always in text sections.
-  if (auto *F = dyn_cast<Function>(GO))
+  const auto *GVar = dyn_cast<GlobalVariable>(GO);
+  if (!GVar)
     return SectionKind::getText();
-
-  const auto *GVar = cast<GlobalVariable>(GO);
 
   // Handle thread-local data first.
   if (GVar->isThreadLocal()) {
