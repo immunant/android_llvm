@@ -689,14 +689,28 @@ def parse_args():
 
     parser.add_argument('--use-lld', action='store_true', default=False,
                         help='Use lld for linking (only affects stage2)')
+
+    # Options to skip build or packaging (can't skip both, or the script does
+    # nothing).
+    build_package_group = parser.add_mutually_exclusive_group()
+    build_package_group.add_argument('--skip-build', '-sb',
+        action='store_true', default=False,
+        help='Skip the build, and only do the packaging step')
+    build_package_group.add_argument('--skip-package', '-sp',
+        action='store_true', default=False,
+        help='Skip the packaging, and only do the build step')
+
+    parser.add_argument('--no-strip', action='store_true',
+                        default=False, help='Don\t strip binaries/libraries')
+
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    do_build = True
-    do_package = True
-    do_strip = True
+    do_build = not args.skip_build
+    do_package = not args.skip_package
+    do_strip = not args.no_strip
 
     log_levels = [logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
