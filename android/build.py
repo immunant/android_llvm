@@ -576,26 +576,19 @@ def build_runtimes(stage2_install):
     build_asan_test(stage2_install)
 
 
-def install_winpthreads(install_dir):
+def install_winpthreads(is_windows32, install_dir):
     """Installs the winpthreads runtime to the Windows bin directory."""
     lib_name = 'libwinpthread-1.dll'
     mingw_dir = utils.android_path(
-        'prebuilts/gcc/linux-x86/host/x86_64-w64-mingw32-4.8')
-    lib_path = os.path.join(mingw_dir, 'x86_64-w64-mingw32/bin', lib_name)
-    lib32_path = os.path.join(mingw_dir, 'x86_64-w64-mingw32/lib32', lib_name)
+        'prebuilts/gcc/linux-x86/host/x86_64-w64-mingw32-4.8',
+        'x86_64-w64-mingw32')
+    # Yes, this indeed may be found in bin/ because the executables are the
+    # 64-bit version by default.
+    pthread_dir = 'lib32' if is_windows32 else 'bin'
+    lib_path = os.path.join(mingw_dir, pthread_dir, lib_name)
 
     lib_install = os.path.join(install_dir, 'bin', lib_name)
-    # The 32-bit library will be renamed appropriately by the NDK build process
-    # for 32-bit Windows.
-    lib32_install = os.path.join(install_dir, 'bin', lib_name + '.32')
     install_file(lib_path, lib_install)
-    install_file(lib32_path, lib32_install)
-
-    # Also need to install it alongside LLVMgold.dll/libLLVM.dll.
-    check_create_path(os.path.join(install_dir, 'lib64'))
-    install_file(lib_path, os.path.join(install_dir, 'lib64', lib_name))
-    check_create_path(os.path.join(install_dir, 'lib'))
-    install_file(lib32_path, os.path.join(install_dir, 'lib', lib_name))
 
 
 def remove_static_libraries(static_lib_dir):
@@ -608,7 +601,9 @@ def remove_static_libraries(static_lib_dir):
 
 
 def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
-    is_windows = host.startswith('windows')
+    is_windows32 = host == 'windows-i386'
+    is_windows64 = host == 'windows-x86'
+    is_windows = is_windows32 or is_windows64
     is_linux = host == 'linux-x86'
     package_name = 'clang-' + build_name
     install_host_dir = utils.android_path('out', 'install', host)
@@ -657,12 +652,14 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     # TODO(srhines): Add/install the compiler wrappers.
 
     # Next, we remove unnecessary static libraries.
-    remove_static_libraries(os.path.join(install_dir, 'lib64'))
-
-    # For Windows, remove lib/ static libraries, and add relevant libraries.
-    if is_windows:
+    if is_windows32:
         remove_static_libraries(os.path.join(install_dir, 'lib'))
-        install_winpthreads(install_dir)
+    else:
+        remove_static_libraries(os.path.join(install_dir, 'lib64'))
+
+    # For Windows, add other relevant libraries.
+    if is_windows:
+        install_winpthreads(is_windows32, install_dir)
 
     # Add an AndroidVersion.txt file.
     version = extract_clang_version(build_dir)
@@ -708,6 +705,8 @@ def main():
 
     stage1_install = utils.android_path('out', 'stage1-install')
     stage2_install = utils.android_path('out', 'stage2-install')
+    windows32_install = utils.android_path('out', 'windows-i386-install')
+    windows64_install = utils.android_path('out', 'windows-x86-install')
 
     # TODO(pirama): Once we have a set of prebuilts with lld, pass use_lld for
     # stage1 as well.
@@ -715,8 +714,6 @@ def main():
         build_stage1(stage1_install)
         build_stage2(stage1_install, stage2_install, STAGE2_TARGETS,
                      args.use_lld)
-    else:
-        windows32_install = utils.android_path('out', 'windows-i386-install')
 
     if do_build and utils.build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
@@ -726,7 +723,6 @@ def main():
 
         # Build 64-bit clang for Windows
         windows64_path = utils.android_path('out', 'windows-x86')
-        windows64_install = utils.android_path('out', 'windows-x86-install')
         build_llvm_for_windows(targets=windows_targets,
                                build_dir=windows64_path,
                                install_dir=windows64_install,
@@ -734,7 +730,6 @@ def main():
 
         # Build 32-bit clang for Windows
         windows32_path = utils.android_path('out', 'windows-i386')
-        windows32_install = utils.android_path('out', 'windows-i386-install')
         build_llvm_for_windows(targets=windows_targets,
                                build_dir=windows32_path,
                                install_dir=windows32_install,
@@ -751,6 +746,8 @@ def main():
         if utils.build_os_type() == 'linux-x86':
             package_toolchain(windows32_install, args.build_name,
                               'windows-i386', dist_dir, strip=do_strip)
+            package_toolchain(windows64_install, args.build_name,
+                              'windows-x86', dist_dir, strip=do_strip)
 
     return 0
 
