@@ -54,7 +54,6 @@ public:
 private:
   static constexpr const char *OrigSuffix = "$$orig";
   static constexpr const char *OrigVASuffix = "$$origva";
-  static constexpr const char *WrapperSuffix = "$$wrap";
 
   void processFunction(Function *F);
   Function *rewriteVarargs(Function &F, Type *&VAListTy);
@@ -149,8 +148,11 @@ static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
 
 Function *PagerandoWrappers::createWrapper(Function &F,
                                            const std::vector<Use *> &AddressUses) {
-  auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(),
-                                  F.getName() + WrapperSuffix, F.getParent());
+  std::string Name = F.getName();
+  F.setName(Name + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
+
+  auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(), Name,
+                                  F.getParent());
   Wrapper->copyAttributesFrom(&F);
   Wrapper->setComdat(F.getComdat());
 
@@ -166,10 +168,6 @@ Function *PagerandoWrappers::createWrapper(Function &F,
   // -) Address-taken uses of local functions might escape, hence we must also
   //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
-    // Take name, replace usages, hide original function
-    std::string OldName = F.getName();
-    Wrapper->takeName(&F);
-    F.setName(OldName + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
     F.replaceAllUsesWith(Wrapper);
     if (!F.hasLocalLinkage()) {
       F.setVisibility(GlobalValue::HiddenVisibility);
