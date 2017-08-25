@@ -4,9 +4,12 @@ define i32 @global_fn_body(i32 %arg) {
   ret i32 %arg
 }
 
-; CHECK-LABEL: define hidden i32 @"global_fn_body$$orig"(i32 %arg)
+; CHECK-LABEL: define hidden i32 @"global_fn_body$$orig"(i32 %arg) #0
 ; CHECK-NEXT:    ret i32 %arg
 
-; CHECK-LABEL: define i32 @global_fn_body(i32)
+; CHECK-LABEL: define i32 @global_fn_body(i32) #1
 ; CHECK-NEXT:    %2 = call i32 @"global_fn_body$$orig"(i32 %0)
 ; CHECK-NEXT:    ret i32 %2
+
+; CHECK-LABEL: attributes #0 = { pagerando_binned }
+; CHECK-LABEL: attributes #1 = { noinline optsize pagerando_wrapper }
