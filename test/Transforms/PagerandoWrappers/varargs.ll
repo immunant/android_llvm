@@ -11,13 +11,13 @@ define i32 @varags(...) {
   ret i32 %ret
 }
 
+; CHECK-LABEL: define internal void @user()
+; CHECK-NEXT:    call i32 (...) @varags(i32 13, i32 37)
+
 define internal void @user() {
   call i32 (...) @varags(i32 13, i32 37)
   ret void
 }
-
-; CHECK-LABEL: define internal void @user()
-; CHECK-NEXT:    call i32 (...) @varags(i32 13, i32 37)
 
 ; CHECK-LABEL: define i32 @varags(...)
 ; CHECK-NEXT:    %1 = alloca i8
