@@ -147,7 +147,7 @@ def base_cmake_defines():
     defines = {}
 
     defines['CMAKE_BUILD_TYPE'] = 'Release'
-    defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
+    defines['LLVM_ENABLE_ASSERTIONS'] = 'OFF'
     defines['LLVM_ENABLE_THREADS'] = 'OFF'
     defines['LLVM_LIBDIR_SUFFIX'] = '64'
     return defines
@@ -420,7 +420,7 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None,
                  cmake_path=utils.llvm_path())
 
 
-def build_llvm_for_windows(targets, build_dir, install_dir,
+def build_llvm_for_windows(targets, enable_assertions, build_dir, install_dir,
                            native_clang_install, is_32_bit=False):
 
     mingw_path = utils.android_path('prebuilts', 'gcc', 'linux-x86', 'host',
@@ -457,6 +457,9 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
     windows_extra_defines['CROSS_TOOLCHAIN_FLAGS_NATIVE'] = \
         '-DCMAKE_PREFIX_PATH=' + cmake_prebuilt_bin_dir() + ';' + \
         '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
+
+    if enable_assertions:
+        windows_extra_defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
 
     cflags = []
     cxxflags = []
@@ -530,7 +533,8 @@ def build_stage1(stage1_install):
                install_dir=stage1_install, extra_defines=stage1_extra_defines)
 
 
-def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False):
+def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False,
+                 enable_assertions=False):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
     # Build/install the stage2 toolchain
@@ -546,6 +550,9 @@ def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False):
 
     if use_lld:
         stage2_extra_defines['LLVM_ENABLE_LLD'] = 'ON'
+
+    if enable_assertions:
+        stage2_extra_defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
 
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
@@ -698,6 +705,10 @@ def parse_args():
     parser.add_argument('--use-lld', action='store_true', default=False,
                         help='Use lld for linking (only affects stage2)')
 
+    parser.add_argument('--enable-assertions', action='store_true',
+                        default=False,
+                        help='Enable assertions (only affects stage2)')
+
     # Options to skip build or packaging (can't skip both, or the script does
     # nothing).
     build_package_group = parser.add_mutually_exclusive_group()
@@ -735,7 +746,7 @@ def main():
     if do_build:
         build_stage1(stage1_install)
         build_stage2(stage1_install, stage2_install, STAGE2_TARGETS,
-                     args.use_lld)
+                     args.use_lld, args.enable_assertions)
 
     if do_build and utils.build_os_type() == 'linux-x86':
         build_runtimes(stage2_install)
@@ -746,6 +757,7 @@ def main():
         # Build 64-bit clang for Windows
         windows64_path = utils.android_path('out', 'windows-x86')
         build_llvm_for_windows(targets=windows_targets,
+                               enable_assertions=args.enable_assertions,
                                build_dir=windows64_path,
                                install_dir=windows64_install,
                                native_clang_install=stage2_install)
@@ -753,6 +765,7 @@ def main():
         # Build 32-bit clang for Windows
         windows32_path = utils.android_path('out', 'windows-i386')
         build_llvm_for_windows(targets=windows_targets,
+                               enable_assertions=args.enable_assertions,
                                build_dir=windows32_path,
                                install_dir=windows32_install,
                                native_clang_install=stage2_install,
