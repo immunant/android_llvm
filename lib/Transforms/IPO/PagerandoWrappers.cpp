@@ -194,21 +194,27 @@ static SmallVector<VAStartInst*, 1> findVAStarts(Function &F) {
 }
 
 static AllocaInst *findAlloca(VAStartInst *VAStart) {
-  Instruction *Alloca = VAStart;
-  while (Alloca && !isa<AllocaInst>(Alloca)) {
-    Alloca = dyn_cast<Instruction>(Alloca->op_begin());
+  Instruction *Inst = VAStart;
+  while (Inst && !isa<AllocaInst>(Inst)) {
+    Inst = dyn_cast<Instruction>(Inst->op_begin());
   }
-  assert(Alloca && "Could not find va_list alloca in var args function");
-  return cast<AllocaInst>(Alloca);
+  assert(Inst && "Could not find va_list alloca in var args function");
+  return cast<AllocaInst>(Inst);
 }
 
-static AllocaInst* createVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
+static AllocaInst *createVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy) {
   auto VAListAlloca = Builder.CreateAlloca(VAListTy);
   Builder.CreateCall(  // @llvm.va_start(i8* <arglist>)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
       {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
 
   return VAListAlloca;
+}
+
+static void createVAEndCall(IRBuilder<> &Builder, AllocaInst *VAListAlloca) {
+  Builder.CreateCall(  // @llvm.va_end(i8* <arglist>)
+      Intrinsic::getDeclaration(VAListAlloca->getModule(), Intrinsic::vaend),
+      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
 }
 
 static void createVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart,
@@ -230,14 +236,22 @@ void PagerandoWrappers::createWrapperBody(Function *Wrapper, Function *Callee,
   for (auto &A : Wrapper->args()) {
     Args.push_back(&A);
   }
+
+  // va_list alloca and va_start
+  AllocaInst* VAListAlloca;
   if (VAListTy) {
-    auto VAListAlloca = createVAList(Wrapper->getParent(), Builder, VAListTy);
+    VAListAlloca = createVAList(Wrapper->getParent(), Builder, VAListTy);
     Args.push_back(VAListAlloca);
   }
 
   // Call
   auto Call = Builder.CreateCall(Callee, Args);
   Call->setCallingConv(Callee->getCallingConv());
+
+  // va_end
+  if (VAListTy) {
+    createVAEndCall(Builder, VAListAlloca);
+  }
 
   // Return
   if (Wrapper->getReturnType()->isVoidTy()) {
@@ -281,23 +295,14 @@ Function *PagerandoWrappers::rewriteVarargs(Function &F, Type *&VAListTy) {
     DestArg++;
   }
 
-  // Adapt va_list uses
+  // Replace va_start with va_copy
+  IRBuilder<> Builder(NF->getContext());
   auto VAListArg = NF->arg_end() - 1;
-
-  // +) For a single va_start call we can remove the va_list alloca and
-  //    va_start, and use the parameter directly instead.
-  // -) For more than one va_start we need to keep the va_list alloca and
-  //    replace va_start with a va_copy.
-  if (VAStarts.size() == 1) {
-    VAListAlloca->replaceAllUsesWith(VAListArg);
-    VAListAlloca->eraseFromParent();
-  } else {
-    IRBuilder<> Builder(NF->getContext());
-    for (auto VAStart : VAStarts) {
-      createVACopyCall(Builder, VAStart, VAListArg);
-    }
+  for (auto VAStart : VAStarts) {
+    createVACopyCall(Builder, VAStart, VAListArg);
   }
   for (auto VAStart : VAStarts) VAStart->eraseFromParent();
+  // TODO(yln): maybe replace instead of copy and remove
 
   // Delete original function
   F.eraseFromParent();
