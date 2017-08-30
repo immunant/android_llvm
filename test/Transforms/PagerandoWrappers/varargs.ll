@@ -85,3 +85,30 @@ define void @copy(...) {
   call void @llvm.va_end(i8* %va2)
   ret void
 }
+
+; CHECK-LABEL: define void @real_va_type(...)
+; CHECK-NEXT:    %1 = alloca %struct.va_list
+; CHECK-NEXT:    %2 = bitcast %struct.va_list* %1 to i8*
+; CHECK-NEXT:    call void @llvm.va_start(i8* %2)
+; CHECK-NEXT:    call void @"real_va_type$$origva"(%struct.va_list* %1)
+; CHECK-NEXT:    %3 = bitcast %struct.va_list* %1 to i8*
+; CHECK-NEXT:    call void @llvm.va_end(i8* %3)
+; CHECK-NEXT:    ret void
+
+; CHECK-LABEL: define hidden void @"real_va_type$$origva"(%struct.va_list*)
+; CHECK-NEXT:    %va = alloca %struct.va_list
+; CHECK-NEXT:    %va_ptr = bitcast %struct.va_list* %va to i8*
+; CHECK-NEXT:    %2 = bitcast %struct.va_list* %0 to i8*
+; CHECK-NEXT:    call void @llvm.va_copy(i8* %va_ptr, i8* %2)
+; CHECK-NEXT:    call void @llvm.va_end(i8* %va_ptr)
+; CHECK-NEXT:    ret void
+
+%struct.va_list = type { i8*, i8*, i8*, i32, i32 }
+
+define void @real_va_type(...) {
+  %va = alloca %struct.va_list
+  %va_ptr = bitcast %struct.va_list* %va to i8*
+  call void @llvm.va_start(i8* %va_ptr)
+  call void @llvm.va_end(i8* %va_ptr)
+  ret void
+}
