@@ -44,11 +44,18 @@ private:
   static constexpr unsigned BinSize = 4096; // one page
   static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thumb
 
-  std::multimap<unsigned, unsigned> Bins;   // <free space  ->  bin numbers>
-  unsigned BinCount = 1;
-
-  unsigned assignToBin(const MachineFunction &MF);
   unsigned estimateFunctionSize(const MachineFunction &MF);
+
+public:
+  class Algorithm {
+    std::multimap<unsigned, unsigned> Bins; // <free space  ->  bin numbers>
+    unsigned BinCount = 1;
+  public:
+    unsigned assignToBin(unsigned FnSize);
+  };
+
+private:
+  Algorithm Algo;
 };
 
 } // end namespace llvm

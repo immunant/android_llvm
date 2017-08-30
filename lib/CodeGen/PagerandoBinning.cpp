@@ -59,7 +59,8 @@ bool PagerandoBinning::runOnModule(Module &M) {
 
   for (auto &F : M) {
     if (F.isPagerando()) {
-      unsigned Bin = assignToBin(MMI.getMachineFunction(F));
+      unsigned FnSize = estimateFunctionSize(MMI.getMachineFunction(F));
+      unsigned Bin = Algo.assignToBin(FnSize);
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(SectionPrefix + utostr(Bin));
       Changed = true;
@@ -67,36 +68,6 @@ bool PagerandoBinning::runOnModule(Module &M) {
   }
 
   return Changed;
-}
-
-unsigned PagerandoBinning::assignToBin(const MachineFunction &MF) {
-  unsigned FnSize = estimateFunctionSize(MF);
-  unsigned Bin, FreeSpace;
-
-  auto I = Bins.lower_bound(FnSize);
-  if (I == Bins.end()) {  // No bin with enough free space
-    Bin = BinCount++;
-    if (FnSize % BinSize == 0) { // Function size is a multiple of bin size
-      FreeSpace = 0;
-    } else {
-      FreeSpace = BinSize - (FnSize % BinSize);
-    }
-  } else {                // Found eligible bin
-    Bin = I->second;
-    FreeSpace = I->first - FnSize;
-    Bins.erase(I);
-  }
-
-  if (FreeSpace >= MinFnSize) {
-    Bins.emplace(FreeSpace, Bin);
-  }
-
-  DEBUG(dbgs() << "Assigning function '" << MF.getName()
-               << "' with size " << FnSize
-               << " to bin #" << Bin
-               << " with remaining free space " << FreeSpace << '\n');
-
-  return Bin;
 }
 
 unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
@@ -108,4 +79,25 @@ unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
       Size += TII->getInstSizeInBytes(MI);
 
   return std::max(Size, MinFnSize+0);
+}
+
+unsigned PagerandoBinning::Algorithm::assignToBin(unsigned FnSize) {
+  unsigned Bin, FreeSpace;
+
+  auto I = Bins.lower_bound(FnSize);
+  if (I != Bins.end()) {
+    std::tie(FreeSpace, Bin) = *I;
+    FreeSpace -= FnSize;
+    Bins.erase(I);
+  } else {  // No bin with enough free space
+    Bin = BinCount++;
+    auto Size = FnSize % BinSize;
+    FreeSpace = (Size == 0) ? 0 : (BinSize - Size);
+  }
+
+  if (FreeSpace >= MinFnSize) {
+    Bins.emplace(FreeSpace, Bin);
+  }
+
+  return Bin;
 }
