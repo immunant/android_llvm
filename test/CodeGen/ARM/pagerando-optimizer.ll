@@ -6,10 +6,10 @@ define void @wrapper() pagerando_wrapper { ret void }
 
 ; CHECK-LABEL: section .text.bin_1
 ; CHECK-LABEL: orig:
-define internal void @orig() pagerando_binned { ret void }
+define hidden void @orig() pagerando_binned { ret void }
 
 ; CHECK-LABEL: user:
-define internal void @user() pagerando_binned {
+define void @user() pagerando_binned {
   call void @wrapper()
 
 ; CHECK-NOT: add

@@ -7,11 +7,10 @@ define void @global() { ret void }
 define internal void @internal() { ret void }
 
 ; CHECK-LABEL: define internal void @user() #0 {
+define internal void @user() {
 ; CHECK-NEXT:    call void @global()
 ; CHECK-NEXT:    call void @internal()
 ; CHECK-NEXT:    ret void
-
-define internal void @user() {
   call void @global()
   call void @internal()
   ret void
