@@ -217,13 +217,14 @@ static void createVAEndCall(IRBuilder<> &Builder, AllocaInst *VAListAlloca) {
       {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
 }
 
-static void createVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart,
-                             Argument *VAListArg) {
+static void replaceWithVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart,
+                                  Argument *VAListArg) {
   Builder.SetInsertPoint(VAStart);
   Builder.CreateCall(  // @llvm.va_copy(i8* <destarglist>, i8* <srcarglist>)
       Intrinsic::getDeclaration(VAStart->getModule(), Intrinsic::vacopy),
       {VAStart->getArgOperand(0),
        Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
+  VAStart->eraseFromParent();
 }
 
 void PagerandoWrappers::createWrapperBody(Function *Wrapper, Function *Callee,
@@ -299,10 +300,8 @@ Function *PagerandoWrappers::rewriteVarargs(Function &F, Type *&VAListTy) {
   IRBuilder<> Builder(NF->getContext());
   auto VAListArg = NF->arg_end() - 1;
   for (auto VAStart : VAStarts) {
-    createVACopyCall(Builder, VAStart, VAListArg);
+    replaceWithVACopyCall(Builder, VAStart, VAListArg);
   }
-  for (auto VAStart : VAStarts) VAStart->eraseFromParent();
-  // TODO(yln): maybe replace instead of copy and remove
 
   // Delete original function
   F.eraseFromParent();
