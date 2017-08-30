@@ -1225,10 +1225,6 @@ public:
     return nullptr;
   }
 
-  /// Try to optimize the indirect calls to this destination. If it targets the
-  /// same section, convert to an efficient direct call.
-  virtual bool optimizeToDirectCall(MachineInstr *MI) const { return false; }
-
   /// 'Reg' is known to be defined by a move immediate instruction,
   /// try to fold the immediate into the use instruction.
   /// If MRI->hasOneNonDBGUse(Reg) is true, and this function returns true,

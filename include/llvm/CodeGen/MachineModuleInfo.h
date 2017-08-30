@@ -36,7 +36,6 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/DebugLoc.h"
-#include "llvm/IR/Function.h"
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSymbol.h"
@@ -243,7 +242,6 @@ public:
     return Personalities;
   }
   /// \}
-
 }; // End class MachineModuleInfo
 
 //===- MMI building helpers -----------------------------------------------===//

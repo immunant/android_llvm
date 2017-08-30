@@ -27,7 +27,6 @@ namespace llvm {
 class GlobalValue;
 class MachineFunctionInitializer;
 class Mangler;
-class MachineModuleInfo;
 class MCAsmInfo;
 class MCContext;
 class MCInstrInfo;
@@ -303,9 +302,6 @@ public:
   bool addPassesToEmitMC(PassManagerBase &PM, MCContext *&Ctx,
                          raw_pwrite_stream &OS,
                          bool DisableVerify = true) override;
-
-  /// Add MachineModuleInfo pass to pass manager.
-  MachineModuleInfo &addMachineModuleInfo(PassManagerBase &PM) const;
 };
 
 } // end namespace llvm

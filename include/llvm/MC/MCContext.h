@@ -98,8 +98,6 @@ namespace llvm {
     /// We have three labels represented by the pairs (1, 0), (2, 0) and (1, 1)
     DenseMap<std::pair<unsigned, unsigned>, MCSymbol *> LocalSymbols;
 
-    std::vector<const MCSymbol *> BinSymbols;
-
     /// Keeps tracks of names that were used both for used declared and
     /// artificial symbols. The value is "true" if the name has been used for a
     /// non-section symbol (there can be at most one of those, plus an unlimited
