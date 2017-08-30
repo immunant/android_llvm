@@ -40,16 +40,14 @@ define void @user() pagerando_binned {
 ; CHECK: %vreg16<def,tied1> = MOVKXi %vreg15<tied0>, <ga:@global_var>[TF=164], 32
 ; CHECK: %vreg17<def,tied1> = MOVKXi %vreg16<tied0>, <ga:@global_var>[TF=35], 48
 ; CHECK: %vreg18<def> = LOADgotr %vreg1, %vreg17<kill>
-; CHECK: %vreg19<def> = MOVi32imm 13
-; CHECK: STRWui %vreg19<kill>, %vreg18<kill>, 0
-  store i32 13, i32* @global_var
+; CHECK: %vreg19<def> = LDRWui %vreg18<kill>, 0
+  %val = load i32, i32* @global_var
 
 ; CHECK: %vreg20<def> = MOVaddrEXT <es:_GLOBAL_OFFSET_TABLE_>[TF=1], <es:_GLOBAL_OFFSET_TABLE_>[TF=130]
 ; CHECK: %vreg21<def> = MOVaddr <ga:@internal_var>[TF=1], <ga:@internal_var>[TF=130]
 ; CHECK: %vreg22<def> = SUBXrr %vreg21<kill>, %vreg20<kill>
-; CHECK: %vreg23<def> = MOVi32imm 37
-; CHECK: STRWroX %vreg23<kill>, %vreg1, %vreg22<kill>, 0, 0
-  store i32 37, i32* @internal_var
+; CHECK: STRWroX %vreg19<kill>, %vreg1, %vreg22<kill>, 0, 0
+  store i32 %val, i32* @internal_var
 
   ret void
 }

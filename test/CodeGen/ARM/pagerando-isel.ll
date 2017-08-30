@@ -15,8 +15,9 @@ define hidden void @binned() pagerando_binned { ret void }
 ; CHECK: cp#1: wrapper(got_brel), align=4
 ; CHECK: cp#2: binned(potoff), align=4
 ; CHECK: cp#3: binned(binoff), align=4
-; CHECK: cp#4: internal_var(gotoff), align=4
-; CHECK: cp#5: global_var(got_brel), align=4
+; CHECK: cp#4: global_var(got_brel), align=4
+; CHECK: cp#5: internal_var(gotoff), align=4
+
 define void @user() pagerando_binned {
 ; CHECK: %vreg0<def> = COPY %R9
 ; CHECK: %vreg1<def> = LDRi12 %vreg0, 0, pred:14, pred:%noreg
@@ -39,15 +40,13 @@ define void @user() pagerando_binned {
   call void @binned()
 
 ; CHECK: %vreg10<def> = LDRi12 <cp#4>, 0, pred:14, pred:%noreg
-; CHECK: %vreg11<def> = MOVi 37, pred:14, pred:%noreg, opt:%noreg
-; CHECK: STRrs %vreg11<kill>, %vreg1, %vreg10<kill>, 0, pred:14, pred:%noreg
-  store i32 13, i32* @global_var
+; CHECK: %vreg11<def> = LDRrs %vreg1, %vreg10<kill>, 0, pred:14, pred:%noreg
+  %val = load i32, i32* @global_var
 
-; CHECK: %vreg12<def> = LDRi12 <cp#5>, 0, pred:14, pred:%noreg
-; CHECK: %vreg13<def> = LDRrs %vreg1, %vreg12<kill>, 0, pred:14, pred:%noreg
-; CHECK: %vreg14<def> = MOVi 13, pred:14, pred:%noreg, opt:%noreg
-; CHECK: STRi12 %vreg14<kill>, %vreg13<kill>, 0, pred:14, pred:%noreg
-  store i32 37, i32* @internal_var
+; CHECK: %vreg12<def> = LDRi12 %vreg11<kill>, 0, pred:14, pred:%noreg
+; CHECK: %vreg13<def> = LDRi12 <cp#5>, 0, pred:14, pred:%noreg
+; CHECK: STRrs %vreg12<kill>, %vreg1, %vreg13<kill>, 0, pred:14, pred:%noreg
+  store i32 %val, i32* @internal_var
 
   ret void
 }
