@@ -1015,6 +1015,7 @@ static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
                       &cur_section, /* section_list */
                       1); /* num_sections */
     }
+    std::free(name);
   }
 
   return LDPS_OK;
