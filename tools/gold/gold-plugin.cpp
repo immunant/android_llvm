@@ -1002,15 +1002,13 @@ static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
       message(LDPL_FATAL, "Failed to get input section type");
 
     StringRef name_str(name);
-    if (name_str.startswith(options::PagerandoSectionPrefix)) {
+    bool is_bin = name_str.startswith(options::PagerandoSectionPrefix);
+    bool is_pot = name_str.equals(".pot");
+    if (is_bin || is_pot) {
+      unsigned flags = ELF::PF_R | ELF::PF_RAND_ADDR |
+                       (is_bin ? ELF::PF_X : ELF::PF_W);
       unique_segments(name, /* segment_name */
-                      ELF::PF_R | ELF::PF_X | ELF::PF_RAND_ADDR, /* p_flags */
-                      4096, /* aligment */
-                      &cur_section, /* section_list */
-                      1); /* num_sections */
-    } else if (name_str.equals(".pot")) {
-      unique_segments(name, /* segment_name */
-                      ELF::PF_R | ELF::PF_W | ELF::PF_RAND_ADDR, /* p_flags */
+                      flags, /* p_flags */
                       4096, /* aligment */
                       &cur_section, /* section_list */
                       1); /* num_sections */
