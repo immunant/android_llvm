@@ -253,7 +253,7 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
   // BlockAddress
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
 
-  setOperationAction(ISD::POT, MVT::i64, Custom);
+  setOperationAction(ISD::PAGE_OFFSET_TABLE, MVT::i64, Custom);
 
   // Add/Sub overflow ops with MVT::Glues are lowered to NZCV dependences.
   setOperationAction(ISD::ADDC, MVT::i32, Custom);
@@ -2378,7 +2378,7 @@ SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
     return LowerGlobalTLSAddress(Op, DAG);
   case ISD::SETCC:
     return LowerSETCC(Op, DAG);
-  case ISD::POT:
+  case ISD::PAGE_OFFSET_TABLE:
     return LowerPOT(Op, DAG);
   case ISD::BR_CC:
     return LowerBR_CC(Op, DAG);
@@ -3282,7 +3282,8 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     if (MF.getFunction()->isPagerando()) {
       // Calls from PIP functions should go through the GOT for now so that we
       // can properly indirect through POT.
-      SDValue POTValue = DAG.getNode(ISD::POT, DL, DAG.getVTList(MVT::i64, MVT::Other));
+      SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, DL,
+                                     DAG.getVTList(MVT::i64, MVT::Other));
       SDValue Chain = POTValue.getValue(1);
       SDValue BaseAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain, POTValue,
                                      DAG.getTargetConstant(0, DL, MVT::i32));
@@ -3497,7 +3498,8 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
     // if (GV->isDeclaration() || GV->hasAvailableExternallyLinkage())
     //   OpFlags |= AArch64II::MO_GOT;
 
-    SDValue POTValue = DAG.getNode(ISD::POT, DL, DAG.getVTList(MVT::i64, MVT::Other));
+    SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, DL,
+                                   DAG.getVTList(MVT::i64, MVT::Other));
     SDValue Chain = POTValue.getValue(1);
     if (OpFlags == AArch64II::MO_GOT) {
       // Load the GOT address from the POT
@@ -4419,7 +4421,8 @@ SDValue AArch64TargetLowering::LowerConstantPool(SDValue Op,
     // model.
     assert(getTargetMachine().getCodeModel() != CodeModel::Large);
 
-    SDValue POTValue = DAG.getNode(ISD::POT, DL, DAG.getVTList(MVT::i64, MVT::Other));
+    SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, DL,
+                                   DAG.getVTList(MVT::i64, MVT::Other));
     SDValue Chain = POTValue.getValue(1);
 
     // Load the GOT address from the POT

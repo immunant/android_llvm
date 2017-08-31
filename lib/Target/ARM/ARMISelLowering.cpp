@@ -940,7 +940,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::ConstantPool,  MVT::i32,   Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i32, Custom);
-  setOperationAction(ISD::POT, MVT::i32, Custom);
+  setOperationAction(ISD::PAGE_OFFSET_TABLE, MVT::i32, Custom);
 
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
 
@@ -2005,7 +2005,8 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     if (GV) {
       Callee = LowerGlobalAddressELF(Callee, DAG);
     } else if (ExternalSymbolSDNode *S=dyn_cast<ExternalSymbolSDNode>(Callee)) {
-      SDValue POTValue = DAG.getNode(ISD::POT, dl, DAG.getVTList(MVT::i32, MVT::Other));
+      SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, dl,
+                                     DAG.getVTList(MVT::i32, MVT::Other));
       SDValue GOTAddr = DAG.getLoad(
           PtrVt, dl, POTValue.getValue(1), POTValue,
           MachinePointerInfo::getPOT(DAG.getMachineFunction()));
@@ -3214,7 +3215,8 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
 
     SDValue BaseAddr;
     ARMConstantPoolValue *OffsetCPV;
-    SDValue POTValue = DAG.getNode(ISD::POT, dl, DAG.getVTList(MVT::i32, MVT::Other));
+    SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, dl,
+                                   DAG.getVTList(MVT::i32, MVT::Other));
     SDValue Chain = POTValue.getValue(1);
     if (F && F->isPagerando()) {
       ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
@@ -3240,7 +3242,7 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
       OffsetCPV =
         ARMConstantPoolConstant::Create(GV, UseGOT ? ARMCP::GOT_BREL : ARMCP::GOTOFF);
     }
-      
+
     SDValue OffsetCPAddr = DAG.getTargetConstantPool(OffsetCPV, PtrVT, 4);
     OffsetCPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, OffsetCPAddr);
     SDValue Offset = DAG.getLoad(
@@ -7759,7 +7761,7 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
       return LowerGlobalAddressDarwin(Op, DAG);
     }
   case ISD::GlobalTLSAddress: return LowerGlobalTLSAddress(Op, DAG);
-  case ISD::POT:           return LowerPOT(Op, DAG);
+  case ISD::PAGE_OFFSET_TABLE: return LowerPOT(Op, DAG);
   case ISD::SELECT:        return LowerSELECT(Op, DAG);
   case ISD::SELECT_CC:     return LowerSELECT_CC(Op, DAG);
   case ISD::BR_CC:         return LowerBR_CC(Op, DAG);
