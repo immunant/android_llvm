@@ -876,14 +876,14 @@ bool AArch64ExpandPseudo::expandMI(MachineBasicBlock &MBB,
     if (Global.isGlobal()) {
       MachineInstrBuilder MIB =
           BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
-              .add(Base);
-      MIB.addGlobalAddress(Global.getGlobal(), 0, Flags);
+              .add(Base)
+              .addGlobalAddress(Global.getGlobal(), 0, Flags);
       transferImpOps(MI, MIB, MIB);
     } else if (Global.isSymbol()) {
       MachineInstrBuilder MIB =
           BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
-              .add(Base);
-      MIB.addExternalSymbol(Global.getSymbolName(), Flags);
+              .add(Base)
+              .addExternalSymbol(Global.getSymbolName(), Flags);
       transferImpOps(MI, MIB, MIB);
     } else {
       assert(Global.isReg() &&
