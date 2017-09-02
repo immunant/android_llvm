@@ -19,33 +19,33 @@ define hidden void @binned() pagerando_binned { ret void }
 ; CHECK: cp#5: internal_var(gotoff), align=4
 
 define void @user() pagerando_binned {
-; CHECK: %vreg0<def> = COPY %R9
-; CHECK: %vreg1<def> = LDRi12 %vreg0, 0, pred:14, pred:%noreg
+; CHECK-DAG: [[POT:%vreg[0-9]+]]<def> = COPY %R9
+; CHECK-DAG: [[GOT:%vreg[0-9]+]]<def> = LDRi12 [[POT]], 0, pred:14, pred:%noreg
 
-; CHECK: %vreg2<def> = LDRi12 <cp#0>, 0, pred:14, pred:%noreg
-; CHECK: %vreg3<def> = LDRrs %vreg1, %vreg2<kill>, 0, pred:14, pred:%noreg
-; CHECK: BLX %vreg3<kill>
+; CHECK-DAG: [[LEGACY_GOT:%vreg[0-9]+]]<def> = LDRi12 <cp#0>, 0, pred:14, pred:%noreg
+; CHECK: [[LEGACY:%vreg[0-9]+]]<def> = LDRrs [[GOT]], [[LEGACY_GOT]]<kill>, 0, pred:14, pred:%noreg
+; CHECK: BLX [[LEGACY]]<kill>
   call void @legacy()
 
-; CHECK: %vreg4<def> = LDRi12 <cp#1>, 0, pred:14, pred:%noreg
-; CHECK: %vreg5<def> = LDRrs %vreg1, %vreg4<kill>, 0, pred:14, pred:%noreg
-; CHECK: BLX %vreg5<kill>
+; CHECK: [[WRAPPER_GOT:%vreg[0-9]+]]<def> = LDRi12 <cp#1>, 0, pred:14, pred:%noreg
+; CHECK: [[WRAPPER:%vreg[0-9]+]]<def> = LDRrs [[GOT]], [[WRAPPER_GOT]]<kill>, 0, pred:14, pred:%noreg
+; CHECK: BLX [[WRAPPER]]<kill>
   call void @wrapper()
 
-; CHECK: %vreg6<def> = LDRi12 <cp#2>, 0, pred:14, pred:%noreg
-; CHECK: %vreg7<def> = LDRrs %vreg0, %vreg6<kill>, 0, pred:14, pred:%noreg
-; CHECK: %vreg8<def> = LDRi12 <cp#3>, 0, pred:14, pred:%noreg
-; CHECK: %vreg9<def> = ADDrr %vreg7<kill>, %vreg8<kill>, pred:14, pred:%noreg, opt:%noreg
-; CHECK: BLX %vreg9<kill>
+; CHECK: [[BINNED_POTOFF:%vreg[0-9]+]]<def> = LDRi12 <cp#2>, 0, pred:14, pred:%noreg
+; CHECK: [[BINNED_BIN:%vreg[0-9]+]]<def> = LDRrs [[POT]], [[BINNED_POTOFF]]<kill>, 0, pred:14, pred:%noreg
+; CHECK: [[BINNED_BINOFF:%vreg[0-9]+]]<def> = LDRi12 <cp#3>, 0, pred:14, pred:%noreg
+; CHECK: [[BINNED:%vreg[0-9]+]]<def> = ADDrr [[BINNED_BIN]]<kill>, [[BINNED_BINOFF]]<kill>, pred:14, pred:%noreg, opt:%noreg
+; CHECK: BLX [[BINNED]]<kill>
   call void @binned()
 
-; CHECK: %vreg10<def> = LDRi12 <cp#4>, 0, pred:14, pred:%noreg
-; CHECK: %vreg11<def> = LDRrs %vreg1, %vreg10<kill>, 0, pred:14, pred:%noreg
+; CHECK: [[GLOBAL_VAR_GOT:%vreg[0-9]+]]<def> = LDRi12 <cp#4>, 0, pred:14, pred:%noreg
+; CHECK: [[GLOBAL_VAR:%vreg[0-9]+]]<def> = LDRrs [[GOT]], [[GLOBAL_VAR_GOT]]<kill>, 0, pred:14, pred:%noreg
+; CHECK-DAG: [[VAL:%vreg[0-9]+]]<def> = LDRi12 [[GLOBAL_VAR]]<kill>, 0, pred:14, pred:%noreg
   %val = load i32, i32* @global_var
 
-; CHECK: %vreg12<def> = LDRi12 %vreg11<kill>, 0, pred:14, pred:%noreg
-; CHECK: %vreg13<def> = LDRi12 <cp#5>, 0, pred:14, pred:%noreg
-; CHECK: STRrs %vreg12<kill>, %vreg1, %vreg13<kill>, 0, pred:14, pred:%noreg
+; CHECK-DAG: [[INTERNAL_VAR_GOTOFF:%vreg[0-9]+]]<def> = LDRi12 <cp#5>, 0, pred:14, pred:%noreg
+; CHECK: STRrs [[VAL]]<kill>, [[GOT]], [[INTERNAL_VAR_GOTOFF]]<kill>, 0, pred:14, pred:%noreg
   store i32 %val, i32* @internal_var
 
   ret void
