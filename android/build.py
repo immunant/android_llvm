@@ -458,19 +458,34 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
         '-DCMAKE_PREFIX_PATH=' + cmake_prebuilt_bin_dir() + ';' + \
         '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
 
+    # http://b/62787860 - Change the ar flags, because mingw has issues with
+    # duplicates created when using the default "qc" flags.
+    windows_extra_defines['CMAKE_CXX_ARCHIVE_CREATE'] = \
+        '<CMAKE_AR> crsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
+    windows_extra_defines['CMAKE_C_ARCHIVE_CREATE'] = \
+        '<CMAKE_AR> crsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
+    windows_extra_defines['CMAKE_CXX_ARCHIVE_APPEND'] = \
+        '<CMAKE_AR> rsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
+    windows_extra_defines['CMAKE_C_ARCHIVE_APPEND'] = \
+        '<CMAKE_AR> rsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
+
+    cflags = []
+    cxxflags = []
+    ldflags = []
+
     if is_32_bit:
-        cflags = ['-m32']
-        cxxflags = ['-m32']
-        ldflags = ['-m32']
+        cflags.append('-m32')
+        cxxflags.append('-m32')
+        ldflags.append('-m32')
 
         # 32-bit libraries belong in lib/.
         windows_extra_defines['LLVM_LIBDIR_SUFFIX'] = ''
 
-        windows_extra_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
-        windows_extra_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
-        windows_extra_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
-        windows_extra_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
-        windows_extra_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
+    windows_extra_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+    windows_extra_defines['CMAKE_CXX_FLAGS'] = ' '.join(cxxflags)
+    windows_extra_defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
+    windows_extra_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
+    windows_extra_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
 
     build_llvm(targets=targets, build_dir=build_dir, install_dir=install_dir,
                extra_defines=windows_extra_defines)
