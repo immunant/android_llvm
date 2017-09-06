@@ -67,6 +67,14 @@ StringRef ARMConstantPoolValue::getModifierText() const {
     return "SBREL";
   case ARMCP::SECREL:
     return "secrel32";
+  case ARMCP::GOTOFF:
+    return "gotoff";
+  case ARMCP::GOT_BREL:
+    return "got_brel";
+  case ARMCP::POTOFF:
+    return "potoff";
+  case ARMCP::BINOFF:
+    return "binoff";
   }
   llvm_unreachable("Unknown modifier!");
 }
@@ -80,6 +88,7 @@ void
 ARMConstantPoolValue::addSelectionDAGCSEId(FoldingSetNodeID &ID) {
   ID.AddInteger(LabelId);
   ID.AddInteger(PCAdjust);
+  ID.AddInteger(Modifier);
 }
 
 bool
@@ -231,8 +240,15 @@ ARMConstantPoolSymbol::ARMConstantPoolSymbol(LLVMContext &C, StringRef s,
 
 ARMConstantPoolSymbol *ARMConstantPoolSymbol::Create(LLVMContext &C,
                                                      StringRef s, unsigned ID,
-                                                     unsigned char PCAdj) {
-  return new ARMConstantPoolSymbol(C, s, ID, PCAdj, ARMCP::no_modifier, false);
+                                                     unsigned char PCAdj,
+                                                     ARMCP::ARMCPModifier Modifier) {
+  return new ARMConstantPoolSymbol(C, s, ID, PCAdj, Modifier, false);
+}
+
+ARMConstantPoolSymbol *ARMConstantPoolSymbol::Create(LLVMContext &C,
+                                                     StringRef s,
+                                                     ARMCP::ARMCPModifier Modifier) {
+  return new ARMConstantPoolSymbol(C, s, 0, 0, Modifier, false);
 }
 
 int ARMConstantPoolSymbol::getExistingMachineCPValue(MachineConstantPool *CP,

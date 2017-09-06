@@ -29,6 +29,7 @@
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
@@ -763,6 +764,7 @@ static MCSymbolRefExpr::VariantKind
 getModifierVariantKind(ARMCP::ARMCPModifier Modifier) {
   switch (Modifier) {
   case ARMCP::no_modifier:
+  case ARMCP::BINOFF:
     return MCSymbolRefExpr::VK_None;
   case ARMCP::TLSGD:
     return MCSymbolRefExpr::VK_TLSGD;
@@ -776,6 +778,13 @@ getModifierVariantKind(ARMCP::ARMCPModifier Modifier) {
     return MCSymbolRefExpr::VK_ARM_GOT_PREL;
   case ARMCP::SECREL:
     return MCSymbolRefExpr::VK_SECREL;
+  case ARMCP::GOTOFF:
+    return MCSymbolRefExpr::VK_GOTOFF;
+  case ARMCP::GOT_BREL:
+    return MCSymbolRefExpr::VK_GOT;
+  case ARMCP::POTOFF:
+    // Unreachable, handled in EmitMachineConstantPoolValue
+    break;
   }
   llvm_unreachable("Invalid ARMCPModifier!");
 }
@@ -848,6 +857,21 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
     return EmitGlobalConstant(DL, ACPC->getPromotedGlobalInit());
   }
 
+  if (ACPV->getModifier() == ARMCP::POTOFF) {
+    // This constant pool entry refers to an offset into the POT. Compute the
+    // bin of the target and emit the correct constant offset.
+    //
+    // To calculate this offset statically here, we need the entire POT to be
+    // laid out during code generation, which requires LTO in order to generate
+    // all code at once. Building the POT after code generation (i.e. with
+    // traditional linking) would require a new static relocation.
+    auto *F = cast<Function>(cast<ARMConstantPoolConstant>(ACPV)->getGV());
+
+    auto ConstantOffset = ConstantInt::get(
+        ACPV->getType(), GetPOTIndex(F)*DL.getPointerSize());
+    return EmitGlobalConstant(DL, ConstantOffset);
+  }
+
   MCSymbol *MCSym;
   if (ACPV->isLSDA()) {
     MCSym = getCurExceptionSym();
@@ -895,6 +919,14 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
       PCRelExpr = MCBinaryExpr::createSub(PCRelExpr, DotExpr, OutContext);
     }
     Expr = MCBinaryExpr::createSub(Expr, PCRelExpr, OutContext);
+  } else if (ACPV->getModifier() == ARMCP::BINOFF) {
+    // This constant pool entry refers to an offset from the start of a
+    // pagerando bin (segment).
+    auto *F = cast<Function>(cast<ARMConstantPoolConstant>(ACPV)->getGV());
+
+    const MCSymbol *BinSym = GetSectionSymbol(F);
+    const MCExpr *BinExpr = MCSymbolRefExpr::create(BinSym, OutContext);
+    Expr = MCBinaryExpr::createSub(Expr, BinExpr, OutContext);
   }
   OutStreamer->EmitValue(Expr, Size);
 }
@@ -930,7 +962,7 @@ void ARMAsmPrinter::EmitJumpTableAddrs(const MachineInstr *MI) {
     //    .word (LBB1 - LJTI_0_0)
     const MCExpr *Expr = MCSymbolRefExpr::create(MBB->getSymbol(), OutContext);
 
-    if (isPositionIndependent() || Subtarget->isROPI())
+    if (isPositionIndependent() || Subtarget->isROPI() || Subtarget->isPIP())
       Expr = MCBinaryExpr::createSub(Expr, MCSymbolRefExpr::create(JTISymbol,
                                                                    OutContext),
                                      OutContext);

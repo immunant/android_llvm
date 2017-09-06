@@ -93,6 +93,7 @@ extern "C" void LLVMInitializeARMTarget() {
   initializeARMExecutionDomainFixPass(Registry);
   initializeARMExpandPseudoPass(Registry);
   initializeThumb2SizeReducePass(Registry);
+  initializeARMPagerandoOptimizerPass(Registry);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
@@ -184,6 +185,10 @@ static Reloc::Model getEffectiveRelocModel(const Triple &TT,
   if (*RM == Reloc::ROPI || *RM == Reloc::RWPI || *RM == Reloc::ROPI_RWPI)
     assert(TT.isOSBinFormatELF() &&
            "ROPI/RWPI currently only supported for ELF");
+
+  if (*RM == Reloc::PIP)
+    assert(TT.isOSBinFormatELF() &&
+           "PIP currently only supported for ELF");
 
   // DynamicNoPIC is only used on darwin.
   if (*RM == Reloc::DynamicNoPIC && !TT.isOSDarwin())
@@ -450,6 +455,9 @@ bool ARMPassConfig::addGlobalInstructionSelect() {
 
 void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None) {
+    if (TM->isPagerando())
+      addPass(createARMPagerandoOptimizerPass());
+
     addPass(createMLxExpansionPass());
 
     if (EnableARMLoadStoreOpt)
