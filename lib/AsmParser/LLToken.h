@@ -223,6 +223,7 @@ enum Kind {
   kw_uwtable,
   kw_writeonly,
   kw_zeroext,
+  kw_pagerando,
 
   kw_type,
   kw_opaque,
