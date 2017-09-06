@@ -288,7 +288,15 @@ bool TargetLoweringObjectFile::shouldPutJumpTableInFunctionSection(
   // in discardable section
   // FIXME: this isn't the right predicate, should be based on the MCSection
   // for the function.
-  return F.isWeakForLinker();
+  if (F.isWeakForLinker())
+    return true;
+
+  // If we place the function in a randomly located page, it's faster to have a
+  // local jump table, since a global one would require dynamic relocations.
+  if (F.isPagerando())
+    return true;
+
+  return false;
 }
 
 /// Given a mergable constant with the specified size and relocation
