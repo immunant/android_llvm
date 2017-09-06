@@ -500,6 +500,8 @@ void AArch64AsmPrinter::emitJumpTableEntry(const MachineJumpTableInfo *MJTI,
 
   if (Size == 4) {
     // .word LBB - LJTI
+    if (MF->getFunction().isPagerando())
+      report_fatal_error("32-bit Jump-table relative offsets are not supported in pagerando functions. Use -aarch64-enable-compress-jump-tables if not already enabled");
     const TargetLowering *TLI = MF->getSubtarget().getTargetLowering();
     const MCExpr *Base = TLI->getPICJumpTableRelocBaseExpr(MF, JTI, OutContext);
     Value = MCBinaryExpr::createSub(Value, Base, OutContext);

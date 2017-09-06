@@ -242,6 +242,9 @@ def AArch64adrp          : SDNode<"AArch64ISD::ADRP", SDTIntUnaryOp, []>;
 def AArch64adr           : SDNode<"AArch64ISD::ADR", SDTIntUnaryOp, []>;
 def AArch64addlow        : SDNode<"AArch64ISD::ADDlow", SDTIntBinOp, []>;
 def AArch64LOADgot       : SDNode<"AArch64ISD::LOADgot", SDTIntUnaryOp>;
+def AArch64LOADgotr      : SDNode<"AArch64ISD::LOADgotr", SDTIntBinOp>;
+def AArch64LOADpot      : SDNode<"AArch64ISD::LOADpot", SDTIntBinOp,
+                                  [SDNPHasChain]>;
 def AArch64callseq_start : SDNode<"ISD::CALLSEQ_START",
                                 SDCallSeqStart<[ SDTCisVT<0, i32>,
                                                  SDTCisVT<1, i32> ]>,
@@ -443,6 +446,15 @@ def LOADgot : Pseudo<(outs GPR64:$dst), (ins i64imm:$addr),
                      [(set GPR64:$dst, (AArch64LOADgot tglobaladdr:$addr))]>,
               Sched<[WriteLDAdr]>;
 
+let AddedComplexity = 10 in
+def LOADgotr : Pseudo<(outs GPR64:$dst), (ins GPR64:$base, i64imm:$addr),
+                      [(set GPR64:$dst, (AArch64LOADgotr GPR64:$base, tglobaladdr:$addr))]>,
+               Sched<[WriteLD]>;
+
+def LOADpot : Pseudo<(outs GPR64:$dst), (ins GPR64:$base, i64imm:$addr),
+                      [(set GPR64:$dst, (AArch64LOADpot GPR64:$base, tglobaladdr:$addr))]>,
+               Sched<[WriteLD]>;
+
 // The MOVaddr instruction should match only when the add is not folded
 // into a load or store address.
 def MOVaddr
@@ -475,6 +487,10 @@ def MOVaddrEXT
              [(set GPR64:$dst, (AArch64addlow (AArch64adrp texternalsym:$hi),
                                             texternalsym:$low))]>,
       Sched<[WriteAdrAdr]>;
+def MOVaddrBIN
+    : Pseudo<(outs GPR64:$dst), (ins GPR64:$base, i64imm:$low),
+             [(set GPR64:$dst, (add GPR64:$base, tglobaladdr:$low))]>,
+      Sched<[WriteAdr]>;
 // Normally AArch64addlow either gets folded into a following ldr/str,
 // or together with an adrp into MOVaddr above. For cases with TLS, it
 // might appear without either of them, so allow lowering it into a plain
@@ -495,6 +511,15 @@ def : Pat<(AArch64LOADgot texternalsym:$addr),
 
 def : Pat<(AArch64LOADgot tconstpool:$addr),
           (LOADgot tconstpool:$addr)>;
+
+def : Pat<(AArch64LOADgotr GPR64:$base, GPR64:$offset),
+          (LOADgotr GPR64:$base, GPR64:$offset)>;
+
+def : Pat<(AArch64LOADpot GPR64:$base, timm:$index),
+          (LOADpot GPR64:$base, imm:$index)>;
+
+def : Pat<(AArch64LOADpot GPR64:$base, tconstpool:$index),
+          (LOADpot GPR64:$base, tconstpool:$index)>;
 
 // 32-bit jump table destination is actually only 2 instructions since we can
 // use the table itself as a PC-relative base. But optimization occurs after
@@ -930,6 +955,13 @@ def : Pat<(AArch64WrapperLarge tjumptable:$g3, tjumptable:$g2,
                                   tjumptable:$g1, 16),
                           tjumptable:$g2, 32),
                   tjumptable:$g3, 48)>;
+
+def : Pat<(AArch64WrapperLarge texternalsym:$g3, texternalsym:$g2,
+                             texternalsym:$g1, texternalsym:$g0),
+          (MOVKXi (MOVKXi (MOVKXi (MOVZXi texternalsym:$g0, 0),
+                                  texternalsym:$g1, 16),
+                          texternalsym:$g2, 32),
+                  texternalsym:$g3, 48)>;
 
 
 //===----------------------------------------------------------------------===//

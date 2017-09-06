@@ -1497,7 +1497,7 @@ bool AArch64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   unsigned char OpFlags = Subtarget.ClassifyGlobalReference(GV, TM);
   const unsigned char MO_NC = AArch64II::MO_NC;
 
-  if ((OpFlags & AArch64II::MO_GOT) != 0) {
+  if (OpFlags & AArch64II::MO_GOT) {
     BuildMI(MBB, MI, DL, get(AArch64::LOADgot), Reg)
         .addGlobalAddress(GV, 0, OpFlags);
     BuildMI(MBB, MI, DL, get(AArch64::LDRXui), Reg)
@@ -4743,11 +4743,20 @@ ArrayRef<std::pair<unsigned, const char *>>
 AArch64InstrInfo::getSerializableBitmaskMachineOperandTargetFlags() const {
   using namespace AArch64II;
 
-  static const std::pair<unsigned, const char *> TargetFlags[] = {
-      {MO_COFFSTUB, "aarch64-coffstub"},
-      {MO_GOT, "aarch64-got"},   {MO_NC, "aarch64-nc"},
-      {MO_TLS, "aarch64-tls"},   {MO_DLLIMPORT, "aarch64-dllimport"}};
-  return makeArrayRef(TargetFlags);
+  if (Subtarget.isTargetCOFF()) {
+    static const std::pair<unsigned, const char *> TargetFlags[] = {
+        {MO_COFFSTUB, "aarch64-coffstub"},
+        {MO_GOT, "aarch64-got"},   {MO_NC, "aarch64-nc"},
+        {MO_TLS, "aarch64-tls"},   {MO_DLLIMPORT, "aarch64-dllimport"}};
+    return makeArrayRef(TargetFlags);
+  } else {
+    static const std::pair<unsigned, const char *> TargetFlags[] = {
+        {MO_GOTOFF, "aarch64-gotoff"}, {MO_POT, "aarch64-pot"},
+        {MO_SEC, "aarch64-sec"},
+        {MO_GOT, "aarch64-got"},   {MO_NC, "aarch64-nc"},
+        {MO_TLS, "aarch64-tls"}};
+    return makeArrayRef(TargetFlags);
+  }
 }
 
 ArrayRef<std::pair<MachineMemOperand::Flags, const char *>>

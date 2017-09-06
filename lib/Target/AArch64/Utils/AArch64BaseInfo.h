@@ -556,15 +556,35 @@ namespace AArch64II {
     /// by-12-bits instruction.
     MO_HI12 = 7,
 
+    /// MO_PLATFORM mask - This mask indicates which target flag bits are used
+    /// for platform-specific options.
+    MO_PLATFORM = 0x18,
+
     /// MO_COFFSTUB - On a symbol operand "FOO", this indicates that the
     /// reference is actually to the ".refptrp.FOO" symbol.  This is used for
     /// stub symbols on windows.
-    MO_COFFSTUB = 0x8,
+    MO_COFFSTUB = 0x08,
 
-    /// MO_GOT - This flag indicates that a symbol operand represents the
-    /// address of the GOT entry for the symbol, rather than the address of
-    /// the symbol itself.
-    MO_GOT = 0x10,
+    /// MO_DLLIMPORT - On a symbol operand, this represents that the reference
+    /// to the symbol is for an import stub.  This is used for DLL import
+    /// storage class indication on Windows.
+    MO_DLLIMPORT = 0x10,
+
+    /// MO_GOTOFF - This platform option indicates that the symbol operand is
+    /// the offset from the GOT base to the symbol. This is used for
+    /// GOT-relative computation of global addresses.
+    MO_GOTOFF = 0x08,
+
+    /// MO_POT - This platform option indicates that the symbol operand
+    /// represents the index of the Page Offset Table entry referring to the
+    /// page that contains the symbol. This option is used for pagerando
+    /// section-relative addressing.
+    MO_POT = 0x10,
+
+    /// MO_SEC - This platform option represents the offset from a section
+    /// beginning to the referenced symbol. This option is used for pagerando
+    /// section-relative addressing.
+    MO_SEC = 0x18,
 
     /// MO_NC - Indicates whether the linker is expected to check the symbol
     /// reference for overflow. For example in an ADRP/ADD pair of relocations
@@ -577,10 +597,10 @@ namespace AArch64II {
     /// referee will affect interpretation.
     MO_TLS = 0x40,
 
-    /// MO_DLLIMPORT - On a symbol operand, this represents that the reference
-    /// to the symbol is for an import stub.  This is used for DLL import
-    /// storage class indication on Windows.
-    MO_DLLIMPORT = 0x80,
+    /// MO_GOT - This flag indicates that a symbol operand represents the
+    /// address of the GOT entry for the symbol, rather than the address of
+    /// the symbol itself.
+    MO_GOT = 0x80,
   };
 } // end namespace AArch64II
 

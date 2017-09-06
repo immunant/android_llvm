@@ -207,6 +207,9 @@ AArch64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   if (MF.getFunction().hasFnAttribute(Attribute::SpeculativeLoadHardening))
     markSuperRegs(Reserved, AArch64::W16);
 
+  if (MF.getTarget().isPagerando())
+    markSuperRegs(Reserved, AArch64::W20); // POT register
+
   assert(checkAllSuperRegsMarked(Reserved));
   return Reserved;
 }
@@ -499,7 +502,8 @@ unsigned AArch64RegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
     return 32 - 1                                   // XZR/SP
               - (TFI->hasFP(MF) || TT.isOSDarwin()) // FP
               - MF.getSubtarget<AArch64Subtarget>().getNumXRegisterReserved()
-              - hasBasePointer(MF);  // X19
+              - hasBasePointer(MF)  // X19
+              - MF.getTarget().isPagerando(); // X20 reserved as POT register
   case AArch64::FPR8RegClassID:
   case AArch64::FPR16RegClassID:
   case AArch64::FPR32RegClassID:

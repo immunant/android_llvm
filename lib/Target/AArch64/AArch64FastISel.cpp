@@ -458,6 +458,13 @@ unsigned AArch64FastISel::materializeGV(const GlobalValue *GV) {
   if (GV->isThreadLocal())
     return 0;
 
+  auto F = dyn_cast<Function>(GV);
+  if (MF->getFunction().isPagerando() ||
+      (F && F->isPagerando())) {
+    // TODO(sjc): Implement PIP
+    return 0;
+  }
+
   // MachO still uses GOT for large code-model accesses, but ELF requires
   // movz/movk sequences, which FastISel doesn't handle yet.
   if (!Subtarget->useSmallAddressing() && !Subtarget->isTargetMachO())
@@ -3180,6 +3187,11 @@ bool AArch64FastISel::fastLowerCall(CallLoweringInfo &CLI) {
 
   // Let SDISel handle vararg functions.
   if (IsVarArg)
+    return false;
+
+  // Can't handle PIP
+  const Function *F = dyn_cast_or_null<Function>(Callee);
+  if (FuncInfo.MF->getFunction().isPagerando() || (F && F->isPagerando()))
     return false;
 
   // FIXME: Only handle *simple* calls for now.
