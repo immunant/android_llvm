@@ -957,6 +957,7 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::ConstantPool,  MVT::i32,   Custom);
   setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
   setOperationAction(ISD::BlockAddress, MVT::i32, Custom);
+  setOperationAction(ISD::PAGE_OFFSET_TABLE, MVT::i32, Custom);
 
   setOperationAction(ISD::TRAP, MVT::Other, Legal);
 
@@ -1150,6 +1151,9 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FMINNAN, MVT::v4f32, Legal);
     setOperationAction(ISD::FMAXNAN, MVT::v4f32, Legal);
   }
+
+  if (Subtarget->isPIP())
+    setPOTBaseRegister(ARM::R9);
 
   // We have target-specific dag combine patterns for the following nodes:
   // ARMISD::VMOVRRD  - No need to call setTargetDAGCombine
@@ -2012,7 +2016,39 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   auto PtrVt = getPointerTy(DAG.getDataLayout());
 
-  if (Subtarget->genLongCalls()) {
+  auto F = dyn_cast_or_null<Function>(GV);
+  if (auto *GA = dyn_cast_or_null<GlobalAlias>(GV)) {
+    if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+      F = dyn_cast<Function>(Aliasee);
+  }
+  bool UsePIPAddressing = MF.getFunction().isPagerando() ||
+                          (F && F->isPagerando());
+  if (UsePIPAddressing) {
+    if (GV) {
+      Callee = LowerGlobalAddressELF(Callee, DAG);
+    } else if (ExternalSymbolSDNode *S=dyn_cast<ExternalSymbolSDNode>(Callee)) {
+      SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, dl,
+                                     DAG.getVTList(MVT::i32, MVT::Other));
+      SDValue GOTAddr = DAG.getLoad(
+          PtrVt, dl, POTValue.getValue(1), POTValue,
+          MachinePointerInfo::getPOT(DAG.getMachineFunction()));
+
+      ARMConstantPoolValue *CPV =
+        ARMConstantPoolSymbol::Create(*DAG.getContext(), S->getSymbol(),
+                                      ARMCP::GOT_BREL);
+      // Get the address of the callee into a register
+      SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVt, 4);
+      CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
+      SDValue Offset = DAG.getLoad(
+          PtrVt, dl, DAG.getEntryNode(), CPAddr,
+          MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+
+      Callee = DAG.getNode(ISD::ADD, dl, PtrVt, GOTAddr, Offset);
+      Callee =
+        DAG.getLoad(PtrVt, dl, DAG.getEntryNode(), Callee,
+                    MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    }
+  } else if (Subtarget->genLongCalls()) {
     assert((!isPositionIndependent() || Subtarget->isTargetWindows()) &&
            "long-calls codegen is not position independent!");
     // Handle a global address or an external symbol. If it's not one of
@@ -2338,6 +2374,22 @@ ARMTargetLowering::IsEligibleForTailCallOptimization(SDValue Callee,
     if (GV->hasExternalWeakLinkage() &&
         (!TT.isOSWindows() || TT.isOSBinFormatELF() || TT.isOSBinFormatMachO()))
       return false;
+  }
+
+  // Calls to pagerando functions from non-pagerando (legacy) functions must
+  // initialize the POT register, which is callee-saved. Thus we need to restore
+  // the original value of the POT register after the call and cannot tail call.
+  if (!CallerF.isPagerando()) {
+    if (auto *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
+      auto *GV = G->getGlobal();
+      auto F = dyn_cast<Function>(GV);
+      if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+        if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+          F = dyn_cast<Function>(Aliasee);
+      }
+      if (F && F->isPagerando())
+        return false;
+    }
   }
 
   // Check that the call results are passed in the same way.
@@ -2770,7 +2822,8 @@ SDValue ARMTargetLowering::LowerBlockAddress(SDValue Op,
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
   SDValue CPAddr;
-  bool IsPositionIndependent = isPositionIndependent() || Subtarget->isROPI();
+  bool IsPositionIndependent = isPositionIndependent() || Subtarget->isROPI() ||
+                               Subtarget->isPIP();
   if (!IsPositionIndependent) {
     CPAddr = DAG.getTargetConstantPool(BA, PtrVT, 4);
   } else {
@@ -3036,6 +3089,44 @@ ARMTargetLowering::LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const {
   llvm_unreachable("bogus TLS model");
 }
 
+SDValue
+ARMTargetLowering::LowerPOT(SDValue Op, SelectionDAG &DAG) const {
+  assert(Subtarget->isPIP() &&
+         "POT lowering only supported with PIP relocation model");
+
+  SDLoc dl(Op);
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  MachineFunction &MF = DAG.getMachineFunction();
+  unsigned POTReg = getPOTBaseRegister();
+  if (MF.getFunction().isPagerando()) {
+    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, POTReg, PtrVT);
+  } else {
+    // Need to materialize the POT address
+    ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
+    unsigned ARMPCLabelIndex = AFI->createPICLabelUId();
+    unsigned PCAdj = Subtarget->isThumb() ? 4 : 8;
+    ARMConstantPoolValue *CPV = ARMConstantPoolSymbol::Create(
+        *DAG.getContext(), "_PAGE_OFFSET_TABLE_", ARMPCLabelIndex, PCAdj,
+        ARMCP::GOT_PREL);
+    SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
+    CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
+    SDValue Result = DAG.getLoad(
+        PtrVT, dl, DAG.getEntryNode(), CPAddr,
+        MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+    SDValue Chain = Result.getValue(1);
+    SDValue PICLabel = DAG.getConstant(ARMPCLabelIndex, dl, MVT::i32);
+    SDValue POTAddress = DAG.getNode(ARMISD::PIC_ADD, dl, PtrVT, Result, PICLabel);
+    POTAddress =
+      DAG.getLoad(PtrVT, dl, Chain, POTAddress,
+                  MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    Chain = POTAddress.getValue(1);
+
+    Chain = DAG.getCopyToReg(Chain, dl, POTReg, POTAddress);
+    SDValue Ops[2] = { POTAddress, Chain };
+    return DAG.getMergeValues(Ops, dl);
+  }
+}
+
 /// Return true if all users of V are within function F, looking through
 /// ConstantExprs.
 static bool allUsersAreInFunction(const Value *V, const Function *F) {
@@ -3212,13 +3303,67 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   const TargetMachine &TM = getTargetMachine();
   bool IsRO = isReadOnly(GV);
+  bool UseGOT = !TM.shouldAssumeDSOLocal(*GV->getParent(), GV);
 
   // promoteToConstantPool only if not generating XO text section
-  if (TM.shouldAssumeDSOLocal(*GV->getParent(), GV) && !Subtarget->genExecuteOnly())
+  if (!UseGOT && !Subtarget->genExecuteOnly())
     if (SDValue V = promoteToConstantPool(GV, DAG, PtrVT, dl))
       return V;
 
-  if (isPositionIndependent()) {
+  MachineFunction &MF = DAG.getMachineFunction();
+  auto F = dyn_cast<Function>(GV);
+  if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+    if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+      F = dyn_cast<Function>(Aliasee);
+  }
+  bool pagerandoBinTarget = F && F->isPagerando();
+  if (MF.getFunction().isPagerando() || pagerandoBinTarget) {
+    // Position-independent pages, access through the POT
+    // TODO: Add support for MOVT/W
+
+    SDValue BaseAddr;
+    ARMConstantPoolValue *OffsetCPV;
+    SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, dl,
+                                   DAG.getVTList(MVT::i32, MVT::Other));
+    SDValue Chain = POTValue.getValue(1);
+    if (pagerandoBinTarget) {
+      ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
+          F, ARMCP::POTOFF);
+      SDValue CPAddr = DAG.getTargetConstantPool(CPV, PtrVT, 4);
+      CPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, CPAddr);
+      SDValue POTOffset = DAG.getLoad(
+          PtrVT, dl, DAG.getEntryNode(), CPAddr,
+          MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+
+      SDValue POTAddr = DAG.getNode(ISD::ADD, dl, PtrVT, POTValue, POTOffset);
+      BaseAddr = DAG.getLoad(
+          PtrVT, dl, Chain, POTAddr,
+          MachinePointerInfo::getPOT(DAG.getMachineFunction()));
+
+      OffsetCPV =
+        ARMConstantPoolConstant::Create(F, ARMCP::BINOFF);
+    } else {
+      BaseAddr = DAG.getLoad(
+          PtrVT, dl, Chain, POTValue,
+          MachinePointerInfo::getPOT(DAG.getMachineFunction()));
+
+      OffsetCPV =
+        ARMConstantPoolConstant::Create(GV, UseGOT ? ARMCP::GOT_BREL : ARMCP::GOTOFF);
+    }
+
+    SDValue OffsetCPAddr = DAG.getTargetConstantPool(OffsetCPV, PtrVT, 4);
+    OffsetCPAddr = DAG.getNode(ARMISD::Wrapper, dl, MVT::i32, OffsetCPAddr);
+    SDValue Offset = DAG.getLoad(
+        PtrVT, dl, DAG.getEntryNode(), OffsetCPAddr,
+        MachinePointerInfo::getConstantPool(DAG.getMachineFunction()));
+
+    SDValue Result = DAG.getNode(ISD::ADD, dl, PtrVT, BaseAddr, Offset);
+    if (UseGOT)
+      Result =
+          DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), Result,
+                      MachinePointerInfo::getGOT(DAG.getMachineFunction()));
+    return Result;
+  } else if (isPositionIndependent() || Subtarget->isPIP()) {
     bool UseGOT_PREL = !TM.shouldAssumeDSOLocal(*GV->getParent(), GV);
     SDValue G = DAG.getTargetGlobalAddress(GV, dl, PtrVT, 0,
                                            UseGOT_PREL ? ARMII::MO_GOT : 0);
@@ -3275,6 +3420,8 @@ SDValue ARMTargetLowering::LowerGlobalAddressDarwin(SDValue Op,
                                                     SelectionDAG &DAG) const {
   assert(!Subtarget->isROPI() && !Subtarget->isRWPI() &&
          "ROPI/RWPI not currently supported for Darwin");
+  assert(!Subtarget->isPIP() &&
+         "PIP not currently supported for Darwin");
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   SDLoc dl(Op);
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
@@ -3303,6 +3450,8 @@ SDValue ARMTargetLowering::LowerGlobalAddressWindows(SDValue Op,
          "Windows on ARM expects to use movw/movt");
   assert(!Subtarget->isROPI() && !Subtarget->isRWPI() &&
          "ROPI/RWPI not currently supported for Windows");
+  assert(!Subtarget->isPIP() &&
+         "PIP not currently supported for Windows");
 
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   const ARMII::TOF TargetFlags =
@@ -4803,7 +4952,7 @@ SDValue ARMTargetLowering::LowerBR_JT(SDValue Op, SelectionDAG &DAG) const {
     return DAG.getNode(ARMISD::BR2_JT, dl, MVT::Other, Chain,
                        Addr, Op.getOperand(2), JTI);
   }
-  if (isPositionIndependent() || Subtarget->isROPI()) {
+  if (isPositionIndependent() || Subtarget->isROPI() || Subtarget->isPIP()) {
     Addr =
         DAG.getLoad((EVT)MVT::i32, dl, Chain, Addr,
                     MachinePointerInfo::getJumpTable(DAG.getMachineFunction()));
@@ -8080,6 +8229,7 @@ SDValue ARMTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   case ISD::BlockAddress:  return LowerBlockAddress(Op, DAG);
   case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
   case ISD::GlobalTLSAddress: return LowerGlobalTLSAddress(Op, DAG);
+  case ISD::PAGE_OFFSET_TABLE: return LowerPOT(Op, DAG);
   case ISD::SELECT:        return LowerSELECT(Op, DAG);
   case ISD::SELECT_CC:     return LowerSELECT_CC(Op, DAG);
   case ISD::BRCOND:        return LowerBRCOND(Op, DAG);
@@ -8249,6 +8399,8 @@ void ARMTargetLowering::SetupEntryBlockForSjLj(MachineInstr &MI,
                                                int FI) const {
   assert(!Subtarget->isROPI() && !Subtarget->isRWPI() &&
          "ROPI/RWPI not currently supported with SjLj");
+  assert(!Subtarget->isPIP() &&
+         "FIXME: PIP not currently supported with SjLj");
   const TargetInstrInfo *TII = Subtarget->getInstrInfo();
   DebugLoc dl = MI.getDebugLoc();
   MachineFunction *MF = MBB->getParent();

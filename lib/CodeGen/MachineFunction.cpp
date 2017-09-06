@@ -1058,6 +1058,11 @@ unsigned MachineConstantPool::getConstantPoolIndex(MachineConstantPoolValue *V,
   return Constants.size()-1;
 }
 
+void MachineConstantPool::eraseIndex(unsigned Index) {
+  assert(Index < Constants.size() && "Index out of range");
+  Constants.erase(Constants.begin()+Index);
+}
+
 void MachineConstantPool::print(raw_ostream &OS) const {
   if (Constants.empty()) return;
 

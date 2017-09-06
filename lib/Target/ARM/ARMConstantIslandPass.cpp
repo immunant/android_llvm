@@ -215,7 +215,7 @@ namespace {
     bool isThumb;
     bool isThumb1;
     bool isThumb2;
-    bool isPositionIndependentOrROPI;
+    bool isPositionIndependent_ROPI_PIP;
 
   public:
     static char ID;
@@ -346,8 +346,9 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
 
   STI = &static_cast<const ARMSubtarget &>(MF->getSubtarget());
   TII = STI->getInstrInfo();
-  isPositionIndependentOrROPI =
-      STI->getTargetLowering()->isPositionIndependent() || STI->isROPI();
+  isPositionIndependent_ROPI_PIP =
+      STI->getTargetLowering()->isPositionIndependent() ||
+      STI->isROPI() || STI->isPIP();
   AFI = MF->getInfo<ARMFunctionInfo>();
 
   isThumb = AFI->isThumbFunction();
@@ -804,6 +805,7 @@ initializeFunctionInfo(const std::vector<MachineInstr*> &CPEMIs) {
           case ARM::t2LDRpci:
           case ARM::t2LDRHpci:
           case ARM::t2LDRBpci:
+          case ARM::t2PLDpci:
             Bits = 12;  // +-offset_12
             NegOk = true;
             break;
@@ -2179,7 +2181,7 @@ bool ARMConstantIslands::optimizeThumb2JumpTables() {
       if (registerDefinedBetween(BaseReg, Load->getNextNode(), MBB->end(), TRI))
         continue;
 
-      if (isPositionIndependentOrROPI) {
+      if (isPositionIndependent_ROPI_PIP) {
         MachineInstr *Add = Load->getNextNode();
         if (Add->getOpcode() != ARM::tADDrr ||
             Add->getOperand(2).getReg() != BaseReg ||
