@@ -50,7 +50,7 @@ public:
   };
 
   /// A mapping of AllocaInsts to their required SSP layout.
-  using SSPLayoutMap = ValueMap<const AllocaInst *, SSPLayoutKind>;
+  using SSPLayoutMap = DenseMap<const AllocaInst *, SSPLayoutKind>;
 
 private:
   const TargetMachine *TM = nullptr;
@@ -127,8 +127,6 @@ public:
 
   // Return true if StackProtector is supposed to be handled by SelectionDAG.
   bool shouldEmitSDCheck(const BasicBlock &BB) const;
-
-  void adjustForColoring(const AllocaInst *From, const AllocaInst *To);
 
   bool runOnFunction(Function &Fn) override;
 };

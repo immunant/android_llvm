@@ -1481,6 +1481,28 @@ static void preassignSwiftErrorRegs(const TargetLowering *TLI,
   }
 }
 
+static void intializeStackProtectorMap(StackProtector &SP, MachineFrameInfo &MFI) {
+  for (int i = 0, e = MFI.getObjectIndexEnd(); i != e; ++i) {
+    if (MFI.isDeadObjectIndex(i))
+      continue;
+
+    switch (SP.getSSPLayout(MFI.getObjectAllocation(i))) {
+    case StackProtector::SSPLK_None:
+      continue;
+    case StackProtector::SSPLK_SmallArray:
+      MFI.setObjectSSPLayout(i, MachineFrameInfo::SSPLK_SmallArray);
+      continue;
+    case StackProtector::SSPLK_AddrOf:
+      MFI.setObjectSSPLayout(i, MachineFrameInfo::SSPLK_AddrOf);
+      continue;
+    case StackProtector::SSPLK_LargeArray:
+      MFI.setObjectSSPLayout(i, MachineFrameInfo::SSPLK_LargeArray);
+      continue;
+    }
+    llvm_unreachable("Unexpected SSPLayoutKind.");
+  }
+}
+
 void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
   FastISelFailed = false;
   // Initialize the Fast-ISel state, if needed.
@@ -1711,11 +1733,14 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
       FastIS->recomputeInsertPt();
     }
 
-    if (getAnalysis<StackProtector>().shouldEmitSDCheck(*LLVMBB)) {
+    StackProtector &SP = getAnalysis<StackProtector>();
+    if (SP.shouldEmitSDCheck(*LLVMBB)) {
       bool FunctionBasedInstrumentation =
           TLI->getSSPStackGuardCheck(*Fn.getParent());
       SDB->SPDescriptor.initialize(LLVMBB, FuncInfo->MBBMap[LLVMBB],
                                    FunctionBasedInstrumentation);
+
+      intializeStackProtectorMap(SP, MF->getFrameInfo());
     }
 
     if (Begin != BI)
