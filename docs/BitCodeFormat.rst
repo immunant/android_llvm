@@ -1057,6 +1057,7 @@ The integer codes are mapped to well-known attributes as follows.
 * code 56: ``nocf_check``
 * code 57: ``optforfuzzing``
 * code 58: ``shadowcallstack``
+* code 59: ``pagerando``
 
 .. note::
   The ``allocsize`` attribute has a special encoding for its arguments. Its two

@@ -1613,6 +1613,10 @@ example:
 
     If an argmemonly function reads or writes memory other than the pointer
     arguments, or has other side-effects, the behavior is undefined.
+``pagerando``
+    This attribute indicates that the function is compatible with pagerando and
+    will be located in a section which the dynamic loader can place at an
+    independent offset from any other section in the binary.
 ``returns_twice``
     This attribute indicates that this function can return twice. The C
     ``setjmp`` is an example of such a function. The compiler disables

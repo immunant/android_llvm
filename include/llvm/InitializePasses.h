@@ -292,6 +292,7 @@ void initializeObjCARCOptPass(PassRegistry&);
 void initializeOptimizationRemarkEmitterWrapperPassPass(PassRegistry&);
 void initializeOptimizePHIsPass(PassRegistry&);
 void initializePAEvalPass(PassRegistry&);
+void initializePagerandoWrappersPass(PassRegistry&);
 void initializePEIPass(PassRegistry&);
 void initializePGOIndirectCallPromotionLegacyPassPass(PassRegistry&);
 void initializePGOInstrumentationGenLegacyPassPass(PassRegistry&);

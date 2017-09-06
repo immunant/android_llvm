@@ -581,6 +581,12 @@ public:
            AttributeSets.hasParamAttribute(1, Attribute::StructRet);
   }
 
+  /// True if the function is compatible with Pagerando and should be placed
+  /// into a randomized bin.
+  bool isPagerando() const {
+    return hasFnAttribute(Attribute::Pagerando);
+  }
+
   /// Determine if the parameter or return value is marked with NoAlias
   /// attribute.
   bool returnDoesNotAlias() const {
