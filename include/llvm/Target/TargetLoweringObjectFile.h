@@ -207,6 +207,10 @@ public:
     return nullptr;
   }
 
+  virtual MCSymbol *getGlobalOffsetTableSymbol() const {
+    return nullptr;
+  }
+
 protected:
   virtual MCSection *SelectSectionForGlobal(const GlobalObject *GO,
                                             SectionKind Kind,

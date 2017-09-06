@@ -676,6 +676,12 @@ MCSection *TargetLoweringObjectFileELF::SelectSectionForGlobal(
     Flags |= ELF::SHF_LINK_ORDER;
   }
 
+  // Pagerando is incompatible with unique sections.
+  if (auto *F = dyn_cast<Function>(GO)) {
+    if (F->isPagerando())
+      EmitUniqueSection = false;
+  }
+
   MCSectionELF *Section = selectELFSectionForGlobal(
       getContext(), GO, Kind, getMangler(), TM, EmitUniqueSection, Flags,
       &NextUniqueID, AssociatedSymbol);
@@ -700,6 +706,11 @@ MCSection *TargetLoweringObjectFileELF::getSectionForJumpTable(
 
 bool TargetLoweringObjectFileELF::shouldPutJumpTableInFunctionSection(
     bool UsesLabelDifference, const Function &F) const {
+  // If we place the function in a randomly located page, it's faster to have a
+  // local jump table, since a global one would require dynamic relocations.
+  if (F.isPagerando())
+    return true;
+
   // We can always create relative relocations, so use another section
   // that can be marked non-executable.
   return false;
@@ -801,6 +812,10 @@ MCSection *TargetLoweringObjectFileELF::getSectionForCommandLines() const {
   // same name.
   return getContext().getELFSection(".GCC.command.line", ELF::SHT_PROGBITS,
                                     ELF::SHF_MERGE | ELF::SHF_STRINGS, 1, "");
+}
+
+MCSymbol *TargetLoweringObjectFileELF::getGlobalOffsetTableSymbol() const {
+  return getContext().getOrCreateSymbol("_GLOBAL_OFFSET_TABLE_");
 }
 
 void
