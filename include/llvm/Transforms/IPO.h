@@ -266,6 +266,10 @@ ModulePass *createSampleProfileLoaderPass(StringRef Name);
 ModulePass *createWriteThinLTOBitcodePass(raw_ostream &Str,
                                           raw_ostream *ThinLinkOS = nullptr);
 
+/// \brief This pass creates Pagerando entry wrappers that properly set up the
+/// POT base register.
+ModulePass *createPagerandoWrappersPass();
+
 } // End llvm namespace
 
 #endif

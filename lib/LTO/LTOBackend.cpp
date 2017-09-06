@@ -262,6 +262,8 @@ static void runOldPMPasses(Config &Conf, Module &Mod, TargetMachine *TM,
     PMB.populateThinLTOPassManager(passes);
   else
     PMB.populateLTOPassManager(passes);
+  if (TM->isPagerando())
+    passes.add(createPagerandoWrappersPass());
   passes.run(Mod);
 }
 

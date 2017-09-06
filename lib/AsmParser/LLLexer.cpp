@@ -674,6 +674,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(uwtable);
   KEYWORD(writeonly);
   KEYWORD(zeroext);
+  KEYWORD(pagerando);
 
   KEYWORD(type);
   KEYWORD(opaque);

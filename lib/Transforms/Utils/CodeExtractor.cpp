@@ -687,6 +687,7 @@ Function *CodeExtractor::constructFunction(const ValueSet &inputs,
       case Attribute::OptForFuzzing:
       case Attribute::OptimizeNone:
       case Attribute::OptimizeForSize:
+      case Attribute::Pagerando:
       case Attribute::SafeStack:
       case Attribute::SanitizeAddress:
       case Attribute::SanitizeMemory:
