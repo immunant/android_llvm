@@ -13,9 +13,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/Statistic.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/CodeGen/CommandFlags.def"
+#include "llvm/CodeGen/PagerandoBinning.h"
 #include "llvm/Config/config.h" // plugin-api.h requires HAVE_STDINT_H
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DiagnosticPrinter.h"
@@ -114,6 +116,11 @@ static ld_plugin_get_symbols get_symbols = nullptr;
 static ld_plugin_add_input_file add_input_file = nullptr;
 static ld_plugin_set_extra_library_path set_extra_library_path = nullptr;
 static ld_plugin_get_view get_view = nullptr;
+static ld_plugin_get_input_section_count get_input_section_count = nullptr;
+static ld_plugin_get_input_section_type get_input_section_type = nullptr;
+static ld_plugin_get_input_section_name get_input_section_name = nullptr;
+static ld_plugin_allow_unique_segment_for_sections allow_unique_segments = nullptr;
+static ld_plugin_unique_segment_for_sections unique_segments = nullptr;
 static bool IsExecutable = false;
 static Optional<Reloc::Model> RelocationModel = None;
 static std::string output_name = "";
@@ -197,6 +204,9 @@ namespace options {
   static std::string sample_profile;
   // New pass manager
   static bool new_pass_manager = false;
+  // Pagerando section prefix
+  static std::string PagerandoSectionPrefix = std::string(".text")
+                                              + PagerandoBinnerBase::SectionPrefix;
 
   static void process_plugin_option(const char *opt_)
   {
@@ -275,6 +285,7 @@ namespace options {
 static ld_plugin_status claim_file_hook(const ld_plugin_input_file *file,
                                         int *claimed);
 static ld_plugin_status all_symbols_read_hook(void);
+static ld_plugin_status new_input_hook(const ld_plugin_input_file *file);
 static ld_plugin_status cleanup_hook(void);
 
 extern "C" ld_plugin_status onload(ld_plugin_tv *tv);
@@ -388,6 +399,28 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
       get_wrap_symbols =
           (ld_plugin_get_wrap_symbols)tv->tv_u.tv_message;
       break;
+    case LDPT_GET_INPUT_SECTION_COUNT:
+      get_input_section_count = tv->tv_u.tv_get_input_section_count;
+      break;
+    case LDPT_GET_INPUT_SECTION_TYPE:
+      get_input_section_type = tv->tv_u.tv_get_input_section_type;
+      break;
+    case LDPT_GET_INPUT_SECTION_NAME:
+      get_input_section_name = tv->tv_u.tv_get_input_section_name;
+      break;
+    case LDPT_ALLOW_UNIQUE_SEGMENT_FOR_SECTIONS:
+      allow_unique_segments = tv->tv_u.tv_allow_unique_segment_for_sections;
+      break;
+    case LDPT_UNIQUE_SEGMENT_FOR_SECTIONS:
+      unique_segments = tv->tv_u.tv_unique_segment_for_sections;
+      break;
+    case LDPT_REGISTER_NEW_INPUT_HOOK: {
+      ld_plugin_register_new_input callback;
+      callback = tv->tv_u.tv_register_new_input;
+
+      if (callback(new_input_hook) != LDPS_OK)
+        return LDPS_ERR;
+    } break;
     default:
       break;
     }
@@ -412,6 +445,12 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
   if (!release_input_file) {
     message(LDPL_ERROR, "release_input_file not passed to LLVMgold.");
     return LDPS_ERR;
+  }
+
+  if (RelocationModel == Reloc::PIP) {
+    // We need unique section->segment mapping to implement independently
+    // loadable segments
+    allow_unique_segments();
   }
 
   return LDPS_OK;
@@ -1053,6 +1092,49 @@ static ld_plugin_status all_symbols_read_hook(void) {
   }
 
   return Ret;
+}
+
+static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
+  if (RelocationModel != Reloc::PIP)
+    return LDPS_OK;
+
+  unsigned int count;
+  if (get_input_section_count(file->handle, &count) != LDPS_OK) {
+    // Not an ELF file
+    return LDPS_OK;
+  }
+
+  struct ld_plugin_section cur_section;
+  cur_section.handle = file->handle;
+  for (unsigned i = 0; i < count; ++i) {
+    cur_section.shndx = i;
+    unsigned int type;
+    if (get_input_section_type(cur_section, &type) != LDPS_OK)
+      message(LDPL_FATAL, "Failed to get input section type");
+    if (type != ELF::SHT_PROGBITS)
+      continue;
+
+    char *name;
+    if (get_input_section_name(cur_section, &name) != LDPS_OK)
+      message(LDPL_FATAL, "Failed to get input section type");
+
+    StringRef name_str(name);
+    bool is_bin = name_str.startswith(options::PagerandoSectionPrefix);
+    bool is_pot = name_str.equals(".pot");
+    if (is_bin || is_pot) {
+      unsigned flags = ELF::PF_R | ELF::PF_RAND_ADDR |
+                       (is_bin ? ELF::PF_X : ELF::PF_W);
+      unique_segments(name, /* segment_name */
+                      flags, /* p_flags */
+                      4096, /* aligment */
+                      &cur_section, /* section_list */
+                      1); /* num_sections */
+    }
+    // unique_segment_for_sections stores the passed-in name pointer, so we have
+    // to leak name here
+  }
+
+  return LDPS_OK;
 }
 
 static ld_plugin_status cleanup_hook(void) {

@@ -1166,6 +1166,7 @@ enum : unsigned {
   PF_X = 1,                // Execute
   PF_W = 2,                // Write
   PF_R = 4,                // Read
+  PF_RAND_ADDR = 0x00100000, // Random segment base address
   PF_MASKOS = 0x0ff00000,  // Bits for operating system-specific semantics.
   PF_MASKPROC = 0xf0000000 // Bits for processor-specific semantics.
 };
