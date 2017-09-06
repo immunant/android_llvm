@@ -70,6 +70,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeMachineSinkingPass(Registry);
   initializeMachineVerifierPassPass(Registry);
   initializeOptimizePHIsPass(Registry);
+  initializePGOBinnerPass(Registry);
   initializePEIPass(Registry);
   initializePHIEliminationPass(Registry);
   initializePatchableFunctionPass(Registry);
@@ -88,6 +89,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeSafeStackLegacyPassPass(Registry);
   initializeScalarizeMaskedMemIntrinPass(Registry);
   initializeShrinkWrapPass(Registry);
+  initializeSimpleBinnerPass(Registry);
   initializeSlotIndexesPass(Registry);
   initializeStackColoringPass(Registry);
   initializeStackMapLivenessPass(Registry);
