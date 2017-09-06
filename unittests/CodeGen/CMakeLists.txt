@@ -19,6 +19,7 @@ add_llvm_unittest(CodeGenTests
   MachineInstrTest.cpp
   MachineOperandTest.cpp
   ScalableVectorMVTsTest.cpp
+  PagerandoBinningFirstFitTest.cpp
   )
 
 add_subdirectory(GlobalISel)
