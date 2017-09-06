@@ -458,20 +458,13 @@ def build_llvm_for_windows(targets, build_dir, install_dir,
         '-DCMAKE_PREFIX_PATH=' + cmake_prebuilt_bin_dir() + ';' + \
         '-DCMAKE_TOOLCHAIN_FILE=' + native_cmake_file_path
 
-    # http://b/62787860 - Change the ar flags, because mingw has issues with
-    # duplicates created when using the default "qc" flags.
-    windows_extra_defines['CMAKE_CXX_ARCHIVE_CREATE'] = \
-        '<CMAKE_AR> crsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
-    windows_extra_defines['CMAKE_C_ARCHIVE_CREATE'] = \
-        '<CMAKE_AR> crsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
-    windows_extra_defines['CMAKE_CXX_ARCHIVE_APPEND'] = \
-        '<CMAKE_AR> rsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
-    windows_extra_defines['CMAKE_C_ARCHIVE_APPEND'] = \
-        '<CMAKE_AR> rsPD <TARGET> <LINK_FLAGS> <OBJECTS>'
-
     cflags = []
     cxxflags = []
-    ldflags = []
+    # http://b/62787860 - mingw can't properly de-duplicate some functions
+    # on 64-bit Windows builds. This mostly happens on builds without
+    # assertions, because of llvm_unreachable() on functions that should
+    # return a value (and control flow fallthrough - undefined behavior).
+    ldflags = ['-Wl,--allow-multiple-definition']
 
     if is_32_bit:
         cflags.append('-m32')
