@@ -34,6 +34,25 @@ DEFAULT_TIDY_CHECKS = ('*',
                        '-clang-analyzer-alpha*')
 
 
+class ClangProfileHandler(object):
+    def __init__(self):
+        self.out_dir = os.environ.get('OUT_DIR', utils.android_path('out'))
+        self.profiles_dir = os.path.join(self.out_dir, 'clang-profiles')
+        self.profiles_format = os.path.join(self.profiles_dir, '%4m.profraw')
+
+    def getProfileFileEnvVar(self):
+        return ('LLVM_PROFILE_FILE', self.profiles_format)
+
+    def mergeProfiles(self):
+        profdata = os.path.join(self.out_dir, 'stage1-install', 'bin',
+                                'llvm-profdata')
+        dist_dir = os.environ.get('DIST_DIR', utils.android_path('out'))
+        out_file = os.path.join(dist_dir, 'clang.profdata')
+
+        cmd = [profdata, 'merge', '-o', out_file, self.profiles_dir]
+        subprocess.check_call(cmd)
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('android_path', help='Android source directory.')
@@ -69,6 +88,11 @@ def parse_args():
     redirect_stderr_group.add_argument(
         '--no-redirect-stderr', action='store_false',
         dest='redirect_stderr', help='Do not redirect clang stderr.')
+
+    parser.add_argument('--generate-clang-profile', action='store_true',
+                        default=False, dest='profile',
+                        help='Build instrumented compiler and gather profiles')
+
     return parser.parse_args()
 
 
@@ -97,7 +121,7 @@ def rm_current_product_out():
 
 
 def build_target(android_base, clang_version, target, max_jobs,
-                 redirect_stderr, with_tidy):
+                 redirect_stderr, with_tidy, profiler):
     jobs = '-j{}'.format(
             max(1, min(max_jobs, multiprocessing.cpu_count())))
     result = True
@@ -144,8 +168,17 @@ def build_target(android_base, clang_version, target, max_jobs,
             env['DEFAULT_GLOBAL_TIDY_CHECKS'] = ','.join(DEFAULT_TIDY_CHECKS)
 
 
-    print('Start building %s.' % target)
-    subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' dist'],
+    modules = ['dist']
+    if profiler is not None:
+        # Build only a subset of targets and collect profiles
+        modules = ['libc', 'libLLVM-host64']
+
+        key, val = profiler.getProfileFileEnvVar()
+        env[key] = val
+
+    modules = ' '.join(modules)
+    print('Start building target %s and modules %s.' % (target, modules))
+    subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' ' + modules],
                           cwd=android_base, env=env)
 
 
@@ -207,11 +240,15 @@ def install_wrappers(llvm_install_path):
     shutil.copy2(wrapper_path, clang_tidy_path)
 
 
-def build_clang():
+def build_clang(instrumented=False):
     stage1_install = utils.android_path('out', 'stage1-install')
     stage2_install = utils.android_path('out', 'stage2-install')
-    build.build_stage1(stage1_install)
-    build.build_stage2(stage1_install, stage2_install, build.STAGE2_TARGETS)
+
+    # LLVM tool llvm-profdata from stage1 is needed to merge the collected
+    # profiles
+    build.build_stage1(stage1_install, build_llvm_tools=True)
+    build.build_stage2(stage1_install, stage2_install, build.STAGE2_TARGETS,
+                       use_lld=False, build_instrumented=instrumented)
     build.build_runtimes(stage2_install)
     version = build.extract_clang_version(stage2_install)
     return stage2_install, version
@@ -220,7 +257,7 @@ def build_clang():
 def main():
     args = parse_args()
     if args.clang_path is None:
-        clang_path, clang_version = build_clang()
+        clang_path, clang_version = build_clang(instrumented=args.profile)
     else:
         clang_path = args.clang_path
         clang_version = build.extract_clang_version(clang_path)
@@ -228,10 +265,17 @@ def main():
     link_clang(args.android_path, clang_path)
 
     if args.build_only:
+        profiler = ClangProfileHandler() if args.profile else None
+
         targets = [args.target] if args.target else TARGETS
         for target in targets:
             build_target(args.android_path, clang_version, target,
-                         args.jobs, args.redirect_stderr, args.with_tidy)
+                         args.jobs, args.redirect_stderr, args.with_tidy,
+                         profiler)
+
+        if profiler is not None:
+            profiler.mergeProfiles()
+
     else:
         devices = get_connected_device_list()
         if len(devices) == 0:

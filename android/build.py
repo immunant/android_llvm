@@ -487,13 +487,12 @@ def build_llvm_for_windows(targets, enable_assertions, build_dir, install_dir,
                extra_defines=windows_extra_defines)
 
 
-def build_stage1(stage1_install):
+def build_stage1(stage1_install, build_llvm_tools=False):
     # Build/install the stage 1 toolchain
     stage1_path = utils.android_path('out', 'stage1')
     stage1_targets = 'X86'
 
     stage1_extra_defines = dict()
-    stage1_extra_defines['LLVM_BUILD_TOOLS'] = 'OFF'
     stage1_extra_defines['LLVM_BUILD_RUNTIME'] = 'ON'
     stage1_extra_defines['CLANG_ENABLE_ARCMT'] = 'OFF'
     stage1_extra_defines['CLANG_ENABLE_STATIC_ANALYZER'] = 'OFF'
@@ -503,6 +502,11 @@ def build_stage1(stage1_install):
             clang_prebuilt_bin_dir(), 'clang++')
     stage1_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'OFF'
     stage1_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
+
+    if build_llvm_tools:
+        stage1_extra_defines['LLVM_BUILD_TOOLS'] = 'ON'
+    else:
+        stage1_extra_defines['LLVM_BUILD_TOOLS'] = 'OFF'
 
     # Have clang use libc++, ...
     stage1_extra_defines['LLVM_ENABLE_LIBCXX'] = 'ON'
@@ -517,7 +521,7 @@ def build_stage1(stage1_install):
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
     # necessary to pass -lc++abi explicitly.  This is needed only for Linux.
-    if utils.build_os_type() == 'linux-x86':
+    if utils.host_is_linux():
         stage1_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
         stage1_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
 
@@ -526,7 +530,7 @@ def build_stage1(stage1_install):
     # fail compilation of lib/builtins/atomic_*.c that only get built for
     # Darwin and fail compilation due to us using the bionic version of
     # stdatomic.h.
-    if utils.build_os_type() == 'darwin-x86':
+    if utils.host_is_darwin():
           stage1_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
 
     build_llvm(targets=stage1_targets, build_dir=stage1_path,
@@ -534,7 +538,7 @@ def build_stage1(stage1_install):
 
 
 def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False,
-                 enable_assertions=False):
+                 enable_assertions=False, build_instrumented=False):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
     # Build/install the stage2 toolchain
@@ -554,10 +558,25 @@ def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False,
     if enable_assertions:
         stage2_extra_defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
 
+    if build_instrumented:
+        stage2_extra_defines['LLVM_BUILD_INSTRUMENTED'] = 'ON'
+
+        # llvm-profdata is only needed to finish CMake configuration
+        # (tools/clang/utils/perf-training/CMakeLists.txt) and not needed for
+        # build
+        llvm_profdata = os.path.join(stage1_install, 'bin', 'llvm-profdata')
+        stage2_extra_defines['LLVM_PROFDATA'] = llvm_profdata
+
+        # libcxx, libcxxabi build with -nodefaultlibs and cannot link with
+        # -fprofile-instr-generate because libclang_rt.profile depends on libc.
+        # Skip building runtimes and use libstdc++.
+        stage2_extra_defines['LLVM_ENABLE_LIBCXX'] = 'OFF'
+        stage2_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
+
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
     # necessary to pass -lc++abi explicitly.  This is needed only for Linux.
-    if utils.build_os_type() == 'linux-x86':
+    if utils.host_is_linux():
         stage2_extra_defines['LIBCXX_ENABLE_STATIC_ABI_LIBRARY'] = 'ON'
         stage2_extra_defines['LIBCXX_ENABLE_ABI_LINKER_SCRIPT'] = 'OFF'
 
@@ -566,7 +585,7 @@ def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False,
     # fail compilation of lib/builtins/atomic_*.c that only get built for
     # Darwin and fail compilation due to us using the bionic version of
     # stdatomic.h.
-    if utils.build_os_type == 'darwin-x86':
+    if utils.host_is_darwin():
         stage2_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
 
     # Point CMake to the libc++ from stage1.  It is possible that once built,
@@ -709,6 +728,10 @@ def parse_args():
                         default=False,
                         help='Enable assertions (only affects stage2)')
 
+    parser.add_argument('--build-instrumented', action='store_true',
+                        default=False,
+                        help='Build LLVM tools with PGO instrumentation')
+
     # Options to skip build or packaging (can't skip both, or the script does
     # nothing).
     build_package_group = parser.add_mutually_exclusive_group()
@@ -744,11 +767,13 @@ def main():
     # TODO(pirama): Once we have a set of prebuilts with lld, pass use_lld for
     # stage1 as well.
     if do_build:
-        build_stage1(stage1_install)
-        build_stage2(stage1_install, stage2_install, STAGE2_TARGETS,
-                     args.use_lld, args.enable_assertions)
+        instrumented = utils.host_is_linux() and args.build_instrumented
 
-    if do_build and utils.build_os_type() == 'linux-x86':
+        build_stage1(stage1_install, build_llvm_tools=instrumented)
+        build_stage2(stage1_install, stage2_install, STAGE2_TARGETS,
+                     args.use_lld, args.enable_assertions, instrumented)
+
+    if do_build and utils.host_is_linux():
         build_runtimes(stage2_install)
 
         # Build single-stage clang for Windows
@@ -778,7 +803,7 @@ def main():
         package_toolchain(stage2_install, args.build_name,
                           utils.build_os_type(), dist_dir, strip=do_strip)
 
-        if utils.build_os_type() == 'linux-x86':
+        if utils.host_is_linux():
             package_toolchain(windows32_install, args.build_name,
                               'windows-i386', dist_dir, strip=do_strip)
             package_toolchain(windows64_install, args.build_name,

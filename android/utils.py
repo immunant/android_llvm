@@ -54,3 +54,11 @@ def build_os_type():
         return 'linux-x86'
     else:
         return 'darwin-x86'
+
+
+def host_is_linux():
+    return build_os_type() == 'linux-x86'
+
+
+def host_is_darwin():
+    return build_os_type() == 'dawrin-x86'
