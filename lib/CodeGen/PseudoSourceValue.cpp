@@ -22,7 +22,7 @@
 using namespace llvm;
 
 static const char *const PSVNames[] = {
-    "Stack", "GOT", "JumpTable", "ConstantPool", "FixedStack",
+    "Stack", "GOT", "POT", "JumpTable", "ConstantPool", "FixedStack",
     "GlobalValueCallEntry", "ExternalSymbolCallEntry"};
 
 PseudoSourceValue::PseudoSourceValue(PSVKind Kind, const TargetInstrInfo &TII)
@@ -43,19 +43,19 @@ void PseudoSourceValue::printCustom(raw_ostream &O) const {
 bool PseudoSourceValue::isConstant(const MachineFrameInfo *) const {
   if (isStack())
     return false;
-  if (isGOT() || isConstantPool() || isJumpTable())
+  if (isGOT() || isPOT() || isConstantPool() || isJumpTable())
     return true;
   llvm_unreachable("Unknown PseudoSourceValue!");
 }
 
 bool PseudoSourceValue::isAliased(const MachineFrameInfo *) const {
-  if (isStack() || isGOT() || isConstantPool() || isJumpTable())
+  if (isStack() || isGOT() || isPOT() || isConstantPool() || isJumpTable())
     return false;
   llvm_unreachable("Unknown PseudoSourceValue!");
 }
 
 bool PseudoSourceValue::mayAlias(const MachineFrameInfo *) const {
-  return !(isGOT() || isConstantPool() || isJumpTable());
+  return !(isGOT() || isPOT() || isConstantPool() || isJumpTable());
 }
 
 bool FixedStackPseudoSourceValue::isConstant(
@@ -109,6 +109,7 @@ PseudoSourceValueManager::PseudoSourceValueManager(
     : TII(TIInfo),
       StackPSV(PseudoSourceValue::Stack, TII),
       GOTPSV(PseudoSourceValue::GOT, TII),
+      POTPSV(PseudoSourceValue::POT, TII),
       JumpTablePSV(PseudoSourceValue::JumpTable, TII),
       ConstantPoolPSV(PseudoSourceValue::ConstantPool, TII) {}
 
@@ -117,6 +118,8 @@ const PseudoSourceValue *PseudoSourceValueManager::getStack() {
 }
 
 const PseudoSourceValue *PseudoSourceValueManager::getGOT() { return &GOTPSV; }
+
+const PseudoSourceValue *PseudoSourceValueManager::getPOT() { return &POTPSV; }
 
 const PseudoSourceValue *PseudoSourceValueManager::getConstantPool() {
   return &ConstantPoolPSV;

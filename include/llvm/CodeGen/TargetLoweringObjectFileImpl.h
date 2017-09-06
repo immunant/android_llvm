@@ -88,6 +88,10 @@ public:
   const MCExpr *lowerRelativeReference(const GlobalValue *LHS,
                                        const GlobalValue *RHS,
                                        const TargetMachine &TM) const override;
+
+  /// Return a symbol that refers to the base of the GOT. Platforms that do not
+  /// refer to the GOT as _GLOBAL_OFFSET_TABLE_ should override this function.
+  virtual MCSymbol *getGlobalOffsetTableSymbol() const override;
 };
 
 class TargetLoweringObjectFileMachO : public TargetLoweringObjectFile {

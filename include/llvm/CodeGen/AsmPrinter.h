@@ -49,6 +49,7 @@ class GlobalObject;
 class GlobalValue;
 class GlobalVariable;
 class MachineBasicBlock;
+class MachineConstantPoolEntry;
 class MachineConstantPoolValue;
 class MachineFunction;
 class MachineInstr;
@@ -133,6 +134,9 @@ private:
   /// If VerboseAsm is set, a pointer to the loop info for this function.
   MachineLoopInfo *LI = nullptr;
 
+  /// Sections that need to be referenced in the POT
+  std::vector<const MCSection*> POT;
+
   struct HandlerInfo {
     AsmPrinterHandler *Handler;
     const char *TimerName;
@@ -216,6 +220,14 @@ public:
                          const GlobalValue *GV) const;
 
   MCSymbol *getSymbol(const GlobalValue *GV) const;
+
+  /// Return the section this constant pool entry should be emitted to.
+  MCSection *getSectionForCPE(const MachineConstantPoolEntry &CPE) const;
+
+  /// Lookup the constant pool entry corresponding to the given constant pool
+  /// index for the current function and return the section to emit this entry
+  /// to.
+  MCSection *getSectionForCPI(unsigned CPID) const;
 
   //===------------------------------------------------------------------===//
   // XRay instrumentation implementation.
@@ -436,6 +448,16 @@ public:
   MCSymbol *GetBlockAddressSymbol(const BlockAddress *BA) const;
   MCSymbol *GetBlockAddressSymbol(const BasicBlock *BB) const;
 
+  /// Return the MCSymbol for the start of the section containing this global
+  /// object, if available.
+  MCSymbol *GetSectionSymbol(const GlobalObject *GO) const;
+  MCSymbol *GetSectionSymbol(unsigned CPID) const;
+
+  /// Return the POT index of the section containing this global object.
+  unsigned GetPOTIndex(const GlobalObject *GO);
+  /// Return the POT index of the section containing this constant pool ID.
+  unsigned GetPOTIndex(unsigned CPID);
+
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.
   //===------------------------------------------------------------------===//
@@ -626,6 +648,7 @@ private:
 
   void EmitJumpTableEntry(const MachineJumpTableInfo *MJTI,
                           const MachineBasicBlock *MBB, unsigned uid) const;
+  void EmitPOT();
   void EmitLLVMUsedList(const ConstantArray *InitList);
   /// Emit llvm.ident metadata in an '.ident' directive.
   void EmitModuleIdents(Module &M);
@@ -638,6 +661,8 @@ private:
                                 const GlobalIndirectSymbol& GIS);
   void setupCodePaddingContext(const MachineBasicBlock &MBB,
                                MCCodePaddingContext &Context) const;
+  /// Return the POT index of the section.
+  unsigned GetPOTIndex(const MCSection *Sec);
 };
 
 } // end namespace llvm

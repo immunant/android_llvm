@@ -960,6 +960,10 @@ MachinePointerInfo MachinePointerInfo::getGOT(MachineFunction &MF) {
   return MachinePointerInfo(MF.getPSVManager().getGOT());
 }
 
+MachinePointerInfo MachinePointerInfo::getPOT(MachineFunction &MF) {
+  return MachinePointerInfo(MF.getPSVManager().getPOT());
+}
+
 MachinePointerInfo MachinePointerInfo::getStack(MachineFunction &MF,
                                                 int64_t Offset, uint8_t ID) {
   return MachinePointerInfo(MF.getPSVManager().getStack(), Offset, ID);
@@ -1084,6 +1088,9 @@ void MachineMemOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
       break;
     case PseudoSourceValue::GOT:
       OS << "got";
+      break;
+    case PseudoSourceValue::POT:
+      OS << "pot";
       break;
     case PseudoSourceValue::JumpTable:
       OS << "jump-table";

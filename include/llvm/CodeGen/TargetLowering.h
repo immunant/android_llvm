@@ -1334,6 +1334,12 @@ public:
     report_fatal_error("Funclet EH is not implemented for this target");
   }
 
+  /// If a physical register, this returns the register that stores the base
+  /// address of the POT.
+  unsigned getPOTBaseRegister() const {
+    return POTBaseRegister;
+  }
+
   /// Returns the target's jmp_buf size in bytes (if never set, the default is
   /// 200)
   unsigned getJumpBufSize() const {
@@ -1678,6 +1684,12 @@ protected:
   /// llvm.savestack/llvm.restorestack should save and restore.
   void setStackPointerRegisterToSaveRestore(unsigned R) {
     StackPointerRegisterToSaveRestore = R;
+  }
+
+  /// If set to a physical register, this sets the register that stores the POT
+  /// base address.
+  void setPOTBaseRegister(unsigned R) {
+    POTBaseRegister = R;
   }
 
   /// Tells the code generator that the target has multiple (allocatable)
@@ -2369,6 +2381,10 @@ private:
   /// If set to a physical register, this specifies the register that
   /// llvm.savestack/llvm.restorestack should save and restore.
   unsigned StackPointerRegisterToSaveRestore;
+
+  /// If set to a physical register, this specifies the register that
+  /// stores the POT base register.
+  unsigned POTBaseRegister;
 
   /// This indicates the default register class to use for each ValueType the
   /// target supports natively.

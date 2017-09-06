@@ -3913,6 +3913,7 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     break;
   }
   case ISD::GLOBAL_OFFSET_TABLE:
+  case ISD::PAGE_OFFSET_TABLE:
   case ISD::GlobalAddress:
   case ISD::GlobalTLSAddress:
   case ISD::ExternalSymbol:
