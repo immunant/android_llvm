@@ -53,6 +53,7 @@ FunctionPass *createThumb2SizeReductionPass(
 InstructionSelector *
 createARMInstructionSelector(const ARMBaseTargetMachine &TM, const ARMSubtarget &STI,
                              const ARMRegisterBankInfo &RBI);
+FunctionPass *createARMPagerandoOptimizerPass();
 
 void LowerARMMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
                                   ARMAsmPrinter &AP);
@@ -69,6 +70,7 @@ void initializeARMCodeGenPreparePass(PassRegistry &);
 void initializeARMConstantIslandsPass(PassRegistry &);
 void initializeARMExpandPseudoPass(PassRegistry &);
 void initializeThumb2SizeReducePass(PassRegistry &);
+void initializeARMPagerandoOptimizerPass(PassRegistry &);
 
 } // end namespace llvm
 

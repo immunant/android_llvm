@@ -52,6 +52,13 @@ namespace ARMCP {
     TPOFF,       /// Thread Pointer Offset
     SECREL,      /// Section Relative (Windows TLS)
     SBREL,       /// Static Base Relative (RWPI)
+    GOTOFF,      /// Global Offset Table offset (TODO: Figure out if adding this
+                 /// is ok)
+    GOT_BREL,    /// Global Offset Table offset, generate a GOT entry (TODO:
+                 /// Figure out if adding this is ok)
+    POTOFF,      /// Offset in POT (TODO: Figure out if this should instead be a CPKind)
+    BINOFF,      /// Offset from start of bin (segment) (TODO: Figure out if
+                 /// this should instead be a CPKind)
   };
 
 } // end namespace ARMCP
@@ -219,7 +226,11 @@ class ARMConstantPoolSymbol : public ARMConstantPoolValue {
 
 public:
   static ARMConstantPoolSymbol *Create(LLVMContext &C, StringRef s, unsigned ID,
-                                       unsigned char PCAdj);
+                                       unsigned char PCAdj,
+                                       ARMCP::ARMCPModifier Modifier = ARMCP::no_modifier);
+
+  static ARMConstantPoolSymbol *Create(LLVMContext &C, StringRef s,
+                                       ARMCP::ARMCPModifier Modifier);
 
   StringRef getSymbol() const { return S; }
 
