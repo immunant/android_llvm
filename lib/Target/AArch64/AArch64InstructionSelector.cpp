@@ -927,8 +927,14 @@ bool AArch64InstructionSelector::select(MachineInstr &I,
       // FIXME: we don't support TLS yet.
       return false;
     }
+    auto F = dyn_cast<Function>(GV);
+    if (MF.getFunction().isPagerando() ||
+        (F && F->isPagerando())) {
+      // TODO(sjc): Implement PIP
+      return false;
+    }
     unsigned char OpFlags = STI.ClassifyGlobalReference(GV, TM);
-    if (OpFlags & AArch64II::MO_GOT) {
+    if ((OpFlags & AArch64II::MO_SOURCE) == AArch64II::MO_GOT) {
       I.setDesc(TII.get(AArch64::LOADgot));
       I.getOperand(1).setTargetFlags(OpFlags);
     } else if (TM.getCodeModel() == CodeModel::Large) {

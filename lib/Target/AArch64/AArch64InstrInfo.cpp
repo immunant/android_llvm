@@ -1606,7 +1606,7 @@ bool AArch64InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
   unsigned char OpFlags = Subtarget.ClassifyGlobalReference(GV, TM);
   const unsigned char MO_NC = AArch64II::MO_NC;
 
-  if ((OpFlags & AArch64II::MO_GOT) != 0) {
+  if (OpFlags == AArch64II::MO_GOT) {
     BuildMI(MBB, MI, DL, get(AArch64::LOADgot), Reg)
         .addGlobalAddress(GV, 0, AArch64II::MO_GOT);
     BuildMI(MBB, MI, DL, get(AArch64::LDRXui), Reg)

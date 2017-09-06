@@ -99,6 +99,9 @@ static bool isNonILP32reloc(const MCFixup &Fixup,
   case AArch64MCExpr::VK_GOTTPREL_G0_NC:
     Ctx.reportError(Fixup.getLoc(), BAD_ILP32_MOV(TLSIE_MOVW_GOTTPREL_G0_NC));
     return true;
+  case AArch64MCExpr::VK_GOTOFF:
+    Ctx.reportError(Fixup.getLoc(), BAD_ILP32_MOV(LD64_GOTOFF_LO15));
+    return true;
   default:
     return false;
   }
@@ -323,6 +326,8 @@ unsigned AArch64ELFObjectWriter::getRelocType(MCContext &Ctx,
           return ELF::R_AARCH64_NONE;
         }
       }
+      if (SymLoc == AArch64MCExpr::VK_GOTOFF && !IsNC)
+        return ELF::R_AARCH64_LD64_GOTOFF_LO15;
       if (SymLoc == AArch64MCExpr::VK_DTPREL && !IsNC)
         return R_CLS(TLSLD_LDST64_DTPREL_LO12);
       if (SymLoc == AArch64MCExpr::VK_DTPREL && IsNC)
@@ -415,6 +420,20 @@ unsigned AArch64ELFObjectWriter::getRelocType(MCContext &Ctx,
         return ELF::R_AARCH64_TLSIE_MOVW_GOTTPREL_G1;
       if (RefKind == AArch64MCExpr::VK_GOTTPREL_G0_NC)
         return ELF::R_AARCH64_TLSIE_MOVW_GOTTPREL_G0_NC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G3)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G3;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G2_NC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G2_NC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G2)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G2;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G1_NC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G1_NC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G1)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G1;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G0_NC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G0_NC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G0)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G0;
       Ctx.reportError(Fixup.getLoc(),
                       "invalid fixup for movz/movk instruction");
       return ELF::R_AARCH64_NONE;

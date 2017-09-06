@@ -72,6 +72,24 @@ StringRef AArch64MCExpr::getVariantKindName() const {
   case VK_TLSDESC_PAGE:        return ":tlsdesc:";
   case VK_SECREL_LO12:         return ":secrel_lo12:";
   case VK_SECREL_HI12:         return ":secrel_hi12:";
+  case VK_GOTOFF:              return ":gotoff:";
+  case VK_GOTOFF_G3:           return ":gotoff_g3:";
+  case VK_GOTOFF_G2:           return ":gotoff_g2:";
+  case VK_GOTOFF_G2_NC:        return ":gotoff_g2_nc:";
+  case VK_GOTOFF_G1:           return ":gotoff_g1:";
+  case VK_GOTOFF_G1_NC:        return ":gotoff_g1_nc:";
+  case VK_GOTOFF_G0:           return ":gotoff_g0:";
+  case VK_GOTOFF_G0_NC:        return ":gotoff_g0_nc:";
+  case VK_SEC_HI12:            return ":sec_hi12:";
+  case VK_SEC_LO12:            return ":sec_lo12:";
+  case VK_SEC:                 return ":sec:";
+  case VK_SEC_G3:              return ":sec_g3:";
+  case VK_SEC_G2:              return ":sec_g2:";
+  case VK_SEC_G2_NC:           return ":sec_g2_nc:";
+  case VK_SEC_G1:              return ":sec_g1:";
+  case VK_SEC_G1_NC:           return ":sec_g1_nc:";
+  case VK_SEC_G0:              return ":sec_g0:";
+  case VK_SEC_G0_NC:           return ":sec_g0_nc:";
   default:
     llvm_unreachable("Invalid ELF symbol kind");
   }
