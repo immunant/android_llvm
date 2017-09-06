@@ -97,6 +97,7 @@ add_llvm_library(LLVMCodeGen
   MIRPrintingPass.cpp
   MacroFusion.cpp
   OptimizePHIs.cpp
+  PagerandoBinning.cpp
   ParallelCG.cpp
   PeepholeOptimizer.cpp
   PHIElimination.cpp
