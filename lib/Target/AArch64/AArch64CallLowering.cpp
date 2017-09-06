@@ -326,6 +326,11 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   MachineRegisterInfo &MRI = MF.getRegInfo();
   auto &DL = F.getParent()->getDataLayout();
 
+  // Can't handle PIP
+  const Function *CalleeF = Callee.isGlobal() ? dyn_cast<Function>(Callee.getGlobal()) : nullptr;
+  if (F.isPagerando() || (CalleeF && CalleeF->isPagerando()))
+    return false;
+
   SmallVector<ArgInfo, 8> SplitArgs;
   for (auto &OrigArg : OrigArgs) {
     splitToValueTypes(OrigArg, SplitArgs, DL, MRI, CallConv,

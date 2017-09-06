@@ -888,6 +888,92 @@ bool AArch64ExpandPseudo::expandMI(MachineBasicBlock &MBB,
     return true;
   }
 
+  case AArch64::LOADgotr: {
+    unsigned DstReg = MI.getOperand(0).getReg();
+    const MachineOperand &Base = MI.getOperand(1);
+    const MachineOperand &Global = MI.getOperand(2);
+    unsigned Flags = Global.getTargetFlags();
+
+    if (Global.isGlobal()) {
+      MachineInstrBuilder MIB =
+          BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+              .add(Base)
+              .addGlobalAddress(Global.getGlobal(), 0, Flags);
+      transferImpOps(MI, MIB, MIB);
+    } else if (Global.isSymbol()) {
+      MachineInstrBuilder MIB =
+          BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+              .add(Base)
+              .addExternalSymbol(Global.getSymbolName(), Flags);
+      transferImpOps(MI, MIB, MIB);
+    } else {
+      assert(Global.isReg() &&
+             "Only expect global immediate or register offset");
+      MachineInstrBuilder MIB =
+          BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXroX), DstReg)
+              .add(Base)
+              .add(Global)
+              .addImm(0)
+              .addImm(0);
+      transferImpOps(MI, MIB, MIB);
+    }
+    MI.eraseFromParent();
+    return true;
+  }
+
+  case AArch64::LOADpot: {
+    unsigned DstReg = MI.getOperand(0).getReg();
+    const MachineOperand &Base = MI.getOperand(1);
+    const MachineOperand &Offset = MI.getOperand(2);
+    unsigned Flags = Offset.getTargetFlags();
+
+    MachineInstrBuilder MIB =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+            .add(Base);
+
+    if (Offset.isGlobal()) {
+      MIB.addGlobalAddress(Offset.getGlobal(), 0, Flags | AArch64II::MO_POT);
+    } else if (Offset.isImm()) {
+      MIB.addImm(Offset.getImm());
+    } else {
+      assert(Offset.isCPI() && "Only expect globals, immediates, or constant pools");
+      MIB.addConstantPoolIndex(Offset.getIndex(), Offset.getOffset(),
+                               Flags | AArch64II::MO_POT);
+
+    }
+
+    transferImpOps(MI, MIB, MIB);
+    MI.eraseFromParent();
+    return true;
+  }
+
+  case AArch64::MOVaddrBIN: {
+    unsigned DstReg = MI.getOperand(0).getReg();
+    const MachineOperand &Base = MI.getOperand(1);
+    const MachineOperand &Global = MI.getOperand(2);
+    unsigned Flags = Global.getTargetFlags();
+
+    // TODO(sjc): We need to add a page index to the bin address because we
+    // don't (yet) enforce that bins are <= 4096 bytes. If we can ensure that at
+    // least all destinations in a bin are on the first page, we can drop this
+    // instruction.
+    MachineInstrBuilder MIB1 =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::ADDXri), DstReg)
+            .add(Base)
+            .addGlobalAddress(Global.getGlobal(), 0, Flags | AArch64II::MO_HI12)
+            .addImm(12);
+
+    MachineInstrBuilder MIB2 =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::ADDXri), DstReg)
+            .addReg(DstReg)
+            .addGlobalAddress(Global.getGlobal(), 0, Flags | AArch64II::MO_PAGEOFF)
+            .addImm(0);
+
+    transferImpOps(MI, MIB1, MIB2);
+    MI.eraseFromParent();
+    return true;
+  }
+
   case AArch64::MOVaddr:
   case AArch64::MOVaddrJT:
   case AArch64::MOVaddrCP:

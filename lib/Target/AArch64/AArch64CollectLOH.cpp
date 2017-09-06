@@ -187,7 +187,7 @@ static bool canDefBePartOfLOH(const MachineInstr &MI) {
     default:
       return false;
     case MachineOperand::MO_GlobalAddress:
-      return MI.getOperand(2).getTargetFlags() & AArch64II::MO_GOT;
+      return (MI.getOperand(2).getTargetFlags() & AArch64II::MO_SOURCE) == AArch64II::MO_GOT;
     }
   }
 }
@@ -234,7 +234,7 @@ static bool isCandidateLoad(const MachineInstr &MI) {
   case AArch64::LDRSui:
   case AArch64::LDRDui:
   case AArch64::LDRQui:
-    return !(MI.getOperand(2).getTargetFlags() & AArch64II::MO_GOT);
+    return (MI.getOperand(2).getTargetFlags() & AArch64II::MO_SOURCE) != AArch64II::MO_GOT;
   }
 }
 
@@ -314,7 +314,7 @@ static void handleUse(const MachineInstr &MI, const MachineOperand &MO,
     Info.IsCandidate = true;
     Info.MI0 = &MI;
   } else if (MI.getOpcode() == AArch64::LDRXui &&
-             MI.getOperand(2).getTargetFlags() & AArch64II::MO_GOT) {
+             (MI.getOperand(2).getTargetFlags() & AArch64II::MO_SOURCE) == AArch64II::MO_GOT) {
     Info.Type = MCLOH_AdrpLdrGot;
     Info.IsCandidate = true;
     Info.MI0 = &MI;
@@ -359,7 +359,7 @@ static bool handleMiddleInst(const MachineInstr &MI, LOHInfo &DefInfo,
     }
   } else {
     assert(MI.getOpcode() == AArch64::LDRXui && "Expect LDRXui");
-    assert((MI.getOperand(2).getTargetFlags() & AArch64II::MO_GOT) &&
+    assert(((MI.getOperand(2).getTargetFlags() & AArch64II::MO_SOURCE) == AArch64II::MO_GOT) &&
            "Expected GOT relocation");
     if (OpInfo.Type == MCLOH_AdrpAddStr && OpInfo.MI1 == nullptr) {
       OpInfo.Type = MCLOH_AdrpLdrGotStr;

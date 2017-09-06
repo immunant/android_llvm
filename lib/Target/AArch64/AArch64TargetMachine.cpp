@@ -163,6 +163,7 @@ extern "C" void LLVMInitializeAArch64Target() {
   initializeAArch64StorePairSuppressPass(*PR);
   initializeFalkorHWPFFixPass(*PR);
   initializeFalkorMarkStridedAccessesLegacyPass(*PR);
+  initializeAArch64PagerandoOptimizerPass(*PR);
   initializeLDTLSCleanupPass(*PR);
 }
 
@@ -475,6 +476,11 @@ bool AArch64PassConfig::addILPOpts() {
 }
 
 void AArch64PassConfig::addPreRegAlloc() {
+  if (TM->getOptLevel() != CodeGenOpt::None && TM->isPagerando()) {
+    addPass(createAArch64PagerandoOptimizerPass());
+    addPass(&DeadMachineInstructionElimID);
+  }
+
   // Change dead register definitions to refer to the zero register.
   if (TM->getOptLevel() != CodeGenOpt::None && EnableDeadRegisterElimination)
     addPass(createAArch64DeadRegisterDefinitions());

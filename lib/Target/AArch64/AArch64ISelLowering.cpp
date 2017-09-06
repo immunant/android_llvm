@@ -130,6 +130,10 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
   addRegisterClass(MVT::i32, &AArch64::GPR32allRegClass);
   addRegisterClass(MVT::i64, &AArch64::GPR64allRegClass);
 
+  // TODO: Decide if we want to stick with the platform register
+  if (TM.isPagerando())
+    setPOTBaseRegister(AArch64::X20);
+
   if (Subtarget->hasFPARMv8()) {
     addRegisterClass(MVT::f16, &AArch64::FPR16RegClass);
     addRegisterClass(MVT::f32, &AArch64::FPR32RegClass);
@@ -264,6 +268,8 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
 
   // BlockAddress
   setOperationAction(ISD::BlockAddress, MVT::i64, Custom);
+
+  setOperationAction(ISD::PAGE_OFFSET_TABLE, MVT::i64, Custom);
 
   // Add/Sub overflow ops with MVT::Glues are lowered to NZCV dependences.
   setOperationAction(ISD::ADDC, MVT::i32, Custom);
@@ -1067,6 +1073,8 @@ const char *AArch64TargetLowering::getTargetNodeName(unsigned Opcode) const {
   case AArch64ISD::ADRP:              return "AArch64ISD::ADRP";
   case AArch64ISD::ADDlow:            return "AArch64ISD::ADDlow";
   case AArch64ISD::LOADgot:           return "AArch64ISD::LOADgot";
+  case AArch64ISD::LOADgotr:          return "AArch64ISD::LOADgotr";
+  case AArch64ISD::LOADpot:           return "AArch64ISD::LOADpot";
   case AArch64ISD::RET_FLAG:          return "AArch64ISD::RET_FLAG";
   case AArch64ISD::BRCOND:            return "AArch64ISD::BRCOND";
   case AArch64ISD::CSEL:              return "AArch64ISD::CSEL";
@@ -2590,6 +2598,8 @@ SDValue AArch64TargetLowering::LowerOperation(SDValue Op,
     return LowerGlobalTLSAddress(Op, DAG);
   case ISD::SETCC:
     return LowerSETCC(Op, DAG);
+  case ISD::PAGE_OFFSET_TABLE:
+    return LowerPOT(Op, DAG);
   case ISD::BR_CC:
     return LowerBR_CC(Op, DAG);
   case ISD::SELECT:
@@ -3108,6 +3118,22 @@ bool AArch64TargetLowering::isEligibleForTailCallOptimization(
     if (i->hasByValAttr())
       return false;
 
+  // Calls to pagerando functions from non-pagerando (legacy) functions must
+  // initialize the POT register, which is callee-saved. Thus we need to restore
+  // the original value of the POT register after the call and cannot tail call.
+  if (!CallerF.isPagerando()) {
+    if (auto *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
+      auto *GV = G->getGlobal();
+      auto *F = dyn_cast<Function>(GV);
+      if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+        if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+          F = dyn_cast<Function>(Aliasee);
+      }
+      if (F && F->isPagerando())
+        return false;
+    }
+  }
+
   if (getTargetMachine().Options.GuaranteedTailCallOpt)
     return canGuaranteeTCO(CalleeCC) && CCMatch;
 
@@ -3490,9 +3516,19 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   // direct call is) turn it into a TargetGlobalAddress/TargetExternalSymbol
   // node so that legalize doesn't hack it.
   if (auto *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
-    auto GV = G->getGlobal();
-    if (Subtarget->classifyGlobalFunctionReference(GV, getTargetMachine()) ==
-        AArch64II::MO_GOT) {
+    auto *GV = G->getGlobal();
+    auto *F = dyn_cast<Function>(GV);
+    if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+      if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+        F = dyn_cast<Function>(Aliasee);
+    }
+    bool UsePIPAddressing = MF.getFunction().isPagerando() ||
+                            (F && F->isPagerando());
+    unsigned char OpFlags =
+      Subtarget->classifyGlobalFunctionReference(GV, getTargetMachine());
+    if (UsePIPAddressing) {
+      Callee = getPOT(G, DAG);
+    } else if (OpFlags == AArch64II::MO_GOT) {
       Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, AArch64II::MO_GOT);
       Callee = DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, Callee);
     } else if (Subtarget->isTargetCOFF() && GV->hasDLLImportStorageClass()) {
@@ -3504,7 +3540,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
       Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, 0);
     }
   } else if (auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
-    if (getTargetMachine().getCodeModel() == CodeModel::Large &&
+    if (MF.getFunction().isPagerando()) {
+      Callee = getPOT(S, DAG);
+    } else if (getTargetMachine().getCodeModel() == CodeModel::Large &&
         Subtarget->isTargetMachO()) {
       const char *Sym = S->getSymbol();
       Callee = DAG.getTargetExternalSymbol(Sym, PtrVT, AArch64II::MO_GOT);
@@ -3697,6 +3735,12 @@ SDValue AArch64TargetLowering::getTargetNode(BlockAddressSDNode* N, EVT Ty,
   return DAG.getTargetBlockAddress(N->getBlockAddress(), Ty, 0, Flag);
 }
 
+SDValue AArch64TargetLowering::getTargetNode(ExternalSymbolSDNode* N, EVT Ty,
+                                             SelectionDAG &DAG,
+                                             unsigned Flag) const {
+  return DAG.getTargetExternalSymbol(N->getSymbol(), Ty, Flag);
+}
+
 // (loadGOT sym)
 template <class NodeTy>
 SDValue AArch64TargetLowering::getGOT(NodeTy *N, SelectionDAG &DAG,
@@ -3708,6 +3752,100 @@ SDValue AArch64TargetLowering::getGOT(NodeTy *N, SelectionDAG &DAG,
   // FIXME: Once remat is capable of dealing with instructions with register
   // operands, expand this into two nodes instead of using a wrapper node.
   return DAG.getNode(AArch64ISD::LOADgot, DL, Ty, GotAddr);
+}
+
+// Position-independent pages, access through the POT
+template <class NodeTy>
+SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG) const {
+  DEBUG(dbgs() << "AArch64TargetLowering::getPOT\n");
+
+  // Pagerando targets DSOs specifically, and the large code model can only be
+  // used for statically linked binaries. Thus, we do not support a large code
+  // model.
+  assert(getTargetMachine().getCodeModel() != CodeModel::Large);
+
+  SDLoc DL(N);
+  auto PtrVT = getPointerTy(DAG.getDataLayout());
+  const Function *F = nullptr;
+  unsigned char OpFlags = 0;
+  if (auto *GN = dyn_cast<GlobalAddressSDNode>(N)) {
+    const GlobalValue *GV = GN->getGlobal();
+    F = dyn_cast<Function>(GV);
+    OpFlags = Subtarget->ClassifyGlobalReference(GV, getTargetMachine());
+    if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+      if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+        F = dyn_cast<Function>(Aliasee);
+    }
+  } else if (isa<ExternalSymbolSDNode>(N)) {
+    // Calls from PIP functions to external symbols should go through the GOT
+    // for now so that we can properly indirect through POT.
+    OpFlags = AArch64II::MO_GOT;
+  }
+  bool pagerandoBinTarget = F && F->isPagerando();
+
+  SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, DL,
+                                 DAG.getVTList(MVT::i64, MVT::Other));
+  SDValue Chain = POTValue.getValue(1);
+
+  if (OpFlags == AArch64II::MO_GOT) {
+    // Load the GOT address from the POT
+    SDValue GOTAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain, POTValue,
+                                  DAG.getTargetConstant(0, DL, MVT::i32));
+
+    const Module *M = DAG.getMachineFunction().getFunction().getParent();
+    PICLevel::Level picLevel = M->getPICLevel();
+
+    SDValue Offset;
+    const unsigned char MO_NC = AArch64II::MO_NC;
+    const unsigned char MO_GOTOFF = AArch64II::MO_GOTOFF;
+    if (picLevel == PICLevel::SmallPIC) {
+      // GOT size <= 28KiB
+      Offset = getTargetNode(N, PtrVT, DAG, MO_GOTOFF);
+    } else {
+      // Large GOT size
+      Offset = DAG.getNode(
+          AArch64ISD::WrapperLarge, DL, PtrVT,
+          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G3),
+          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G2 | MO_NC),
+          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G1 | MO_NC),
+          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G0 | MO_NC));
+    }
+
+    return DAG.getNode(AArch64ISD::LOADgotr, DL, PtrVT, GOTAddr, Offset);
+  } else if (pagerandoBinTarget) {
+    // We may have an alias, so we need to use the real target function for the
+    // POT offset
+    SDValue POTOffset = DAG.getTargetGlobalAddress(F, DL, PtrVT, 0, AArch64II::MO_POT);
+    SDValue BaseAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain,
+                                   POTValue, POTOffset);
+
+    SDValue Offset = DAG.getTargetGlobalAddress(F, DL, PtrVT, 0, AArch64II::MO_SEC);
+
+    return DAG.getNode(ISD::ADD, DL, PtrVT, BaseAddr, Offset);
+  } else {
+    // Load the GOT address from the POT
+    SDValue GOTAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain, POTValue,
+                                  DAG.getTargetConstant(0, DL, MVT::i32));
+
+    SDValue Hi = getTargetNode(N, PtrVT, DAG, AArch64II::MO_PAGE);
+    SDValue Lo = getTargetNode(N, PtrVT, DAG,
+                                   AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
+
+    SDValue ADRP = DAG.getNode(AArch64ISD::ADRP, DL, PtrVT, Hi);
+    SDValue TargetPCRel = DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, ADRP, Lo);
+
+    Hi = DAG.getTargetExternalSymbol("_GLOBAL_OFFSET_TABLE_", PtrVT,
+                                     AArch64II::MO_PAGE);
+    Lo = DAG.getTargetExternalSymbol("_GLOBAL_OFFSET_TABLE_", PtrVT,
+                                     AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
+
+    ADRP = DAG.getNode(AArch64ISD::ADRP, DL, PtrVT, Hi);
+    SDValue GOTPCRel = DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, ADRP, Lo);
+
+    SDValue Offset = DAG.getNode(ISD::SUB, DL, PtrVT, TargetPCRel, GOTPCRel);
+
+    return DAG.getNode(ISD::ADD, DL, PtrVT, GOTAddr, Offset);
+  }
 }
 
 // (wrapper %highest(sym), %higher(sym), %hi(sym), %lo(sym))
@@ -3753,8 +3891,20 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
   assert(cast<GlobalAddressSDNode>(Op)->getOffset() == 0 &&
          "unexpected offset in global node");
 
+  MachineFunction &MF = DAG.getMachineFunction();
+  auto *F = dyn_cast<Function>(GV);
+  if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+    if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+      F = dyn_cast<Function>(Aliasee);
+  }
+  bool pagerandoBinTarget = F && F->isPagerando();
+  if (MF.getFunction().isPagerando() ||
+      pagerandoBinTarget) {
+    return getPOT(GN, DAG);
+  }
+
   // This also catches the large code model case for Darwin.
-  if ((OpFlags & AArch64II::MO_GOT) != 0) {
+  if ((OpFlags & AArch64II::MO_SOURCE) == AArch64II::MO_GOT) {
     return getGOT(GN, DAG, TargetFlags);
   }
 
@@ -4360,6 +4510,26 @@ SDValue AArch64TargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   }
 }
 
+SDValue AArch64TargetLowering::LowerPOT(SDValue Op, SelectionDAG &DAG) const {
+  assert(getTargetMachine().isPagerando() &&
+         "POT lowering only supported with PIP relocation model");
+
+  SDLoc dl(Op);
+  EVT PtrVT = getPointerTy(DAG.getDataLayout());
+  MachineFunction &MF = DAG.getMachineFunction();
+  unsigned POTReg = getPOTBaseRegister();
+  if (MF.getFunction().isPagerando()) {
+    return DAG.getCopyFromReg(DAG.getEntryNode(), dl, POTReg, PtrVT);
+  } else {
+    SDValue POTAddress = DAG.getTargetExternalSymbol("_PAGE_OFFSET_TABLE_", PtrVT,
+                                                     AArch64II::MO_GOT);
+    POTAddress = DAG.getNode(AArch64ISD::LOADgot, dl, PtrVT, POTAddress);
+    SDValue Chain = DAG.getCopyToReg(DAG.getEntryNode(), dl, POTReg, POTAddress);
+    SDValue Ops[2] = { POTAddress, Chain };
+    return DAG.getMergeValues(Ops, dl);
+  }
+}
+
 SDValue AArch64TargetLowering::LowerSELECT_CC(ISD::CondCode CC, SDValue LHS,
                                               SDValue RHS, SDValue TVal,
                                               SDValue FVal, const SDLoc &dl,
@@ -4613,6 +4783,10 @@ SDValue AArch64TargetLowering::LowerJumpTable(SDValue Op,
 SDValue AArch64TargetLowering::LowerConstantPool(SDValue Op,
                                                  SelectionDAG &DAG) const {
   ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
+
+  if (DAG.getMachineFunction().getFunction().isPagerando()) {
+    return getPOT(CP, DAG);
+  }
 
   if (getTargetMachine().getCodeModel() == CodeModel::Large) {
     // Use the GOT for the large code model on iOS.
