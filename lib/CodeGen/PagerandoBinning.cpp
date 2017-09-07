@@ -89,7 +89,7 @@ bool PagerandoBinning::binSimple(Module &M) {
   for (auto &F : M) {
     if (F.isPagerando()) {
       unsigned FnSize = estimateFunctionSize(F);
-      unsigned Bin = Algo.assignToBin(FnSize);
+      unsigned Bin = SAlgo.assignToBin(FnSize);
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(SectionPrefix + utostr(Bin));
       Changed = true;
@@ -98,7 +98,7 @@ bool PagerandoBinning::binSimple(Module &M) {
   return Changed;
 }
 
-unsigned PagerandoBinning::Algorithm::assignToBin(unsigned FnSize) {
+unsigned PagerandoBinning::SimpleAlgo::assignToBin(unsigned FnSize) {
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -144,10 +144,10 @@ bool PagerandoBinning::binCallGraph() {
         // TODO: Probably does not work since there could be cycles in call chains.
       }
     }
-    CallGraph.addNode(Id, Size, Callees);
+    CGAlgo.addNode(Id, Size, Callees);
   }
 
-  auto Assignments = CallGraph.computeBinAssignments();
+  auto Assignments = CGAlgo.computeBinAssignments();
   for (auto &A : Assignments) {
     int Id; unsigned Bin;
     std::tie(Id, Bin) = A;
@@ -225,7 +225,7 @@ std::vector<std::pair<int, unsigned>> PagerandoBinning::CallGraphAlgo::computeBi
 
   while (!WorkList.empty()) {
     auto *Node = removeNode(WorkList);
-    auto Bin = Simple.assignToBin(Node->TreeSize);
+    auto Bin = SAlgo.assignToBin(Node->TreeSize);
     assignCalleesToBin(Node, Bin);
     adjustCallerSizes(Node);
   }

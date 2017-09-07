@@ -49,7 +49,7 @@ private:
   bool binCallGraph();
 
 public:
-  class Algorithm {
+  class SimpleAlgo {
     std::multimap<unsigned, unsigned> Bins; // <free space  ->  bin numbers>
     unsigned BinCount = 1;
   public:
@@ -71,7 +71,7 @@ public:
       }
     };
     std::map<int, Node> Nodes;
-    Algorithm Simple;
+    SimpleAlgo SAlgo;
 
     Node* removeNode(std::vector<Node*> &WL);
     void adjustCallerSizes(Node *Removed);
@@ -83,8 +83,8 @@ public:
   };
 
 private:
-  Algorithm Algo;
-  CallGraphAlgo CallGraph;
+  SimpleAlgo SAlgo;
+  CallGraphAlgo CGAlgo;
 };
 
 } // end namespace llvm

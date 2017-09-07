@@ -9,7 +9,7 @@ set(CodeGenSources
   DIEHashTest.cpp
   LowLevelTypeTest.cpp
   MachineInstrBundleIteratorTest.cpp
-  PagerandoBinningTest.cpp
+  PagerandoBinningSimpleTest.cpp
   )
 
 add_llvm_unittest(CodeGenTests
