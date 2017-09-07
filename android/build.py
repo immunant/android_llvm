@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import utils
 
+import android_version
 from version import Version
 
 ORIG_ENV = dict(os.environ)
@@ -150,6 +151,8 @@ def base_cmake_defines():
     defines['LLVM_ENABLE_ASSERTIONS'] = 'OFF'
     defines['LLVM_ENABLE_THREADS'] = 'OFF'
     defines['LLVM_LIBDIR_SUFFIX'] = '64'
+    defines['LLVM_VERSION_PATCH'] = android_version.patch_level
+    defines['CLANG_VERSION_PATCHLEVEL'] = android_version.patch_level
     return defines
 
 
