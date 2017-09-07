@@ -185,14 +185,15 @@ PagerandoBinning::CallGraphAlgo::removeNode(std::vector<Node*> &WL) {
   return Node;
 }
 
-void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
-  std::queue<Node*> Queue({Removed});
-  std::set<Node*> Discovered{Removed};
+template<typename Node, typename SearchDirection, typename VisitAction>
+static void bfs(Node Start, SearchDirection Expander, VisitAction Action) {
+  std::queue<Node> Queue({Start});
+  std::set<Node> Discovered{Start};
 
   while (!Queue.empty()) {
-    auto *N = Queue.front(); Queue.pop();
-    N->TreeSize -= Removed->TreeSize;
-    for (auto *C : N->Callers) {
+    Node N = Queue.front(); Queue.pop();
+    Action(N);
+    for (Node C : Expander(N)) {
       if (Discovered.insert(C).second) {
         Queue.push(C);
       }
@@ -200,19 +201,16 @@ void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
   }
 }
 
-void PagerandoBinning::CallGraphAlgo::assignCalleesToBin(Node *Tree, unsigned Bin) {
-  std::queue<Node*> Queue({Tree});
-  std::set<Node*> Discovered{Tree};
+void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
+  bfs(Removed,
+      [](Node *N) { return N->Callers; },
+      [Removed](Node *N) { N->TreeSize -= Removed->TreeSize; });
+}
 
-  while (!Queue.empty()) {
-    auto *N = Queue.front(); Queue.pop();
-    N->Bin = Bin;
-    for (auto *C : N->Callees) {
-      if (Discovered.insert(C).second) {
-        Queue.push(C);
-      }
-    }
-  }
+void PagerandoBinning::CallGraphAlgo::assignCalleesToBin(Node *Tree, unsigned Bin) {
+  bfs(Tree,
+      [](Node *N) { return N->Callees; },
+      [](Node *N) { N->Bin = Bin; });
 }
 
 // <node id  ->  bin>
