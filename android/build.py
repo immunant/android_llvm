@@ -296,7 +296,7 @@ def build_libcxx(stage2_install, clang_version):
     for (arch, llvm_triple, libcxx_defines,
          cflags) in cross_compile_configs(stage2_install):
         logger().info('Building libcxx for %s', arch)
-        libcxx_path = utils.android_path('out', 'lib', 'libcxx-' + arch)
+        libcxx_path = utils.out_path('lib', 'libcxx-' + arch)
 
         libcxx_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libcxx_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
@@ -330,7 +330,7 @@ def build_crts(stage2_install, clang_version):
     for (arch, llvm_triple, crt_defines,
          cflags) in cross_compile_configs(stage2_install):
         logger().info('Building compiler-rt for %s', arch)
-        crt_path = utils.android_path('out', 'lib', 'clangrt-' + arch)
+        crt_path = utils.out_path('lib', 'clangrt-' + arch)
         crt_install = os.path.join(stage2_install, 'lib64', 'clang',
                                    clang_version.short_version())
 
@@ -370,7 +370,7 @@ def build_libfuzzers(stage2_install, clang_version):
     for (arch, llvm_triple, libfuzzer_defines,
          cflags) in cross_compile_configs(stage2_install):
         logger().info('Building libfuzzer for %s', arch)
-        libfuzzer_path = utils.android_path('out', 'lib', 'libfuzzer-' + arch)
+        libfuzzer_path = utils.out_path('lib', 'libfuzzer-' + arch)
         libfuzzer_defines['CMAKE_BUILD_TYPE'] = 'Release'
         libfuzzer_defines['LLVM_USE_SANITIZER'] = 'Address'
         libfuzzer_defines['LLVM_USE_SANITIZE_COVERAGE'] = 'YES'
@@ -519,7 +519,7 @@ def build_llvm_for_windows(targets,
 
 def build_stage1(stage1_install, build_llvm_tools=False):
     # Build/install the stage 1 toolchain
-    stage1_path = utils.android_path('out', 'stage1')
+    stage1_path = utils.out_path('stage1')
     stage1_targets = 'X86'
 
     stage1_extra_defines = dict()
@@ -581,7 +581,7 @@ def build_stage2(stage1_install,
     # Build/install the stage2 toolchain
     stage2_cc = os.path.join(stage1_install, 'bin', 'clang')
     stage2_cxx = os.path.join(stage1_install, 'bin', 'clang++')
-    stage2_path = utils.android_path('out', 'stage2')
+    stage2_path = utils.out_path('stage2')
 
     stage2_extra_defines = dict()
     stage2_extra_defines['CMAKE_C_COMPILER'] = stage2_cc
@@ -680,7 +680,7 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     is_windows = is_windows32 or is_windows64
     is_linux = host == 'linux-x86'
     package_name = 'clang-' + build_name
-    install_host_dir = utils.android_path('out', 'install', host)
+    install_host_dir = utils.out_path('install', host)
     install_dir = os.path.join(install_host_dir, package_name)
 
     # Remove any previously installed toolchain so it doesn't pollute the
@@ -816,10 +816,10 @@ def main():
     log_level = log_levels[verbosity]
     logging.basicConfig(level=log_level)
 
-    stage1_install = utils.android_path('out', 'stage1-install')
-    stage2_install = utils.android_path('out', 'stage2-install')
-    windows32_install = utils.android_path('out', 'windows-i386-install')
-    windows64_install = utils.android_path('out', 'windows-x86-install')
+    stage1_install = utils.out_path('stage1-install')
+    stage2_install = utils.out_path('stage2-install')
+    windows32_install = utils.out_path('windows-i386-install')
+    windows64_install = utils.out_path('windows-x86-install')
 
     # TODO(pirama): Once we have a set of prebuilts with lld, pass use_lld for
     # stage1 as well.
@@ -837,7 +837,7 @@ def main():
         windows_targets = STAGE2_TARGETS
 
         # Build 64-bit clang for Windows
-        windows64_path = utils.android_path('out', 'windows-x86')
+        windows64_path = utils.out_path('windows-x86')
         build_llvm_for_windows(
             targets=windows_targets,
             enable_assertions=args.enable_assertions,
@@ -846,7 +846,7 @@ def main():
             native_clang_install=stage2_install)
 
         # Build 32-bit clang for Windows
-        windows32_path = utils.android_path('out', 'windows-i386')
+        windows32_path = utils.out_path('windows-i386')
         build_llvm_for_windows(
             targets=windows_targets,
             enable_assertions=args.enable_assertions,
@@ -858,7 +858,7 @@ def main():
     if do_package:
         # TODO(srhines): This only packages builds for the host OS. It needs
         # to be extended to package up the Windows build as well.
-        dist_dir = ORIG_ENV.get('DIST_DIR', utils.android_path('out'))
+        dist_dir = ORIG_ENV.get('DIST_DIR', utils.out_path())
         package_toolchain(
             stage2_install,
             args.build_name,
