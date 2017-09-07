@@ -25,16 +25,13 @@ import shutil
 import subprocess
 
 TARGETS = ('aosp_angler-eng', 'aosp_bullhead-eng', 'aosp_marlin-eng')
-DEFAULT_TIDY_CHECKS = ('*',
-                       '-readability-*',
-                       '-google-readability-*',
-                       '-google-runtime-references',
-                       '-cppcoreguidelines-*',
-                       '-modernize-*',
-                       '-clang-analyzer-alpha*')
+DEFAULT_TIDY_CHECKS = ('*', '-readability-*', '-google-readability-*',
+                       '-google-runtime-references', '-cppcoreguidelines-*',
+                       '-modernize-*', '-clang-analyzer-alpha*')
 
 
 class ClangProfileHandler(object):
+
     def __init__(self):
         self.out_dir = os.environ.get('OUT_DIR', utils.android_path('out'))
         self.profiles_dir = os.path.join(self.out_dir, 'clang-profiles')
@@ -56,50 +53,85 @@ class ClangProfileHandler(object):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('android_path', help='Android source directory.')
-    parser.add_argument('clang_path', nargs='?', help='Clang toolchain '
-                        'directory. If not specified, a new toolchain will '
-                        'be built from scratch.')
-    parser.add_argument('-k', '--keep-going', action='store_true',
-                        default=False, help='Keep going when some targets '
-                        'cannot be built.')
-    parser.add_argument('-j', action='store', dest='jobs', type=int,
-                        default=multiprocessing.cpu_count(),
-                        help='Number of executed jobs.')
-    parser.add_argument('--build-only', action='store_true',
-                        default=False, help='Build default targets only.')
-    parser.add_argument('--flashall-path', nargs='?', help='Use internal '
-                        'flashall tool if the path is set.')
-    parser.add_argument('-t', '--target', nargs='?', help='Build for specified '
-                        'target. This will work only when --build-only is '
-                        'enabled.')
-    parser.add_argument('--with-tidy', action='store_true', default=False,
-                        help='Enable clang tidy for Android build.')
+    parser.add_argument(
+        'clang_path',
+        nargs='?',
+        help='Clang toolchain '
+        'directory. If not specified, a new toolchain will '
+        'be built from scratch.')
+    parser.add_argument(
+        '-k',
+        '--keep-going',
+        action='store_true',
+        default=False,
+        help='Keep going when some targets '
+        'cannot be built.')
+    parser.add_argument(
+        '-j',
+        action='store',
+        dest='jobs',
+        type=int,
+        default=multiprocessing.cpu_count(),
+        help='Number of executed jobs.')
+    parser.add_argument(
+        '--build-only',
+        action='store_true',
+        default=False,
+        help='Build default targets only.')
+    parser.add_argument(
+        '--flashall-path',
+        nargs='?',
+        help='Use internal '
+        'flashall tool if the path is set.')
+    parser.add_argument(
+        '-t',
+        '--target',
+        nargs='?',
+        help='Build for specified '
+        'target. This will work only when --build-only is '
+        'enabled.')
+    parser.add_argument(
+        '--with-tidy',
+        action='store_true',
+        default=False,
+        help='Enable clang tidy for Android build.')
     clean_built_target_group = parser.add_mutually_exclusive_group()
     clean_built_target_group.add_argument(
-        '--clean-built-target', action='store_true', default=True,
+        '--clean-built-target',
+        action='store_true',
+        default=True,
         help='Clean output for each target that is built.')
     clean_built_target_group.add_argument(
-        '--no-clean-built-target', action='store_false',
-        dest='clean_built_target', help='Do not remove target output.')
+        '--no-clean-built-target',
+        action='store_false',
+        dest='clean_built_target',
+        help='Do not remove target output.')
     redirect_stderr_group = parser.add_mutually_exclusive_group()
     redirect_stderr_group.add_argument(
-        '--redirect-stderr', action='store_true', default=True,
+        '--redirect-stderr',
+        action='store_true',
+        default=True,
         help='Redirect clang stderr to $OUT/clang-error.log.')
     redirect_stderr_group.add_argument(
-        '--no-redirect-stderr', action='store_false',
-        dest='redirect_stderr', help='Do not redirect clang stderr.')
+        '--no-redirect-stderr',
+        action='store_false',
+        dest='redirect_stderr',
+        help='Do not redirect clang stderr.')
 
-    parser.add_argument('--generate-clang-profile', action='store_true',
-                        default=False, dest='profile',
-                        help='Build instrumented compiler and gather profiles')
+    parser.add_argument(
+        '--generate-clang-profile',
+        action='store_true',
+        default=False,
+        dest='profile',
+        help='Build instrumented compiler and gather profiles')
 
     return parser.parse_args()
 
 
 def link_clang(android_base, clang_path):
-    android_clang_path = os.path.join(android_base, 'prebuilts', 'clang',
-                                      'host', utils.build_os_type(),
-                                      'clang-dev')
+    android_clang_path = os.path.join(android_base, 'prebuilts',
+                                      'clang', 'host',
+                                      utils.build_os_type(), 'clang-dev')
     utils.remove(android_clang_path)
     os.symlink(os.path.abspath(clang_path), android_clang_path)
 
@@ -108,7 +140,7 @@ def get_connected_device_list():
     try:
         # Get current connected device list.
         out = subprocess.check_output(['adb', 'devices', '-l'])
-        devices = [x.split() for x in  out.strip().split('\n')[1:]]
+        devices = [x.split() for x in out.strip().split('\n')[1:]]
         return devices
     except subprocess.CalledProcessError:
         # If adb is not working properly. Return empty list.
@@ -120,14 +152,17 @@ def rm_current_product_out():
         utils.remove(os.environ['ANDROID_PRODUCT_OUT'])
 
 
-def build_target(android_base, clang_version, target, max_jobs,
-                 redirect_stderr, with_tidy, profiler):
-    jobs = '-j{}'.format(
-            max(1, min(max_jobs, multiprocessing.cpu_count())))
+def build_target(android_base, clang_version, target, max_jobs, redirect_stderr,
+                 with_tidy, profiler):
+    jobs = '-j{}'.format(max(1, min(max_jobs, multiprocessing.cpu_count())))
     result = True
-    env_out = subprocess.Popen(['bash', '-c',  '. ./build/envsetup.sh;'
-                                'lunch ' + target + ' >/dev/null && env'],
-                               cwd=android_base, stdout=subprocess.PIPE )
+    env_out = subprocess.Popen(
+        [
+            'bash', '-c', '. ./build/envsetup.sh;'
+            'lunch ' + target + ' >/dev/null && env'
+        ],
+        cwd=android_base,
+        stdout=subprocess.PIPE)
     env = {}
     for line in env_out.stdout:
         (key, _, value) = line.partition('=')
@@ -141,8 +176,8 @@ def build_target(android_base, clang_version, target, max_jobs,
             redirect_path = os.path.join(env['DIST_DIR'], 'logs',
                                          'clang-error.log')
         else:
-            redirect_path = os.path.abspath(os.path.join(android_base, 'out',
-                                                         'clang-error.log'))
+            redirect_path = os.path.abspath(
+                os.path.join(android_base, 'out', 'clang-error.log'))
             utils.remove(redirect_path)
         env[redirect_key] = redirect_path
         fallback_path = build.clang_prebuilt_bin_dir()
@@ -154,19 +189,19 @@ def build_target(android_base, clang_version, target, max_jobs,
     # http://b/62869798, we need to invoke cpp-define-generator manually to
     # avoid potential build failure. This should be removed when
     # art/runtime/generated/asm_support_gen.h is updated.
-    subprocess.check_call(['/bin/bash', '-c', 'make cpp-define-generator-data '
-                           + jobs + ' dist'],
-                          cwd=android_base, env=env)
+    subprocess.check_call(
+        ['/bin/bash', '-c', 'make cpp-define-generator-data ' + jobs + ' dist'],
+        cwd=android_base,
+        env=env)
     asm_support_path = os.path.join(android_base, 'art', 'tools',
                                     'cpp-define-generator')
-    subprocess.check_call(['./generate-asm-support'], cwd=asm_support_path,
-                          env=env)
+    subprocess.check_call(
+        ['./generate-asm-support'], cwd=asm_support_path, env=env)
 
     if with_tidy:
         env['WITH_TIDY'] = '1'
         if 'DEFAULT_GLOBAL_TIDY_CHECKS' not in env:
             env['DEFAULT_GLOBAL_TIDY_CHECKS'] = ','.join(DEFAULT_TIDY_CHECKS)
-
 
     modules = ['dist']
     if profiler is not None:
@@ -178,8 +213,10 @@ def build_target(android_base, clang_version, target, max_jobs,
 
     modules = ' '.join(modules)
     print('Start building target %s and modules %s.' % (target, modules))
-    subprocess.check_call(['/bin/bash', '-c', 'make ' + jobs + ' ' + modules],
-                          cwd=android_base, env=env)
+    subprocess.check_call(
+        ['/bin/bash', '-c', 'make ' + jobs + ' ' + modules],
+        cwd=android_base,
+        env=env)
 
 
 def test_device(android_base, clang_version, device, max_jobs, clean_output,
@@ -197,10 +234,11 @@ def test_device(android_base, clang_version, device, max_jobs, clean_output,
         if flashall_path is None:
             bin_path = os.path.join(android_base, 'out', 'host',
                                     utils.build_os_type(), 'bin')
-            subprocess.check_call(['./adb', '-s', device[0], 'reboot',
-                                   'bootloader'], cwd=bin_path)
-            subprocess.check_call(['./fastboot', '-s', device[0], 'flashall'],
-                                  cwd=bin_path)
+            subprocess.check_call(
+                ['./adb', '-s', device[0], 'reboot', 'bootloader'],
+                cwd=bin_path)
+            subprocess.check_call(
+                ['./fastboot', '-s', device[0], 'flashall'], cwd=bin_path)
         else:
             os.environ['ANDROID_SERIAL'] = device[0]
             subprocess.check_call(['./flashall'], cwd=flashall_path)
@@ -219,7 +257,6 @@ def install_wrappers(llvm_install_path):
     clang_path = os.path.join(bin_path, 'clang')
     clangxx_path = os.path.join(bin_path, 'clang++')
     clang_tidy_path = os.path.join(bin_path, 'clang-tidy')
-
 
     # Rename clang and clang++ to clang.real and clang++.real.
     # clang and clang-tidy may already be moved by this script if we use a
@@ -247,8 +284,12 @@ def build_clang(instrumented=False):
     # LLVM tool llvm-profdata from stage1 is needed to merge the collected
     # profiles
     build.build_stage1(stage1_install, build_llvm_tools=True)
-    build.build_stage2(stage1_install, stage2_install, build.STAGE2_TARGETS,
-                       use_lld=False, build_instrumented=instrumented)
+    build.build_stage2(
+        stage1_install,
+        stage2_install,
+        build.STAGE2_TARGETS,
+        use_lld=False,
+        build_instrumented=instrumented)
     build.build_runtimes(stage2_install)
     version = build.extract_clang_version(stage2_install)
     return stage2_install, version
@@ -269,9 +310,8 @@ def main():
 
         targets = [args.target] if args.target else TARGETS
         for target in targets:
-            build_target(args.android_path, clang_version, target,
-                         args.jobs, args.redirect_stderr, args.with_tidy,
-                         profiler)
+            build_target(args.android_path, clang_version, target, args.jobs,
+                         args.redirect_stderr, args.with_tidy, profiler)
 
         if profiler is not None:
             profiler.mergeProfiles()

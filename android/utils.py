@@ -33,11 +33,13 @@ def remove(path):
 
 
 def rm_tree(dir):
+
     def chmod_and_retry(func, path, _):
         if not os.access(path, os.W_OK):
             os.chmod(path, stat.S_IWUSR)
             return func(path)
         raise
+
     shutil.rmtree(dir, onerror=chmod_and_retry)
 
 

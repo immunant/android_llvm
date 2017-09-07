@@ -105,8 +105,8 @@ def clang_prebuilt_version():
 
 
 def clang_prebuilt_base_dir():
-    return utils.android_path('prebuilts/clang/host', utils.build_os_type(),
-                              clang_prebuilt_version())
+    return utils.android_path('prebuilts/clang/host',
+                              utils.build_os_type(), clang_prebuilt_version())
 
 
 def clang_prebuilt_bin_dir():
@@ -185,25 +185,23 @@ def cross_compile_configs(stage2_install):
     configs = [
         # Bug: http://b/35404115: Switch to armv7-linux-android once armv5 is
         # deprecated from the NDK
-        ('arm', 'arm',
-            'arm/arm-linux-androideabi-4.9/arm-linux-androideabi',
-            'arm-linux-android', ''),
+        ('arm', 'arm', 'arm/arm-linux-androideabi-4.9/arm-linux-androideabi',
+         'arm-linux-android', ''),
         ('aarch64', 'arm64',
-            'aarch64/aarch64-linux-android-4.9/aarch64-linux-android',
-            'aarch64-linux-android', ''),
+         'aarch64/aarch64-linux-android-4.9/aarch64-linux-android',
+         'aarch64-linux-android', ''),
         ('x86_64', 'x86_64',
-            'x86/x86_64-linux-android-4.9/x86_64-linux-android',
-            'x86_64-linux-android', ''),
-        ('i386', 'x86',
-            'x86/x86_64-linux-android-4.9/x86_64-linux-android',
-            'i686-linux-android', '-m32'),
+         'x86/x86_64-linux-android-4.9/x86_64-linux-android',
+         'x86_64-linux-android', ''),
+        ('i386', 'x86', 'x86/x86_64-linux-android-4.9/x86_64-linux-android',
+         'i686-linux-android', '-m32'),
         ('mips', 'mips',
-            'mips/mips64el-linux-android-4.9/mips64el-linux-android',
-            'mipsel-linux-android', '-m32'),
+         'mips/mips64el-linux-android-4.9/mips64el-linux-android',
+         'mipsel-linux-android', '-m32'),
         ('mips64', 'mips64',
-            'mips/mips64el-linux-android-4.9/mips64el-linux-android',
-            'mips64el-linux-android', '-m64'),
-        ]
+         'mips/mips64el-linux-android-4.9/mips64el-linux-android',
+         'mips64el-linux-android', '-m64'),
+    ]
 
     cc = os.path.join(stage2_install, 'bin', 'clang')
     cxx = os.path.join(stage2_install, 'bin', 'clang++')
@@ -231,10 +229,9 @@ def cross_compile_configs(stage2_install):
             defines['COMPILER_RT_BUILD_BUILTINS'] = 'OFF'
 
         # Include the directory with libgcc.a to the linker search path.
-        toolchain_builtins = os.path.join(toolchain_root, toolchain_path, '..',
-                                          'lib', 'gcc',
-                                          os.path.basename(toolchain_path),
-                                          '4.9.x')
+        toolchain_builtins = os.path.join(
+            toolchain_root, toolchain_path, '..', 'lib', 'gcc',
+            os.path.basename(toolchain_path), '4.9.x')
         # The 32-bit libgcc.a is sometimes in a separate subdir
         if arch == 'i386':
             toolchain_builtins = os.path.join(toolchain_builtins, '32')
@@ -260,20 +257,24 @@ def cross_compile_configs(stage2_install):
             toolchain_lib = ndk_toolchain_lib(arch, llvm_triple + '-4.9',
                                               llvm_triple)
 
-        ldflags = ['-L' + toolchain_builtins, '-Wl,-z,defs', '-L' + libcxx_libs,
-                   '-L' + toolchain_lib, '--sysroot=%s' % sysroot_libs]
+        ldflags = [
+            '-L' + toolchain_builtins, '-Wl,-z,defs', '-L' + libcxx_libs,
+            '-L' + toolchain_lib,
+            '--sysroot=%s' % sysroot_libs
+        ]
         defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_SYSROOT'] = sysroot
         defines['CMAKE_SYSROOT_COMPILE'] = sysroot
 
-        cflags = ['--target=%s' % llvm_triple,
-                  '-B%s' % toolchain_bin,
-                  '-isystem %s' % sysroot_headers,
-                  '-D__ANDROID_API__=%s' % android_api(arch),
-                  extra_flags,
-                 ]
+        cflags = [
+            '--target=%s' % llvm_triple,
+            '-B%s' % toolchain_bin,
+            '-isystem %s' % sysroot_headers,
+            '-D__ANDROID_API__=%s' % android_api(arch),
+            extra_flags,
+        ]
         yield (arch, llvm_triple, defines, cflags)
 
 
@@ -289,7 +290,8 @@ def build_asan_test(stage2_install):
 
 
 def build_libcxx(stage2_install, clang_version):
-    for (arch, llvm_triple, libcxx_defines, cflags) in cross_compile_configs(stage2_install):
+    for (arch, llvm_triple, libcxx_defines,
+         cflags) in cross_compile_configs(stage2_install):
         logger().info('Building libcxx for %s', arch)
         libcxx_path = utils.android_path('out', 'lib', 'libcxx-' + arch)
 
@@ -302,9 +304,12 @@ def build_libcxx(stage2_install, clang_version):
         libcxx_cmake_path = utils.llvm_path('projects', 'libcxx')
         rm_cmake_cache(libcxx_path)
 
-        invoke_cmake(out_path=libcxx_path, defines=libcxx_defines,
-                     env=libcxx_env, cmake_path=libcxx_cmake_path,
-                     install=False)
+        invoke_cmake(
+            out_path=libcxx_path,
+            defines=libcxx_defines,
+            env=libcxx_env,
+            cmake_path=libcxx_cmake_path,
+            install=False)
         # We need to install libcxx manually.
         libcxx_install = os.path.join(stage2_install, 'lib64', 'clang',
                                       clang_version.short_version(), 'lib',
@@ -319,7 +324,8 @@ def build_libcxx(stage2_install, clang_version):
 def build_crts(stage2_install, clang_version):
     llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
     # Now build compiler-rt for each arch
-    for (arch, llvm_triple, crt_defines, cflags) in cross_compile_configs(stage2_install):
+    for (arch, llvm_triple, crt_defines,
+         cflags) in cross_compile_configs(stage2_install):
         logger().info('Building compiler-rt for %s', arch)
         crt_path = utils.android_path('out', 'lib', 'clangrt-' + arch)
         crt_install = os.path.join(stage2_install, 'lib64', 'clang',
@@ -349,13 +355,17 @@ def build_crts(stage2_install, clang_version):
 
         crt_cmake_path = utils.llvm_path('projects', 'compiler-rt')
         rm_cmake_cache(crt_path)
-        invoke_cmake(out_path=crt_path, defines=crt_defines, env=crt_env,
-                cmake_path=crt_cmake_path)
+        invoke_cmake(
+            out_path=crt_path,
+            defines=crt_defines,
+            env=crt_env,
+            cmake_path=crt_cmake_path)
 
 
 def build_libfuzzers(stage2_install, clang_version):
 
-    for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(stage2_install):
+    for (arch, llvm_triple, libfuzzer_defines,
+         cflags) in cross_compile_configs(stage2_install):
         logger().info('Building libfuzzer for %s', arch)
         libfuzzer_path = utils.android_path('out', 'lib', 'libfuzzer-' + arch)
         libfuzzer_defines['CMAKE_BUILD_TYPE'] = 'Release'
@@ -363,9 +373,11 @@ def build_libfuzzers(stage2_install, clang_version):
         libfuzzer_defines['LLVM_USE_SANITIZE_COVERAGE'] = 'YES'
         libfuzzer_defines['CMAKE_CXX_STANDARD'] = '11'
 
-        cflags.extend(['-isystem %s' % libcxx_headers(),
-                       '-isystem %s' % libcxxabi_headers(),
-                       '-isystem %s' % support_headers()])
+        cflags.extend([
+            '-isystem %s' % libcxx_headers(),
+            '-isystem %s' % libcxxabi_headers(),
+            '-isystem %s' % support_headers()
+        ])
 
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
@@ -378,28 +390,34 @@ def build_libfuzzers(stage2_install, clang_version):
         libfuzzer_cmake_path = utils.llvm_path('lib', 'Fuzzer')
         libfuzzer_env = dict(ORIG_ENV)
         rm_cmake_cache(libfuzzer_path)
-        invoke_cmake(out_path=libfuzzer_path, defines=libfuzzer_defines,
-                     env=libfuzzer_env, cmake_path=libfuzzer_cmake_path,
-                     install=False)
+        invoke_cmake(
+            out_path=libfuzzer_path,
+            defines=libfuzzer_defines,
+            env=libfuzzer_env,
+            cmake_path=libfuzzer_cmake_path,
+            install=False)
         # We need to install libfuzzer manually.
         static_lib = os.path.join(libfuzzer_path, 'libLLVMFuzzer.a')
         lib_dir = os.path.join(stage2_install, 'lib64', 'clang',
-                               clang_version.short_version(), 'lib',
-                               'linux', arch)
+                               clang_version.short_version(), 'lib', 'linux',
+                               arch)
         check_create_path(lib_dir)
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libFuzzer.a'))
 
     # Install libfuzzer headers.
     header_src = utils.llvm_path('lib', 'Fuzzer')
-    header_dst = os.path.join(stage2_install, 'prebuilt_include', 'llvm',
-                              'lib', 'Fuzzer')
+    header_dst = os.path.join(stage2_install, 'prebuilt_include', 'llvm', 'lib',
+                              'Fuzzer')
     check_create_path(header_dst)
     for f in os.listdir(header_src):
         if f.endswith('.h') or f.endswith('.def'):
             shutil.copy2(os.path.join(header_src, f), header_dst)
 
 
-def build_llvm(targets, build_dir, install_dir, extra_defines=None,
+def build_llvm(targets,
+               build_dir,
+               install_dir,
+               extra_defines=None,
                extra_env=None):
     cmake_defines = base_cmake_defines()
     cmake_defines['CMAKE_INSTALL_PREFIX'] = install_dir
@@ -416,12 +434,19 @@ def build_llvm(targets, build_dir, install_dir, extra_defines=None,
     if extra_env is not None:
         env.update(extra_env)
 
-    invoke_cmake(out_path=build_dir, defines=cmake_defines, env=env,
-                 cmake_path=utils.llvm_path())
+    invoke_cmake(
+        out_path=build_dir,
+        defines=cmake_defines,
+        env=env,
+        cmake_path=utils.llvm_path())
 
 
-def build_llvm_for_windows(targets, enable_assertions, build_dir, install_dir,
-                           native_clang_install, is_32_bit=False):
+def build_llvm_for_windows(targets,
+                           enable_assertions,
+                           build_dir,
+                           install_dir,
+                           native_clang_install,
+                           is_32_bit=False):
 
     mingw_path = utils.android_path('prebuilts', 'gcc', 'linux-x86', 'host',
                                     'x86_64-w64-mingw32-4.8')
@@ -435,10 +460,9 @@ def build_llvm_for_windows(targets, enable_assertions, build_dir, install_dir,
     native_clang_cxx = os.path.join(native_clang_install, 'bin', 'clang++')
     check_create_path(build_dir)
     native_cmake_file_path = os.path.join(build_dir, 'NATIVE.cmake')
-    native_cmake_text = (
-        'set(CMAKE_C_COMPILER {cc})\n'
-        'set(CMAKE_CXX_COMPILER {cxx})\n'
-    ).format(cc=native_clang_cc, cxx=native_clang_cxx)
+    native_cmake_text = ('set(CMAKE_C_COMPILER {cc})\n'
+                         'set(CMAKE_CXX_COMPILER {cxx})\n').format(
+                             cc=native_clang_cc, cxx=native_clang_cxx)
 
     with open(native_cmake_file_path, 'w') as native_cmake_file:
         native_cmake_file.write(native_cmake_text)
@@ -483,8 +507,11 @@ def build_llvm_for_windows(targets, enable_assertions, build_dir, install_dir,
     windows_extra_defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
     windows_extra_defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
 
-    build_llvm(targets=targets, build_dir=build_dir, install_dir=install_dir,
-               extra_defines=windows_extra_defines)
+    build_llvm(
+        targets=targets,
+        build_dir=build_dir,
+        install_dir=install_dir,
+        extra_defines=windows_extra_defines)
 
 
 def build_stage1(stage1_install, build_llvm_tools=False):
@@ -497,9 +524,9 @@ def build_stage1(stage1_install, build_llvm_tools=False):
     stage1_extra_defines['CLANG_ENABLE_ARCMT'] = 'OFF'
     stage1_extra_defines['CLANG_ENABLE_STATIC_ANALYZER'] = 'OFF'
     stage1_extra_defines['CMAKE_C_COMPILER'] = os.path.join(
-            clang_prebuilt_bin_dir(), 'clang')
+        clang_prebuilt_bin_dir(), 'clang')
     stage1_extra_defines['CMAKE_CXX_COMPILER'] = os.path.join(
-            clang_prebuilt_bin_dir(), 'clang++')
+        clang_prebuilt_bin_dir(), 'clang++')
     stage1_extra_defines['LLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD'] = 'OFF'
     stage1_extra_defines['LLVM_TOOL_OPENMP_BUILD'] = 'OFF'
 
@@ -531,14 +558,21 @@ def build_stage1(stage1_install, build_llvm_tools=False):
     # Darwin and fail compilation due to us using the bionic version of
     # stdatomic.h.
     if utils.host_is_darwin():
-          stage1_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
+        stage1_extra_defines['LLVM_BUILD_EXTERNAL_COMPILER_RT'] = 'ON'
 
-    build_llvm(targets=stage1_targets, build_dir=stage1_path,
-               install_dir=stage1_install, extra_defines=stage1_extra_defines)
+    build_llvm(
+        targets=stage1_targets,
+        build_dir=stage1_path,
+        install_dir=stage1_install,
+        extra_defines=stage1_extra_defines)
 
 
-def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False,
-                 enable_assertions=False, build_instrumented=False):
+def build_stage2(stage1_install,
+                 stage2_install,
+                 stage2_targets,
+                 use_lld=False,
+                 enable_assertions=False,
+                 build_instrumented=False):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
     # Build/install the stage2 toolchain
@@ -595,9 +629,12 @@ def build_stage2(stage1_install, stage2_install, stage2_targets, use_lld=False,
     stage2_extra_env = dict()
     stage2_extra_env['LD_LIBRARY_PATH'] = os.path.join(stage1_install, 'lib64')
 
-    build_llvm(targets=stage2_targets, build_dir=stage2_path,
-               install_dir=stage2_install, extra_defines=stage2_extra_defines,
-               extra_env=stage2_extra_env)
+    build_llvm(
+        targets=stage2_targets,
+        build_dir=stage2_path,
+        install_dir=stage2_install,
+        extra_defines=stage2_extra_defines,
+        extra_env=stage2_extra_env)
 
 
 def build_runtimes(stage2_install):
@@ -656,22 +693,22 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
 
     # Next, we remove unnecessary binaries.
     necessary_bin_files = [
-            'clang' + ext,
-            'clang++' + ext,
-            'clang-5.0' + ext,
-            'clang-format' + ext,
-            'clang-tidy' + ext,
-            'git-clang-format',  # No extension here
-            'llvm-ar' + ext,
-            'llvm-as' + ext,
-            'llvm-dis' + ext,
-            'llvm-link' + ext,
-            'llvm-profdata' + ext,
-            'llvm-symbolizer' + ext,
-            'sancov' + ext,
-            'sanstats' + ext,
-            'LLVMgold' + shlib_ext,
-            ]
+        'clang' + ext,
+        'clang++' + ext,
+        'clang-5.0' + ext,
+        'clang-format' + ext,
+        'clang-tidy' + ext,
+        'git-clang-format',  # No extension here
+        'llvm-ar' + ext,
+        'llvm-as' + ext,
+        'llvm-dis' + ext,
+        'llvm-link' + ext,
+        'llvm-profdata' + ext,
+        'llvm-symbolizer' + ext,
+        'sancov' + ext,
+        'sanstats' + ext,
+        'LLVMgold' + shlib_ext,
+    ]
     bin_dir = os.path.join(install_dir, 'bin')
     bin_files = os.listdir(bin_dir)
     for bin_filename in bin_files:
@@ -705,9 +742,7 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     tarball_name = package_name + '-' + host
     package_path = os.path.join(dist_dir, tarball_name) + '.tar.bz2'
     logger().info('Packaging %s', package_path)
-    args = [
-        'tar', '-cjC', install_host_dir, '-f', package_path, package_name
-    ]
+    args = ['tar', '-cjC', install_host_dir, '-f', package_path, package_name]
     check_call(args)
 
 
@@ -716,34 +751,53 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '-v', '--verbose', action='count', default=0,
+        '-v',
+        '--verbose',
+        action='count',
+        default=0,
         help='Increase log level. Defaults to logging.INFO.')
     parser.add_argument(
         '--build-name', default='dev', help='Release name for the package.')
 
-    parser.add_argument('--use-lld', action='store_true', default=False,
-                        help='Use lld for linking (only affects stage2)')
+    parser.add_argument(
+        '--use-lld',
+        action='store_true',
+        default=False,
+        help='Use lld for linking (only affects stage2)')
 
-    parser.add_argument('--enable-assertions', action='store_true',
-                        default=False,
-                        help='Enable assertions (only affects stage2)')
+    parser.add_argument(
+        '--enable-assertions',
+        action='store_true',
+        default=False,
+        help='Enable assertions (only affects stage2)')
 
-    parser.add_argument('--build-instrumented', action='store_true',
-                        default=False,
-                        help='Build LLVM tools with PGO instrumentation')
+    parser.add_argument(
+        '--build-instrumented',
+        action='store_true',
+        default=False,
+        help='Build LLVM tools with PGO instrumentation')
 
     # Options to skip build or packaging (can't skip both, or the script does
     # nothing).
     build_package_group = parser.add_mutually_exclusive_group()
-    build_package_group.add_argument('--skip-build', '-sb',
-        action='store_true', default=False,
+    build_package_group.add_argument(
+        '--skip-build',
+        '-sb',
+        action='store_true',
+        default=False,
         help='Skip the build, and only do the packaging step')
-    build_package_group.add_argument('--skip-package', '-sp',
-        action='store_true', default=False,
+    build_package_group.add_argument(
+        '--skip-package',
+        '-sp',
+        action='store_true',
+        default=False,
         help='Skip the packaging, and only do the build step')
 
-    parser.add_argument('--no-strip', action='store_true',
-                        default=False, help='Don\t strip binaries/libraries')
+    parser.add_argument(
+        '--no-strip',
+        action='store_true',
+        default=False,
+        help='Don\t strip binaries/libraries')
 
     return parser.parse_args()
 
@@ -781,33 +835,47 @@ def main():
 
         # Build 64-bit clang for Windows
         windows64_path = utils.android_path('out', 'windows-x86')
-        build_llvm_for_windows(targets=windows_targets,
-                               enable_assertions=args.enable_assertions,
-                               build_dir=windows64_path,
-                               install_dir=windows64_install,
-                               native_clang_install=stage2_install)
+        build_llvm_for_windows(
+            targets=windows_targets,
+            enable_assertions=args.enable_assertions,
+            build_dir=windows64_path,
+            install_dir=windows64_install,
+            native_clang_install=stage2_install)
 
         # Build 32-bit clang for Windows
         windows32_path = utils.android_path('out', 'windows-i386')
-        build_llvm_for_windows(targets=windows_targets,
-                               enable_assertions=args.enable_assertions,
-                               build_dir=windows32_path,
-                               install_dir=windows32_install,
-                               native_clang_install=stage2_install,
-                               is_32_bit=True)
+        build_llvm_for_windows(
+            targets=windows_targets,
+            enable_assertions=args.enable_assertions,
+            build_dir=windows32_path,
+            install_dir=windows32_install,
+            native_clang_install=stage2_install,
+            is_32_bit=True)
 
     if do_package:
         # TODO(srhines): This only packages builds for the host OS. It needs
         # to be extended to package up the Windows build as well.
         dist_dir = ORIG_ENV.get('DIST_DIR', utils.android_path('out'))
-        package_toolchain(stage2_install, args.build_name,
-                          utils.build_os_type(), dist_dir, strip=do_strip)
+        package_toolchain(
+            stage2_install,
+            args.build_name,
+            utils.build_os_type(),
+            dist_dir,
+            strip=do_strip)
 
         if utils.host_is_linux():
-            package_toolchain(windows32_install, args.build_name,
-                              'windows-i386', dist_dir, strip=do_strip)
-            package_toolchain(windows64_install, args.build_name,
-                              'windows-x86', dist_dir, strip=do_strip)
+            package_toolchain(
+                windows32_install,
+                args.build_name,
+                'windows-i386',
+                dist_dir,
+                strip=do_strip)
+            package_toolchain(
+                windows64_install,
+                args.build_name,
+                'windows-x86',
+                dist_dir,
+                strip=do_strip)
 
     return 0
 

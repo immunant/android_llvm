@@ -38,8 +38,10 @@ PREBUILT_COMPILER_PATH_KEY = 'ANDROID_LLVM_PREBUILT_COMPILER_PATH'
 
 # We may introduce some new warnings after rebasing and we need to disable
 # them before we fix those warnings.
-DISABLED_WARNINGS = ['-Wno-error=zero-as-null-pointer-constant',
-                     '-Wno-error=unknown-warning-option']
+DISABLED_WARNINGS = [
+    '-Wno-error=zero-as-null-pointer-constant',
+    '-Wno-error=unknown-warning-option'
+]
 
 
 def process_arg_file(arg_file):
@@ -66,6 +68,7 @@ def write_log(path, command, log):
 
 
 class CompilerWrapper():
+
     def __init__(self, argv):
         self.argv0_current = argv[0]
         self.args = argv[1:]
@@ -74,9 +77,7 @@ class CompilerWrapper():
         self.argv0 = None
         self.append_flags = []
         self.prepend_flags = []
-        self.custom_flags = {
-            '--gomacc-path': None
-        }
+        self.custom_flags = {'--gomacc-path': None}
 
     def set_real_compiler(self):
         """Find the real compiler with the absolute path."""
@@ -85,9 +86,7 @@ class CompilerWrapper():
             compiler = os.path.basename(os.readlink(__file__))
         else:
             compiler = os.path.basename(os.path.abspath(__file__))
-        self.real_compiler = os.path.join(
-                compiler_path,
-                compiler + '.real')
+        self.real_compiler = os.path.join(compiler_path, compiler + '.real')
         self.argv0 = self.real_compiler
 
     def process_gomacc_command(self):
@@ -126,9 +125,8 @@ class CompilerWrapper():
     def exec_clang_with_fallback(self):
         # We only want to pass extra flags to clang and clang++.
         if os.path.basename(__file__) in ['clang', 'clang++']:
-            self.execargs += ["-fno-color-diagnostics"] + DISABLED_WARNINGS
-        p = subprocess.Popen(self.execargs,
-                             stderr=subprocess.PIPE)
+            self.execargs += ['-fno-color-diagnostics'] + DISABLED_WARNINGS
+        p = subprocess.Popen(self.execargs, stderr=subprocess.PIPE)
         (_, err) = p.communicate()
         sys.stderr.write(err)
         if p.returncode != 0:
@@ -136,8 +134,7 @@ class CompilerWrapper():
             write_log(redirect_path, self.execargs, err)
             fallback_arg0 = os.path.join(os.environ[PREBUILT_COMPILER_PATH_KEY],
                                          os.path.basename(__file__))
-            os.execv(fallback_arg0,
-                     [fallback_arg0] + self.execargs[1:])
+            os.execv(fallback_arg0, [fallback_arg0] + self.execargs[1:])
 
     def invoke_compiler(self):
         enable_fallback = PREBUILT_COMPILER_PATH_KEY in os.environ

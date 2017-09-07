@@ -31,18 +31,20 @@ PROJECT_PATH = (
     ('libcxx', llvm_path('projects/libcxx')),
     ('libcxxabi', llvm_path('projects/libcxxabi')),
     ('lld', llvm_path('tools/lld')),
-    ('openmp', llvm_path('projects/openmp')),
-)
+    ('openmp', llvm_path('projects/openmp')),)
 
 
 def parse_args():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('revision', help='Revision number of llvm source.',
-                      type=int)
-  parser.add_argument('--create-new-branch', action='store_true', default=False,
-                      help='Create new branch using `repo start` before '
-                           'merging from upstream.')
-  return parser.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'revision', help='Revision number of llvm source.', type=int)
+    parser.add_argument(
+        '--create-new-branch',
+        action='store_true',
+        default=False,
+        help='Create new branch using `repo start` before '
+        'merging from upstream.')
+    return parser.parse_args()
 
 
 def sync_upstream_branch(path):
@@ -58,22 +60,27 @@ def merge_projects(revision, create_new_branch):
         if sha is None:
             return
         project_sha_dict[project] = sha
-        print("Project %s git hash: %s" % (project, sha))
+        print('Project %s git hash: %s' % (project, sha))
 
     for (project, path) in PROJECT_PATH:
         sha = project_sha_dict[project]
         if create_new_branch:
             branch_name = 'merge-upstream-r%s' % revision
             subprocess.check_call(['repo', 'start', branch_name, '.'], cwd=path)
-        subprocess.check_call(['git', 'merge', sha, '-m',
-            'Merge %s for LLVM update to %d' % (sha, revision)], cwd=path)
+        subprocess.check_call(
+            [
+                'git', 'merge', sha, '-m',
+                'Merge %s for LLVM update to %d' % (sha, revision)
+            ],
+            cwd=path)
 
 
 def get_commit_hash(revision, path):
     # Get sha and commit message body for each log.
-    p = subprocess.Popen(['git', 'log', 'aosp/upstream-master',
-                          '--format=%h%x1f%B%x1e'], stdout=subprocess.PIPE,
-                         cwd=path)
+    p = subprocess.Popen(
+        ['git', 'log', 'aosp/upstream-master', '--format=%h%x1f%B%x1e'],
+        stdout=subprocess.PIPE,
+        cwd=path)
     (log, _) = p.communicate()
     if p.returncode != 0:
         print('git log for path: %s failed!' % path)
@@ -86,7 +93,7 @@ def get_commit_hash(revision, path):
     low, high = 0, len(log) - 1
     while low < high:
         pos = (low + high) // 2
-        (sha, cur_revision)  = parse_log(log[pos])
+        (sha, cur_revision) = parse_log(log[pos])
         if cur_revision == revision:
             return sha
         elif cur_revision < revision:
