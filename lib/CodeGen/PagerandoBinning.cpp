@@ -162,7 +162,7 @@ bool PagerandoBinning::binCallGraph() {
 void PagerandoBinning::CallGraphAlgo::addNode(int Id, unsigned Size,
                                               std::set<int> Callees) {
   assert(Id == Nodes.size()); // TODO imporves
-  Nodes.emplace_back(Node{Id, Size, 0, std::set<Node*>()});
+  Nodes.emplace_back(Node{Id, Size, std::set<Node*>()});
   auto &Node = Nodes.back();
   for (auto C : Callees) {
     auto &CN = Nodes.at(C);
@@ -175,7 +175,7 @@ void PagerandoBinning::CallGraphAlgo::addNode(int Id, unsigned Size,
 std::vector<PagerandoBinning::CallGraphAlgo::Node>::iterator
 PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node> &WL) {
   std::sort(WL.begin(), WL.end(), Node::byTreeSize);
-  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize + 0, Node::toTreeSize);
+  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTreeSize);
   if (I != WL.begin()) --I;
   else llvm_unreachable("no component is smaller than a page!!!!");
   return I;
@@ -203,28 +203,23 @@ void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
       [Removed](Node *N) { N->TreeSize -= Removed->TreeSize; });
 }
 
-void PagerandoBinning::CallGraphAlgo::assignCalleesToBin(Node *Tree, unsigned Bin) {
+void PagerandoBinning::CallGraphAlgo::collectCalleeAssignments(
+    Node *Tree, unsigned Bin, std::vector<std::pair<int, unsigned>> &Agg) {
   bfs(Tree,
       [](Node *N) { return N->Callees; },
-      [Bin](Node *N) { N->Bin = Bin; });
+      [Bin, &Agg](Node *N) { Agg.emplace_back(N->Id, Bin); });
 }
 
 // <node id  ->  bin>
 std::vector<std::pair<int, unsigned>>
 PagerandoBinning::CallGraphAlgo::computeBinAssignments() {
+  std::vector<std::pair<int, unsigned>> Assignments;
   while (!Nodes.empty()) {
     auto N = selectNode(Nodes);
     auto Bin = SAlgo.assignToBin(N->TreeSize);
-    assignCalleesToBin(&*N, Bin);
+    collectCalleeAssignments(&*N, Bin, Assignments);
     adjustCallerSizes(&*N);
     Nodes.erase(N);
   }
-
-  // TODO(yln): Currently Broken!
-  std::vector<std::pair<int, unsigned>> Result;
-//  for (auto &E : Nodes) {
-//    Result.emplace_back(E.first, E.second.Bin);
-//  }
-
-  return Result;
+  return Assignments;
 }

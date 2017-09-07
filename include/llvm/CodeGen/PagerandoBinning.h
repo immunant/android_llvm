@@ -60,7 +60,7 @@ public:
   class CallGraphAlgo {
     struct Node {
       int Id;
-      unsigned TreeSize, Bin;
+      unsigned TreeSize;
       std::set<Node*> Callers;
       std::set<Node*> Callees;
 
@@ -76,7 +76,8 @@ public:
 
     std::vector<Node>::iterator selectNode(std::vector<Node> &WL);
     void adjustCallerSizes(Node *Removed);
-    void assignCalleesToBin(Node *Tree, unsigned Bin);
+    void collectCalleeAssignments(
+        Node *Tree, unsigned Bin, std::vector<std::pair<int, unsigned>> &Agg);
 
   public:
     void addNode(int Id, unsigned Size, std::set<int> Callees);
