@@ -33,17 +33,15 @@ DEFAULT_TIDY_CHECKS = ('*', '-readability-*', '-google-readability-*',
 class ClangProfileHandler(object):
 
     def __init__(self):
-        self.out_dir = os.environ.get('OUT_DIR', utils.android_path('out'))
-        self.profiles_dir = os.path.join(self.out_dir, 'clang-profiles')
+        self.profiles_dir = utils.out_path('clang-profiles')
         self.profiles_format = os.path.join(self.profiles_dir, '%4m.profraw')
 
     def getProfileFileEnvVar(self):
         return ('LLVM_PROFILE_FILE', self.profiles_format)
 
     def mergeProfiles(self):
-        profdata = os.path.join(self.out_dir, 'stage1-install', 'bin',
-                                'llvm-profdata')
-        dist_dir = os.environ.get('DIST_DIR', utils.android_path('out'))
+        profdata = utils.out_path('stage1-install', 'bin', 'llvm-profdata')
+        dist_dir = os.environ.get('DIST_DIR', utils.out_path())
         out_file = os.path.join(dist_dir, 'clang.profdata')
 
         cmd = [profdata, 'merge', '-o', out_file, self.profiles_dir]
@@ -278,8 +276,8 @@ def install_wrappers(llvm_install_path):
 
 
 def build_clang(instrumented=False):
-    stage1_install = utils.android_path('out', 'stage1-install')
-    stage2_install = utils.android_path('out', 'stage2-install')
+    stage1_install = utils.out_path('stage1-install')
+    stage2_install = utils.out_path('stage2-install')
 
     # LLVM tool llvm-profdata from stage1 is needed to merge the collected
     # profiles

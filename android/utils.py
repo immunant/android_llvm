@@ -51,6 +51,11 @@ def llvm_path(*args):
     return os.path.realpath(os.path.join(THIS_DIR, '../', *args))
 
 
+def out_path(*args):
+    out_dir = os.environ.get('OUT_DIR', android_path('out'))
+    return os.path.realpath(os.path.join(out_dir, *args))
+
+
 def build_os_type():
     if sys.platform.startswith('linux'):
         return 'linux-x86'
