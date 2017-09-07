@@ -26,6 +26,7 @@
 
 #include "llvm/Pass.h"
 #include <map>
+#include <set>
 
 namespace llvm {
 class MachineFunction;
@@ -37,14 +38,16 @@ public:
 
   explicit PagerandoBinning();
 
-  bool runOnModule(Module &M) override;
   void getAnalysisUsage(AnalysisUsage &AU) const override;
+  bool runOnModule(Module &M) override;
 
 private:
   static constexpr unsigned BinSize = 4096; // one page
   static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thumb
 
   unsigned estimateFunctionSize(const MachineFunction &MF);
+  bool binSimple(Module &M, MachineModuleInfo& MMI);
+  bool binCallGraph(MachineModuleInfo& MMI);
 
 public:
   class Algorithm {
@@ -54,8 +57,35 @@ public:
     unsigned assignToBin(unsigned FnSize);
   };
 
+  class CallGraphAlgo {
+    struct Node {
+      int Id;
+      unsigned TreeSize, Bin;
+      std::set<Node*> Callers;
+      std::set<Node*> Callees;
+
+      static bool byTreeSize(const Node *A, const Node *B) {
+        return A->TreeSize < B->TreeSize;
+      }
+      static bool toTreeSize(unsigned Size, const Node *N) {
+        return Size < N->TreeSize;
+      }
+    };
+    std::map<int, Node> Nodes;
+    Algorithm Simple;
+
+    Node* removeNode(std::vector<Node*> &WL);
+    void adjustCallerSizes(Node *Removed);
+    void assignCalleesToBin(Node *Tree, unsigned Bin);
+
+  public:
+    void addNode(int Id, unsigned Size, std::set<int> Callees);
+    std::vector<std::pair<int, unsigned>> computeBinAssignments();
+  };
+
 private:
   Algorithm Algo;
+  CallGraphAlgo CallGraph;
 };
 
 } // end namespace llvm
