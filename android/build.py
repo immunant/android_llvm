@@ -800,7 +800,7 @@ def parse_args():
         '--no-strip',
         action='store_true',
         default=False,
-        help='Don\t strip binaries/libraries')
+        help='Don\'t strip binaries/libraries')
 
     return parser.parse_args()
 
