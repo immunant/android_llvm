@@ -29,7 +29,6 @@
 #include <set>
 
 namespace llvm {
-class MachineFunction;
 
 class PagerandoBinning : public ModulePass {
 public:
@@ -45,9 +44,9 @@ private:
   static constexpr unsigned BinSize = 4096; // one page
   static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thumb
 
-  unsigned estimateFunctionSize(const MachineFunction &MF);
-  bool binSimple(Module &M, MachineModuleInfo& MMI);
-  bool binCallGraph(MachineModuleInfo& MMI);
+  unsigned estimateFunctionSize(const Function &F);
+  bool binSimple(Module &M);
+  bool binCallGraph();
 
 public:
   class Algorithm {

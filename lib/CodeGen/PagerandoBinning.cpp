@@ -66,15 +66,14 @@ void PagerandoBinning::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool PagerandoBinning::runOnModule(Module &M) {
-  auto &MMI = getAnalysis<MachineModuleInfo>();
-
   switch (BinningStrategy.getValue()) {
-  case BStrat::Simple:    return binSimple(M, MMI);
-  case BStrat::CallGraph: return binCallGraph(MMI);
+  case BStrat::Simple:    return binSimple(M);
+  case BStrat::CallGraph: return binCallGraph();
   }
 }
 
-unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
+unsigned PagerandoBinning::estimateFunctionSize(const Function &F) {
+  auto &MF = getAnalysis<MachineModuleInfo>().getMachineFunction(F);
   auto *TII = MF.getSubtarget().getInstrInfo();
 
   unsigned Size = 0;
@@ -85,11 +84,11 @@ unsigned PagerandoBinning::estimateFunctionSize(const MachineFunction &MF) {
   return std::max(Size, MinFnSize+0);
 }
 
-bool PagerandoBinning::binSimple(Module &M, MachineModuleInfo &MMI) {
+bool PagerandoBinning::binSimple(Module &M) {
   bool Changed = false;
   for (auto &F : M) {
     if (F.isPagerando()) {
-      unsigned FnSize = estimateFunctionSize(MMI.getMachineFunction(F));
+      unsigned FnSize = estimateFunctionSize(F);
       unsigned Bin = Algo.assignToBin(FnSize);
       // Note: overwrites an existing section prefix
       F.setSectionPrefix(SectionPrefix + utostr(Bin));
@@ -120,7 +119,7 @@ unsigned PagerandoBinning::Algorithm::assignToBin(unsigned FnSize) {
   return Bin;
 }
 
-bool PagerandoBinning::binCallGraph(MachineModuleInfo &MMI) {
+bool PagerandoBinning::binCallGraph() {
   auto &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   std::map<Function*, int> NodesByFunc;
   std::map<int, Function*> FuncsByNode;
@@ -137,7 +136,7 @@ bool PagerandoBinning::binCallGraph(MachineModuleInfo &MMI) {
       if (!F->isPagerando()) continue;
       NodesByFunc.emplace(F, Id);
       FuncsByNode.emplace(Id, F);
-      Size += estimateFunctionSize(MMI.getMachineFunction(*F));
+      Size += estimateFunctionSize(*F);
       for (auto &CR : *CGN) {
         auto *CF = CR.second->getFunction();
         if (!CF->isPagerando()) continue;
