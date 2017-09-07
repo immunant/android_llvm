@@ -161,11 +161,9 @@ bool PagerandoBinning::binCallGraph() {
 
 void PagerandoBinning::CallGraphAlgo::addNode(int Id, unsigned Size,
                                               std::set<int> Callees) {
-  // tODO(yln) use N = Nodes[x];
-  auto I = Nodes.emplace(Id, Node{Id, Size, 0, std::set<Node*>()});
-  assert(I.second && "Duplicate Id");
-  auto &Node = I.first->second;
-
+  assert(Id == Nodes.size()); // TODO imporves
+  Nodes.emplace_back(Node{Id, Size, 0, std::set<Node*>()});
+  auto &Node = Nodes.back();
   for (auto C : Callees) {
     auto &CN = Nodes.at(C);
     CN.Callers.insert(&Node);
@@ -174,26 +172,24 @@ void PagerandoBinning::CallGraphAlgo::addNode(int Id, unsigned Size,
   }
 }
 
-PagerandoBinning::CallGraphAlgo::Node*
-PagerandoBinning::CallGraphAlgo::removeNode(std::vector<Node*> &WL) {
+std::vector<PagerandoBinning::CallGraphAlgo::Node>::iterator
+PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node> &WL) {
   std::sort(WL.begin(), WL.end(), Node::byTreeSize);
-  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTreeSize);
+  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize + 0, Node::toTreeSize);
   if (I != WL.begin()) --I;
   else llvm_unreachable("no component is smaller than a page!!!!");
-  auto *Node = *I;
-  WL.erase(I);
-  return Node;
+  return I;
 }
 
-template<typename Node, typename SearchDirection, typename VisitAction>
-static void bfs(Node Start, SearchDirection Expander, VisitAction Action) {
-  std::queue<Node> Queue({Start});
-  std::set<Node> Discovered{Start};
+template<typename NodeT, typename SearchDirection, typename VisitAction>
+static void bfs(NodeT Start, SearchDirection Expander, VisitAction Action) {
+  std::queue<NodeT> Queue({Start});
+  std::set<NodeT> Discovered{Start};
 
   while (!Queue.empty()) {
-    Node N = Queue.front(); Queue.pop();
+    NodeT N = Queue.front(); Queue.pop();
     Action(N);
-    for (Node C : Expander(N)) {
+    for (NodeT C : Expander(N)) {
       if (Discovered.insert(C).second) {
         Queue.push(C);
       }
@@ -210,29 +206,25 @@ void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
 void PagerandoBinning::CallGraphAlgo::assignCalleesToBin(Node *Tree, unsigned Bin) {
   bfs(Tree,
       [](Node *N) { return N->Callees; },
-      [](Node *N) { N->Bin = Bin; });
+      [Bin](Node *N) { N->Bin = Bin; });
 }
 
 // <node id  ->  bin>
-std::vector<std::pair<int, unsigned>> PagerandoBinning::CallGraphAlgo::computeBinAssignments() {
-  std::vector<Node*> WorkList;
-  WorkList.reserve(Nodes.size());
-  for (auto &E : Nodes) {
-    WorkList.push_back(&E.second);
+std::vector<std::pair<int, unsigned>>
+PagerandoBinning::CallGraphAlgo::computeBinAssignments() {
+  while (!Nodes.empty()) {
+    auto N = selectNode(Nodes);
+    auto Bin = SAlgo.assignToBin(N->TreeSize);
+    assignCalleesToBin(&*N, Bin);
+    adjustCallerSizes(&*N);
+    Nodes.erase(N);
   }
 
-  while (!WorkList.empty()) {
-    auto *Node = removeNode(WorkList);
-    auto Bin = SAlgo.assignToBin(Node->TreeSize);
-    assignCalleesToBin(Node, Bin);
-    adjustCallerSizes(Node);
-  }
-
-  // TODO(yln): above loop should do this!
+  // TODO(yln): Currently Broken!
   std::vector<std::pair<int, unsigned>> Result;
-  for (auto &E : Nodes) {
-    Result.emplace_back(E.first, E.second.Bin);
-  }
+//  for (auto &E : Nodes) {
+//    Result.emplace_back(E.first, E.second.Bin);
+//  }
 
   return Result;
 }
