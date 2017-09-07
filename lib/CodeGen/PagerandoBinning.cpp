@@ -119,6 +119,10 @@ unsigned PagerandoBinning::SimpleAlgo::assignToBin(unsigned FnSize) {
   return Bin;
 }
 
+static bool skipFunction(const Function *F) {
+  return !F || !F->isPagerando();
+}
+
 bool PagerandoBinning::binCallGraph() {
   auto &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   std::map<Function*, int> NodesByFunc;
@@ -133,17 +137,19 @@ bool PagerandoBinning::binCallGraph() {
 
     for (auto *CGN : SCC) {
       auto *F = CGN->getFunction();
-      if (!F->isPagerando()) continue;
+      if (skipFunction(F)) continue;
       NodesByFunc.emplace(F, Id);
       FuncsByNode.emplace(Id, F);
       Size += estimateFunctionSize(*F);
       for (auto &CR : *CGN) {
         auto *CF = CR.second->getFunction();
-        if (!CF->isPagerando()) continue;
+        if (skipFunction(CF)) continue;
         Callees.insert(NodesByFunc.at(CF));
         // TODO: Probably does not work since there could be cycles in call chains.
       }
     }
+
+    // TODO(yln): Size could be 0 here; we shouldn't add zero nodes
     CGAlgo.addNode(Id, Size, Callees);
   }
 
