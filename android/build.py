@@ -54,10 +54,20 @@ def remove(path):
     os.remove(path)
 
 
-def extract_clang_version(stage2_install):
-    version_file = os.path.join(stage2_install, 'include', 'clang', 'Basic',
+def extract_clang_version(clang_install):
+    version_file = os.path.join(clang_install, 'include', 'clang', 'Basic',
                                 'Version.inc')
     return Version(version_file)
+
+
+def extract_clang_long_version(clang_install):
+    return extract_clang_version(clang_install).long_version()
+
+
+def pgo_profdata_file(version_str):
+    profdata_file = '%s.profdata' % version_str
+    profile = utils.llvm_path('android', 'profiles', profdata_file)
+    return profile if os.path.exists(profile) else None
 
 
 def ndk_base():
@@ -576,7 +586,8 @@ def build_stage2(stage1_install,
                  stage2_targets,
                  use_lld=False,
                  enable_assertions=False,
-                 build_instrumented=False):
+                 build_instrumented=False,
+                 profdata_file=None):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
 
     # Build/install the stage2 toolchain
@@ -610,6 +621,13 @@ def build_stage2(stage1_install,
         # Skip building runtimes and use libstdc++.
         stage2_extra_defines['LLVM_ENABLE_LIBCXX'] = 'OFF'
         stage2_extra_defines['LLVM_BUILD_RUNTIME'] = 'OFF'
+
+    if profdata_file:
+        if build_instrumented:
+            raise RuntimeError(
+                'Cannot simultaneously instrument and use profiles')
+
+        stage2_extra_defines['LLVM_PROFDATA_FILE'] = profdata_file
 
     # Make libc++.so a symlink to libc++.so.x instead of a linker script that
     # also adds -lc++abi.  Statically link libc++abi to libc++ so it is not
@@ -869,6 +887,12 @@ def parse_args():
         default=False,
         help='Don\'t strip binaries/libraries')
 
+    parser.add_argument(
+        '--check-pgo-profile',
+        action='store_true',
+        default=False,
+        help='Fail if expected PGO profile doesn\'t exist')
+
     return parser.parse_args()
 
 
@@ -894,8 +918,18 @@ def main():
         instrumented = utils.host_is_linux() and args.build_instrumented
 
         build_stage1(stage1_install, build_llvm_tools=instrumented)
+
+        long_version = extract_clang_long_version(stage1_install)
+        profdata = pgo_profdata_file(long_version)
+        # Do not use PGO profiles if profdata file doesn't exist unless failure
+        # is explicitly requested via --check-pgo-profile.
+        if profdata is None and args.check_pgo_profile:
+            raise RuntimeError('Profdata file does not exist for ' +
+                               long_version)
+
         build_stage2(stage1_install, stage2_install, STAGE2_TARGETS,
-                     args.use_lld, args.enable_assertions, instrumented)
+                     args.use_lld, args.enable_assertions, instrumented,
+                     profdata)
 
     if do_build and utils.host_is_linux():
         build_runtimes(stage2_install)

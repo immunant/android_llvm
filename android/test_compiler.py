@@ -24,6 +24,8 @@ import utils
 import shutil
 import subprocess
 
+import android_version
+
 TARGETS = ('aosp_angler-eng', 'aosp_bullhead-eng', 'aosp_marlin-eng')
 DEFAULT_TIDY_CHECKS = ('*', '-readability-*', '-google-readability-*',
                        '-google-runtime-references', '-cppcoreguidelines-*',
@@ -40,9 +42,14 @@ class ClangProfileHandler(object):
         return ('LLVM_PROFILE_FILE', self.profiles_format)
 
     def mergeProfiles(self):
-        profdata = utils.out_path('stage1-install', 'bin', 'llvm-profdata')
+        stage1_install = utils.out_path('stage1-install')
+        profdata = os.path.join(stage1_install, 'bin', 'llvm-profdata')
+
+        long_version = build.extract_clang_long_version(stage1_install)
+        profdata_file = build.pgo_profdata_file(long_version)
+
         dist_dir = os.environ.get('DIST_DIR', utils.out_path())
-        out_file = os.path.join(dist_dir, 'clang.profdata')
+        out_file = os.path.join(dist_dir, profdata_file)
 
         cmd = [profdata, 'merge', '-o', out_file, self.profiles_dir]
         subprocess.check_call(cmd)
@@ -122,6 +129,12 @@ def parse_args():
         default=False,
         dest='profile',
         help='Build instrumented compiler and gather profiles')
+
+    parser.add_argument(
+        '--no-pgo',
+        action='store_true',
+        default=False,
+        help='Do not use PGO profile to build stage2 Clang (defaults to False)')
 
     return parser.parse_args()
 
@@ -249,19 +262,26 @@ def test_device(android_base, clang_version, device, max_jobs, clean_output,
     return result
 
 
-def build_clang(instrumented=False):
+def build_clang(instrumented=False, pgo=True):
     stage1_install = utils.out_path('stage1-install')
     stage2_install = utils.out_path('stage2-install')
 
     # LLVM tool llvm-profdata from stage1 is needed to merge the collected
-    # profiles
-    build.build_stage1(stage1_install, build_llvm_tools=True)
+    # profiles.  Build all LLVM tools if building instrumented stage2
+    build.build_stage1(stage1_install, build_llvm_tools=instrumented)
+
+    profdata = None
+    if pgo:
+        long_version = build.extract_clang_long_version(stage1_install)
+        profdata = build.pgo_profdata_file(long_version)
+
     build.build_stage2(
         stage1_install,
         stage2_install,
         build.STAGE2_TARGETS,
         use_lld=False,
-        build_instrumented=instrumented)
+        build_instrumented=instrumented,
+        profdata_file=profdata)
     build.build_runtimes(stage2_install)
     version = build.extract_clang_version(stage2_install)
     return stage2_install, version
@@ -270,7 +290,8 @@ def build_clang(instrumented=False):
 def main():
     args = parse_args()
     if args.clang_path is None:
-        clang_path, clang_version = build_clang(instrumented=args.profile)
+        clang_path, clang_version = build_clang(
+            instrumented=args.profile, pgo=(not args.no_pgo))
     else:
         clang_path = args.clang_path
         clang_version = build.extract_clang_version(clang_path)
