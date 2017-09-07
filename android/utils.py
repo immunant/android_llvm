@@ -61,4 +61,4 @@ def host_is_linux():
 
 
 def host_is_darwin():
-    return build_os_type() == 'dawrin-x86'
+    return build_os_type() == 'darwin-x86'
