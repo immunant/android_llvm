@@ -76,12 +76,12 @@ public:
 
     std::vector<Node>::iterator selectNode(std::vector<Node> &WL);
     void adjustCallerSizes(Node *Removed);
-    void collectCalleeAssignments(
-        Node *Tree, unsigned Bin, std::vector<std::pair<int, unsigned>> &Agg);
+    void collectCalleeAssignments(Node *Tree, unsigned Bin,
+                                  std::map<int, unsigned> &Agg);
 
   public:
     void addNode(int Id, unsigned Size, std::set<int> Callees);
-    std::vector<std::pair<int, unsigned>> computeBinAssignments();
+    std::map<int, unsigned> computeBinAssignments();
   };
 
 private:
