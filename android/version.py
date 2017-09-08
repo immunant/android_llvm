@@ -17,21 +17,23 @@
 
 import re
 
+
 class Version:
     """Parse and save clang version from version file."""
+
     def __init__(self, version_file):
         self._parse_version_file(version_file)
 
     def _parse(self, text, key):
-        return re.findall(r"%s\s+(\d+)" % key, text)[0]
+        return re.findall(r'%s\s+(\d+)' % key, text)[0]
 
     def _parse_version_file(self, version_file):
         f = open(version_file, 'r')
         text = f.read()
         f.close()
-        self.major = self._parse(text, "CLANG_VERSION_MAJOR")
-        self.minor = self._parse(text, "CLANG_VERSION_MINOR")
-        self.patch = self._parse(text, "CLANG_VERSION_PATCHLEVEL")
+        self.major = self._parse(text, 'CLANG_VERSION_MAJOR')
+        self.minor = self._parse(text, 'CLANG_VERSION_MINOR')
+        self.patch = self._parse(text, 'CLANG_VERSION_PATCHLEVEL')
 
     def long_version(self):
         return '.'.join([self.major, self.minor, self.patch])
