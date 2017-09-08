@@ -63,7 +63,7 @@ public:
   class CallGraphAlgo {
     struct Node {
       NodeId Id;
-      unsigned TreeSize;
+      unsigned Size, TreeSize;
       std::set<Node*> Callers;
       std::set<Node*> Callees;
 
@@ -83,7 +83,8 @@ public:
                                   std::map<NodeId, Bin> &Agg);
 
   public:
-    void addNode(NodeId Id, unsigned Size, std::set<NodeId> Callees);
+    NodeId addNode(unsigned Size);
+    void addEdge(NodeId Caller, NodeId Callee);
     std::map<NodeId, Bin> computeBinAssignments();
   };
 

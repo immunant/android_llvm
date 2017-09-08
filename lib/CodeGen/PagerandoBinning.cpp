@@ -125,38 +125,42 @@ static bool skipFunction(const Function *F) {
 
 bool PagerandoBinning::binCallGraph() {
   auto &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
-  std::map<Function*, NodeId> NodesByFunc;
-  int NodeCount = 0;
+  std::map<Function*, NodeId> FuncsToNode;
 
-  // Create one node per SCC
+  // Create one node per SCC, if it contains at least one Pagerando function
   for (auto &SCC : make_range(scc_begin(&CG), scc_end(&CG))) {
-    int Id = NodeCount++;
+    std::vector<Function*> Funcs;
     unsigned Size = 0;
-    std::set<NodeId> Callees;
 
     for (auto *CGN : SCC) {
       auto *F = CGN->getFunction();
       if (skipFunction(F)) continue;
-      NodesByFunc.emplace(F, Id);
-      errs() << F->getName() << "  ->  " << Id << "\n";
-
+      Funcs.push_back(F);
       Size += estimateFunctionSize(*F);
-      for (auto &CR : *CGN) {
-        auto *CF = CR.second->getFunction();
-        if (skipFunction(CF)) continue;
-        errs() << "present2? " << NodesByFunc.count(CF) << "\n";
-        Callees.insert(NodesByFunc.at(CF));
-        // TODO: Probably does not work since there could be cycles in call chains.
-      }
     }
 
-    // TODO(yln): Size could be 0 here; we shouldn't add zero nodes
-    if (Size != 0)
-      CGAlgo.addNode(Id, Size, Callees);
+    if (!Funcs.empty()) {
+      NodeId Id = CGAlgo.addNode(Size);
+      for (auto *F : Funcs) {
+        FuncsToNode.emplace(F, Id);
+      }
+    }
+  }
+
+  // Add caller-callee edges
+  for (auto &E : FuncsToNode) {
+    Function *F; NodeId Id;
+    std::tie(F, Id) = E;
+
+    for (auto &CR : *CG[F]) {
+      auto *CF = CR.second->getFunction();
+      if (skipFunction(CF)) continue;
+      CGAlgo.addEdge(Id, FuncsToNode.at(CF));
+    }
   }
 
   auto Assignments = CGAlgo.computeBinAssignments();
-  for (auto &E: NodesByFunc) {
+  for (auto &E: FuncsToNode) {
     Function *F; int Id;
     std::tie(F, Id) = E;
     unsigned Bin = Assignments.at(Id);
@@ -168,17 +172,18 @@ bool PagerandoBinning::binCallGraph() {
   return !Assignments.empty();
 }
 
-void PagerandoBinning::CallGraphAlgo::addNode(NodeId Id, unsigned Size,
-                                              std::set<NodeId> Callees) {
-//  assert(Id == Nodes.size()); // TODO imporves
-  Nodes.emplace_back(Node{Id, Size, std::set<Node*>()});
-  auto &Node = Nodes.back();
-  for (auto C : Callees) {
-    auto &CN = Nodes.at(C);
-    CN.Callers.insert(&Node);
-    // TODO set own callers
-    Node.TreeSize += CN.TreeSize;
-  }
+PagerandoBinning::NodeId
+PagerandoBinning::CallGraphAlgo::addNode(unsigned Size) {
+  NodeId Id = Nodes.size();
+  Nodes.emplace_back(Node{Id, Size, 0});
+  return Id;
+}
+
+void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
+  Node &From = Nodes.at(Caller);
+  Node &To = Nodes.at(Callee);
+  From.Callees.insert(&To);
+  To.Callers.insert(&From);
 }
 
 std::vector<PagerandoBinning::CallGraphAlgo::Node>::iterator
