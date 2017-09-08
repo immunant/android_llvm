@@ -45,13 +45,16 @@ private:
   static constexpr unsigned BinSize = 4096; // one page
   static constexpr unsigned MinFnSize = 2;  // 'bx lr' on ARM thumb
 
+  typedef unsigned Bin;
+  typedef unsigned NodeId;
+
   unsigned estimateFunctionSize(const Function &F);
   bool binSimple(Module &M);
   bool binCallGraph();
 
 public:
   class SimpleAlgo {
-    std::multimap<unsigned, unsigned> Bins; // <free space  ->  bin numbers>
+    std::multimap<unsigned, Bin> Bins; // <free space  ->  bin numbers>
     unsigned BinCount = 1;
   public:
     unsigned assignToBin(unsigned FnSize);
@@ -59,7 +62,7 @@ public:
 
   class CallGraphAlgo {
     struct Node {
-      int Id;
+      NodeId Id;
       unsigned TreeSize;
       std::set<Node*> Callers;
       std::set<Node*> Callees;
@@ -76,12 +79,12 @@ public:
 
     std::vector<Node>::iterator selectNode(std::vector<Node> &WL);
     void adjustCallerSizes(Node *Removed);
-    void collectCalleeAssignments(Node *Tree, unsigned Bin,
-                                  std::map<int, unsigned> &Agg);
+    void collectCalleeAssignments(Node *Tree, Bin TheBin,
+                                  std::map<NodeId, Bin> &Agg);
 
   public:
-    void addNode(int Id, unsigned Size, std::set<int> Callees);
-    std::map<int, unsigned> computeBinAssignments();
+    void addNode(NodeId Id, unsigned Size, std::set<NodeId> Callees);
+    std::map<NodeId, Bin> computeBinAssignments();
   };
 
 private:
