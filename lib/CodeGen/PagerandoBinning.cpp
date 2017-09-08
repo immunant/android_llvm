@@ -119,8 +119,8 @@ unsigned PagerandoBinning::SimpleAlgo::assignToBin(unsigned FnSize) {
   return Bin;
 }
 
-static bool skipFunction(const Function *F) {
-  return !F || !F->isPagerando();
+static bool isPagerando(const Function *F) {
+  return F && F->isPagerando();
 }
 
 bool PagerandoBinning::binCallGraph() {
@@ -129,33 +129,28 @@ bool PagerandoBinning::binCallGraph() {
 
   // Create one node per SCC, if it contains at least one Pagerando function
   for (auto &SCC : make_range(scc_begin(&CG), scc_end(&CG))) {
-    std::vector<Function*> Funcs;
+    std::set<Function*> Funcs;
     unsigned Size = 0;
 
     for (auto *CGN : SCC) {
       auto *F = CGN->getFunction();
-      if (skipFunction(F)) continue;
-      Funcs.push_back(F);
-      Size += estimateFunctionSize(*F);
+      if (isPagerando(F)) {
+        Funcs.insert(F);
+        Size += estimateFunctionSize(*F);
+      }
     }
 
     if (!Funcs.empty()) {
       NodeId Id = CGAlgo.addNode(Size);
       for (auto *F : Funcs) {
+        for (auto &CR : *CG[F]) {
+          auto *CF = CR.second->getFunction();
+          if (isPagerando(CF) && !Funcs.count(CF)) {
+            CGAlgo.addEdge(Id, FuncsToNode.at(CF));
+          }
+        }
         FuncsToNode.emplace(F, Id);
       }
-    }
-  }
-
-  // Add caller-callee edges
-  for (auto &E : FuncsToNode) {
-    Function *F; NodeId Id;
-    std::tie(F, Id) = E;
-
-    for (auto &CR : *CG[F]) {
-      auto *CF = CR.second->getFunction();
-      if (skipFunction(CF)) continue;
-      CGAlgo.addEdge(Id, FuncsToNode.at(CF));
     }
   }
 
@@ -175,7 +170,7 @@ bool PagerandoBinning::binCallGraph() {
 PagerandoBinning::NodeId
 PagerandoBinning::CallGraphAlgo::addNode(unsigned Size) {
   NodeId Id = Nodes.size();
-  Nodes.emplace_back(Node{Id, Size, 0});
+  Nodes.emplace_back(Node{Id, Size});
   return Id;
 }
 
@@ -184,6 +179,8 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   Node &To = Nodes.at(Callee);
   From.Callees.insert(&To);
   To.Callers.insert(&From);
+  // Only works because we build the graph bottom-up via scc_iterator
+  From.TreeSize += To.TreeSize;
 }
 
 std::vector<PagerandoBinning::CallGraphAlgo::Node>::iterator

@@ -63,7 +63,7 @@ public:
   class CallGraphAlgo {
     struct Node {
       NodeId Id;
-      unsigned Size, TreeSize;
+      unsigned TreeSize;
       std::set<Node*> Callers;
       std::set<Node*> Callees;
 
