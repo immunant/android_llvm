@@ -77,7 +77,7 @@ public:
     std::vector<Node> Nodes;
     SimpleAlgo SAlgo;
 
-    std::vector<Node*>::iterator selectNode(std::vector<Node*> &WL);
+    Node *removeNode(std::vector<Node *> &WL);
     void adjustCallerSizes(Node *Removed);
     void collectCalleeAssignments(Node *Tree, Bin TheBin,
                                   std::map<NodeId, Bin> &Agg);

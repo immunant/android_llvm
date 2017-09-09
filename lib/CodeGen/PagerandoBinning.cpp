@@ -183,13 +183,15 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   From.TreeSize += To.TreeSize;
 }
 
-std::vector<PagerandoBinning::CallGraphAlgo::Node*>::iterator
-PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
+PagerandoBinning::CallGraphAlgo::Node*
+PagerandoBinning::CallGraphAlgo::removeNode(std::vector<Node *> &WL) {
   std::sort(WL.begin(), WL.end(), Node::byTreeSize);
   auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTreeSize);
   if (I != WL.begin()) --I;
   else llvm_unreachable("no component is smaller than a page!!!!");
-  return I;
+  Node *N = *I;
+  WL.erase(I);
+  return N;
 }
 
 template<typename NodeT, typename SearchDirection, typename VisitAction>
@@ -230,11 +232,10 @@ PagerandoBinning::CallGraphAlgo::computeBinAssignments() {
 
   std::map<NodeId, Bin> Assignments;
   while (!Worklist.empty()) {
-    auto I = selectNode(Worklist);
-    auto Bin = SAlgo.assignToBin((*I)->TreeSize);
-    collectCalleeAssignments(*I, Bin, Assignments);
-    adjustCallerSizes(*I);
-    Worklist.erase(I);
+    auto *N = removeNode(Worklist);
+    auto Bin = SAlgo.assignToBin(N->TreeSize);
+    collectCalleeAssignments(N, Bin, Assignments);
+    adjustCallerSizes(N);
   }
   return Assignments;
 }
