@@ -48,6 +48,8 @@ private:
   typedef unsigned Bin;
   typedef unsigned NodeId;
 
+  static void setBin(Function &F, Bin Bin);
+
   unsigned estimateFunctionSize(const Function &F);
   bool binSimple(Module &M);
   bool binCallGraph();
@@ -86,7 +88,7 @@ public:
   public:
     NodeId addNode(unsigned Size);
     void addEdge(NodeId Caller, NodeId Callee);
-    std::map<NodeId, Bin> computeBinAssignments();
+    std::map<NodeId, Bin> computeAssignments();
   };
 
 private:

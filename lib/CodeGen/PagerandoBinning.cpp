@@ -72,6 +72,11 @@ bool PagerandoBinning::runOnModule(Module &M) {
   }
 }
 
+void PagerandoBinning::setBin(Function &F, Bin Bin) {
+  // Note: overwrites an existing section prefix
+  F.setSectionPrefix(SectionPrefix + utostr(Bin));
+}
+
 unsigned PagerandoBinning::estimateFunctionSize(const Function &F) {
   auto &MF = getAnalysis<MachineModuleInfo>().getMachineFunction(F);
   auto *TII = MF.getSubtarget().getInstrInfo();
@@ -88,10 +93,9 @@ bool PagerandoBinning::binSimple(Module &M) {
   bool Changed = false;
   for (auto &F : M) {
     if (F.isPagerando()) {
-      unsigned FnSize = estimateFunctionSize(F);
-      unsigned Bin = SAlgo.assignToBin(FnSize);
-      // Note: overwrites an existing section prefix
-      F.setSectionPrefix(SectionPrefix + utostr(Bin));
+      auto FnSize = estimateFunctionSize(F);
+      auto Bin = SAlgo.assignToBin(FnSize);
+      setBin(F, Bin);
       Changed = true;
     }
   }
@@ -154,16 +158,14 @@ bool PagerandoBinning::binCallGraph() {
     }
   }
 
-  auto Assignments = CGAlgo.computeBinAssignments();
+  auto Bins = CGAlgo.computeAssignments();
   for (auto &E: FuncsToNode) {
     Function *F; NodeId Id;
     std::tie(F, Id) = E;
-    unsigned Bin = Assignments.at(Id);
-    // Note: overwrites an existing section prefix
-    F->setSectionPrefix(SectionPrefix + utostr(Bin));
+    setBin(*F, Bins.at(Id));
   }
 
-  return !Assignments.empty();
+  return !Bins.empty();
 }
 
 PagerandoBinning::NodeId
@@ -224,7 +226,7 @@ void PagerandoBinning::CallGraphAlgo::collectCalleeAssignments(
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
-PagerandoBinning::CallGraphAlgo::computeBinAssignments() {
+PagerandoBinning::CallGraphAlgo::computeAssignments() {
   std::vector<Node*> Worklist;
   for (auto &N : Nodes) {
     Worklist.push_back(&N);
