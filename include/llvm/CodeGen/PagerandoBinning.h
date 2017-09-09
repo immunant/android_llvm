@@ -67,17 +67,17 @@ public:
       std::set<Node*> Callers;
       std::set<Node*> Callees;
 
-      static bool byTreeSize(const Node &A, const Node &B) {
-        return A.TreeSize < B.TreeSize;
+      static bool byTreeSize(const Node *A, const Node *B) {
+        return A->TreeSize < B->TreeSize;
       }
-      static bool toTreeSize(unsigned Size, const Node &N) {
-        return Size < N.TreeSize;
+      static bool toTreeSize(unsigned Size, const Node *N) {
+        return Size < N->TreeSize;
       }
     };
     std::vector<Node> Nodes;
     SimpleAlgo SAlgo;
 
-    std::vector<Node>::iterator selectNode(std::vector<Node> &WL);
+    std::vector<Node*>::iterator selectNode(std::vector<Node*> &WL);
     void adjustCallerSizes(Node *Removed);
     void collectCalleeAssignments(Node *Tree, Bin TheBin,
                                   std::map<NodeId, Bin> &Agg);

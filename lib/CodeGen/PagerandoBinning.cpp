@@ -127,7 +127,7 @@ bool PagerandoBinning::binCallGraph() {
   auto &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   std::map<Function*, NodeId> FuncsToNode;
 
-  // Create one node per SCC, if it contains at least one Pagerando function
+  // Create a node for each SCC that contains at least one Pagerando function
   for (auto &SCC : make_range(scc_begin(&CG), scc_end(&CG))) {
     std::set<Function*> Funcs;
     unsigned Size = 0;
@@ -156,7 +156,7 @@ bool PagerandoBinning::binCallGraph() {
 
   auto Assignments = CGAlgo.computeBinAssignments();
   for (auto &E: FuncsToNode) {
-    Function *F; int Id;
+    Function *F; NodeId Id;
     std::tie(F, Id) = E;
     unsigned Bin = Assignments.at(Id);
     errs() << "node id: " << Id << "  ->  " << Bin <<"\n";
@@ -179,12 +179,12 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   Node &To = Nodes.at(Callee);
   From.Callees.insert(&To);
   To.Callers.insert(&From);
-  // Only works because we build the graph bottom-up via scc_iterator
+  // This only works because we build the graph bottom-up via scc_iterator
   From.TreeSize += To.TreeSize;
 }
 
-std::vector<PagerandoBinning::CallGraphAlgo::Node>::iterator
-PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node> &WL) {
+std::vector<PagerandoBinning::CallGraphAlgo::Node*>::iterator
+PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
   std::sort(WL.begin(), WL.end(), Node::byTreeSize);
   auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTreeSize);
   if (I != WL.begin()) --I;
@@ -215,7 +215,7 @@ void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
 }
 
 void PagerandoBinning::CallGraphAlgo::collectCalleeAssignments(
-    Node *Tree, unsigned TheBin, std::map<NodeId, Bin> &Agg) {
+    Node *Tree, Bin TheBin, std::map<NodeId, Bin> &Agg) {
   bfs(Tree,
       [](Node *N) { return N->Callees; },
       [TheBin, &Agg](Node *N) { Agg.emplace(N->Id, TheBin); });
@@ -223,13 +223,18 @@ void PagerandoBinning::CallGraphAlgo::collectCalleeAssignments(
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
 PagerandoBinning::CallGraphAlgo::computeBinAssignments() {
+  std::vector<Node*> Worklist;
+  for (auto &N : Nodes) {
+    Worklist.push_back(&N);
+  }
+
   std::map<NodeId, Bin> Assignments;
-  while (!Nodes.empty()) {
-    auto N = selectNode(Nodes);
-    auto Bin = SAlgo.assignToBin(N->TreeSize);
-    collectCalleeAssignments(&*N, Bin, Assignments);
-    adjustCallerSizes(&*N);
-    Nodes.erase(N);
+  while (!Worklist.empty()) {
+    auto I = selectNode(Worklist);
+    auto Bin = SAlgo.assignToBin((*I)->TreeSize);
+    collectCalleeAssignments(*I, Bin, Assignments);
+    adjustCallerSizes(*I);
+    Worklist.erase(I);
   }
   return Assignments;
 }
