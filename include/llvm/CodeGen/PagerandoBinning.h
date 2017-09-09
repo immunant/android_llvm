@@ -82,8 +82,7 @@ public:
     template<typename Expander, typename Action>
     void bfs(Node *Start, Expander Exp, Action Act);
     void adjustCallerSizes(Node *Removed);
-    void collectCalleeAssignments(Node *Tree, Bin TheBin,
-                                  std::map<NodeId, Bin> &Agg);
+    void collectCalleeAssignments(Node *Tree, Bin B, std::map<NodeId, Bin> &Agg);
 
   public:
     NodeId addNode(unsigned Size);

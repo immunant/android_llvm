@@ -219,10 +219,10 @@ void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
 }
 
 void PagerandoBinning::CallGraphAlgo::collectCalleeAssignments(
-    Node *Tree, Bin TheBin, std::map<NodeId, Bin> &Agg) {
+    Node *Tree, Bin B, std::map<NodeId, Bin> &Agg) {
   bfs(Tree,
       [](Node *N) { return N->Callees; },
-      [TheBin, &Agg](Node *N) { Agg.emplace(N->Id, TheBin); });
+      [B, &Agg](Node *N) { Agg.emplace(N->Id, B); });
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
