@@ -64,8 +64,7 @@ public:
     struct Node {
       NodeId Id;
       unsigned TreeSize;
-      std::set<Node*> Callers;
-      std::set<Node*> Callees;
+      std::set<NodeId> Callers, Callees;
 
       static bool byTreeSize(const Node *A, const Node *B) {
         return A->TreeSize < B->TreeSize;
@@ -78,6 +77,8 @@ public:
     SimpleAlgo SAlgo;
 
     Node *removeNode(std::vector<Node *> &WL);
+    template<typename Expander, typename Action>
+    void bfs(Node *Start, Expander Exp, Action Act);
     void adjustCallerSizes(Node *Removed);
     void collectCalleeAssignments(Node *Tree, Bin TheBin,
                                   std::map<NodeId, Bin> &Agg);

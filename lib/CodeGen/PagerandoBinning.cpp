@@ -159,7 +159,6 @@ bool PagerandoBinning::binCallGraph() {
     Function *F; NodeId Id;
     std::tie(F, Id) = E;
     unsigned Bin = Assignments.at(Id);
-    errs() << "node id: " << Id << "  ->  " << Bin <<"\n";
     // Note: overwrites an existing section prefix
     F->setSectionPrefix(SectionPrefix + utostr(Bin));
   }
@@ -177,8 +176,8 @@ PagerandoBinning::CallGraphAlgo::addNode(unsigned Size) {
 void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   Node &From = Nodes.at(Caller);
   Node &To = Nodes.at(Callee);
-  From.Callees.insert(&To);
-  To.Callers.insert(&From);
+  From.Callees.insert(Callee);
+  To.Callers.insert(Caller);
   // This only works because we build the graph bottom-up via scc_iterator
   From.TreeSize += To.TreeSize;
 }
@@ -194,15 +193,16 @@ PagerandoBinning::CallGraphAlgo::removeNode(std::vector<Node *> &WL) {
   return N;
 }
 
-template<typename NodeT, typename SearchDirection, typename VisitAction>
-static void bfs(NodeT Start, SearchDirection Expander, VisitAction Action) {
-  std::queue<NodeT> Queue({Start});
-  std::set<NodeT> Discovered{Start};
+template<typename Expander, typename Action>
+void PagerandoBinning::CallGraphAlgo::bfs(Node *Start, Expander Exp, Action Act) {
+  std::queue<Node*> Queue({Start});
+  std::set<Node*> Discovered{Start};
 
   while (!Queue.empty()) {
-    NodeT N = Queue.front(); Queue.pop();
-    Action(N);
-    for (NodeT C : Expander(N)) {
+    Node *N = Queue.front(); Queue.pop();
+    Act(N);
+    for (NodeId CId : Exp(N)) {
+      Node *C = &Nodes.at(CId);
       if (Discovered.insert(C).second) {
         Queue.push(C);
       }
