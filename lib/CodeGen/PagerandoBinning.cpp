@@ -227,8 +227,9 @@ void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
 }
 
 void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Tree) {
+  unsigned Size = Tree->TreeSize;
   bfs(Tree, std::mem_fn(&Node::Callers),
-      [Tree](Node *N) { N->TreeSize -= N->TreeSize; });
+      [Size](Node *N) { N->TreeSize -= Size; });
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
