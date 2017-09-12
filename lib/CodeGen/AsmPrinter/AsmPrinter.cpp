@@ -1689,9 +1689,8 @@ void AsmPrinter::EmitPOT() {
   EmitLabelReference(GOTSym, PtrSize);
 
   // Emit Bin references
-  for (auto *Bin : POT) {
+  for (auto *Bin : POT)
     EmitLabelReference(Bin->getBeginSymbol(), PtrSize);
-  }
 
   // Emit POT end label
   auto *POTEndSym = OutContext.getOrCreateSymbol("_PAGE_OFFSET_TABLE_END_");
@@ -2562,9 +2561,8 @@ unsigned AsmPrinter::GetPOTIndex(unsigned CPID) {
 unsigned AsmPrinter::GetPOTIndex(const MCSection *Sec) {
   auto I = std::find(POT.begin(), POT.end(), Sec);
   auto Index = static_cast<unsigned>(I - POT.begin());
-  if (I == POT.end()) {
+  if (I == POT.end())
     POT.push_back(Sec);
-  }
   return Index + 1;  // Index 0 denotes the default bin #0
 }
 

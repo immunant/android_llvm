@@ -95,9 +95,8 @@ unsigned PagerandoBinning::Algorithm::assignToBin(unsigned FnSize) {
     FreeSpace = (Size == 0) ? 0 : (BinSize - Size);
   }
 
-  if (FreeSpace >= MinFnSize) {
+  if (FreeSpace >= MinFnSize)
     Bins.emplace(FreeSpace, Bin);
-  }
 
   return Bin;
 }

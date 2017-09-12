@@ -78,9 +78,8 @@ static const Function *getCallee(const MachineConstantPoolEntry &E) {
 }
 
 static int getCPIndex(const MachineInstr &MI) {
-  if (MI.mayLoad() && MI.getNumOperands() > 1 && MI.getOperand(1).isCPI()) {
+  if (MI.mayLoad() && MI.getNumOperands() > 1 && MI.getOperand(1).isCPI())
     return MI.getOperand(1).getIndex();
-  }
   return -1;
 }
 
@@ -97,28 +96,23 @@ bool ARMPagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
 
   // Find intra-bin CP entries
   SmallSet<int, 8> CPIndices;
-  {
-    int Index = 0;
-    for (auto &E : CPEntries) {
-      if (isIntraBin(E, BinPrefix)) {
-        CPIndices.insert(Index);
-      }
-      Index++;
-    }
+  int Index = 0;
+  for (auto &E : CPEntries) {
+    if (isIntraBin(E, BinPrefix))
+      CPIndices.insert(Index);
+    Index++;
   }
 
-  if (CPIndices.empty()) {
+  if (CPIndices.empty())
     return false;
-  }
 
   // Collect uses of intra-bin CP entries
   std::vector<MachineInstr*> Uses;
   for (auto &BB : MF) {
     for (auto &MI : BB) {
       int Index = getCPIndex(MI);
-      if (CPIndices.count(Index)) {
+      if (CPIndices.count(Index))
         Uses.push_back(&MI);
-      }
     }
   }
 
@@ -148,9 +142,8 @@ void ARMPagerandoOptimizer::optimizeCalls(MachineInstr *MI,
 
     if (!MI->isCall()) { // Not a call, enqueue users
       for (auto &Op : MI->defs()) {
-        for (auto &User : MRI.use_instructions(Op.getReg())) {
+        for (auto &User : MRI.use_instructions(Op.getReg()))
           Queue.push_back(&User);
-        }
       }
       MI->eraseFromParent();
     } else if (isBXCall(MI->getOpcode())) {
@@ -190,9 +183,8 @@ void ARMPagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
   // Copy over remaining operands
   auto RemainingOps = make_range(MI->operands_begin() + SkipOps,
                                  MI->operands_end());
-  for (auto &Op : RemainingOps) {
+  for (auto &Op : RemainingOps)
     MIB.add(Op);
-  }
 
   MI->eraseFromParent();
 }
@@ -268,8 +260,7 @@ void ARMPagerandoOptimizer::deleteCPEntries(MachineFunction &MF,
   // Delete now unreferenced (intra-bin) CP entries (in reverse order so
   // deletion does not affect the index of future deletions)
   for (int Old = Size - 1; Old >= 0; --Old) {
-    if (Indices[Old] == -1) {
+    if (Indices[Old] == -1)
       CP->eraseIndex(Old);
-    }
   }
 }

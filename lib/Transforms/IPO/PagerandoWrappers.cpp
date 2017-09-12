@@ -85,9 +85,8 @@ bool PagerandoWrappers::runOnModule(Module &M) {
     if (!skipFunction(F)) Worklist.push_back(&F);
   }
 
-  for (auto F : Worklist) {
+  for (auto F : Worklist)
     processFunction(F);
-  }
 
   return !Worklist.empty();
 }
@@ -114,15 +113,15 @@ static bool skipFunctionUse(const Use &U) {
 void PagerandoWrappers::processFunction(Function *F) {
   std::vector<Use*> AddressUses;
   for (Use &U : F->uses()) {
-    if (!skipFunctionUse(U)) AddressUses.push_back(&U);
+    if (!skipFunctionUse(U))
+      AddressUses.push_back(&U);
   }
 
   if (!F->hasLocalLinkage() || !AddressUses.empty()) {
     auto Wrapper = createWrapper(*F, AddressUses);
     Type *VAListTy = nullptr;
-    if (F->isVarArg()) {
+    if (F->isVarArg())
       F = rewriteVarargs(*F, /* out */ VAListTy); // Reassign F, it might have been deleted
-    }
     createWrapperBody(Wrapper, F, VAListTy);
   }
 
@@ -138,9 +137,8 @@ static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
     assert(GV->getInitializer() == F);
     GV->setInitializer(Wrapper);
   } else if (auto C = dyn_cast<Constant>(U->getUser())) {
-    if (Constants.insert(C).second) {     // Constant::handleOperandChange must
+    if (Constants.insert(C).second)       // Constant::handleOperandChange must
       C->handleOperandChange(F, Wrapper); // not be called more than once per user
-    }
   } else {
     U->set(Wrapper);
   }
@@ -169,15 +167,13 @@ Function *PagerandoWrappers::createWrapper(Function &F,
   //    replace them.
   if (!F.hasLocalLinkage() || F.isVarArg()) {
     F.replaceAllUsesWith(Wrapper);
-    if (!F.hasLocalLinkage()) {
+    if (!F.hasLocalLinkage())
       F.setVisibility(GlobalValue::HiddenVisibility);
-    }
   } else {
     assert(!AddressUses.empty());
     SmallSet<Constant*, 8> Constants;
-    for (auto U : AddressUses) {
+    for (auto U : AddressUses)
       replaceAddressTakenUse(U, &F, Wrapper, Constants);
-    }
   }
 
   return Wrapper;
@@ -186,18 +182,17 @@ Function *PagerandoWrappers::createWrapper(Function &F,
 static SmallVector<VAStartInst*, 1> findVAStarts(Function &F) {
   SmallVector<VAStartInst*, 1> Insts;
   for (auto &I : instructions(F)) {
-    if (isa<VAStartInst>(&I)) {
+    if (isa<VAStartInst>(&I))
       Insts.push_back(cast<VAStartInst>(&I));
-    }
   }
   return Insts;
 }
 
 static AllocaInst *findAlloca(VAStartInst *VAStart) {
   Instruction *Inst = VAStart;
-  while (Inst && !isa<AllocaInst>(Inst)) {
+  while (Inst && !isa<AllocaInst>(Inst))
     Inst = dyn_cast<Instruction>(Inst->op_begin());
-  }
+
   assert(Inst && "Could not find va_list alloca in var args function");
   return cast<AllocaInst>(Inst);
 }
@@ -206,7 +201,7 @@ static AllocaInst *createVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy)
   auto VAListAlloca = Builder.CreateAlloca(VAListTy);
   Builder.CreateCall(  // @llvm.va_start(i8* <arglist>)
       Intrinsic::getDeclaration(M, Intrinsic::vastart),
-      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
+      { Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy()) });
 
   return VAListAlloca;
 }
@@ -214,7 +209,7 @@ static AllocaInst *createVAList(Module *M, IRBuilder<> &Builder, Type *VAListTy)
 static void createVAEndCall(IRBuilder<> &Builder, AllocaInst *VAListAlloca) {
   Builder.CreateCall(  // @llvm.va_end(i8* <arglist>)
       Intrinsic::getDeclaration(VAListAlloca->getModule(), Intrinsic::vaend),
-      {Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy())});
+      { Builder.CreateBitCast(VAListAlloca, Builder.getInt8PtrTy()) });
 }
 
 static void replaceWithVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart,
@@ -222,8 +217,8 @@ static void replaceWithVACopyCall(IRBuilder<> &Builder, VAStartInst *VAStart,
   Builder.SetInsertPoint(VAStart);
   Builder.CreateCall(  // @llvm.va_copy(i8* <destarglist>, i8* <srcarglist>)
       Intrinsic::getDeclaration(VAStart->getModule(), Intrinsic::vacopy),
-      {VAStart->getArgOperand(0),
-       Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy())});
+      { VAStart->getArgOperand(0),
+          Builder.CreateBitCast(VAListArg, Builder.getInt8PtrTy()) });
   VAStart->eraseFromParent();
 }
 
@@ -234,9 +229,8 @@ void PagerandoWrappers::createWrapperBody(Function *Wrapper, Function *Callee,
 
   // Arguments
   SmallVector<Value*, 8> Args;
-  for (auto &A : Wrapper->args()) {
+  for (auto &A : Wrapper->args())
     Args.push_back(&A);
-  }
 
   // va_list alloca and va_start
   AllocaInst* VAListAlloca;
@@ -250,9 +244,8 @@ void PagerandoWrappers::createWrapperBody(Function *Wrapper, Function *Callee,
   Call->setCallingConv(Callee->getCallingConv());
 
   // va_end
-  if (VAListTy) {
+  if (VAListTy)
     createVAEndCall(Builder, VAListAlloca);
-  }
 
   // Return
   if (Wrapper->getReturnType()->isVoidTy()) {
@@ -293,15 +286,14 @@ Function *PagerandoWrappers::rewriteVarargs(Function &F, Type *&VAListTy) {
   for (auto &A : F.args()) {
     A.replaceAllUsesWith(DestArg);
     DestArg->takeName(&A);
-    DestArg++;
+    ++DestArg;
   }
 
   // Replace va_start with va_copy
   IRBuilder<> Builder(NF->getContext());
   auto VAListArg = NF->arg_end() - 1;
-  for (auto VAStart : VAStarts) {
+  for (auto VAStart : VAStarts)
     replaceWithVACopyCall(Builder, VAStart, VAListArg);
-  }
 
   // Delete original function
   F.eraseFromParent();

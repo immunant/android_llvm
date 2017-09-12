@@ -79,16 +79,14 @@ bool AArch64PagerandoOptimizer::runOnMachineFunction(MachineFunction &MF) {
   std::vector<MachineInstr*> Worklist;
   for (auto &BB : MF) {
     for (auto &MI : BB) {
-      if (isIntraBin(MI, BinPrefix)) {
+      if (isIntraBin(MI, BinPrefix))
         Worklist.push_back(&MI);
-      }
     }
   }
 
   // Optimize intra-bin calls
-  for (auto *MI : Worklist) {
+  for (auto *MI : Worklist)
     optimizeCalls(MI);
-  }
 
   return !Worklist.empty();
 }
@@ -98,15 +96,13 @@ void AArch64PagerandoOptimizer::optimizeCalls(MachineInstr *MI) {
 
   SmallVector<MachineInstr*, 2> Calls;
   for (auto &Op : MI->defs()) {
-    for (auto &User : MRI.use_instructions(Op.getReg())) {
+    for (auto &User : MRI.use_instructions(Op.getReg()))
       Calls.push_back(&User);
-    }
   }
 
   auto *Callee = getCallee(*MI);
-  for (auto *Call : Calls) {
+  for (auto *Call : Calls)
     replaceWithDirectCall(Call, Callee);
-  }
 
   MI->eraseFromParent();
   // Note: this might be the only use of the preceding AArch64::LOADpot pseudo
@@ -134,9 +130,8 @@ void AArch64PagerandoOptimizer::replaceWithDirectCall(MachineInstr *MI,
 
   // Copy over remaining operands
   auto RemainingOps = make_range(MI->operands_begin() + 1, MI->operands_end());
-  for (auto &Op : RemainingOps) {
+  for (auto &Op : RemainingOps)
     MIB.add(Op);
-  }
 
   MI->eraseFromParent();
 }
