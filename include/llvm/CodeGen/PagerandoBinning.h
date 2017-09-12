@@ -78,11 +78,12 @@ public:
     std::vector<Node> Nodes;
     SimpleAlgo SAlgo;
 
-    Node *removeNode(std::vector<Node*> &WL);
+    Node *selectNode(std::vector<Node*> &WL);
     template<typename Expander, typename Action>
     void bfs(Node *Start, Expander Exp, Action Act);
-    void adjustCallerSizes(Node *Removed);
-    void collectCalleeAssignments(Node *Tree, Bin B, std::map<NodeId, Bin> &Agg);
+    void assignAndRemoveCallees(Node *Tree, Bin B, std::map<NodeId, Bin> &Bins,
+                                std::vector<Node*> &WL);
+    void adjustCallerSizes(Node *Tree);
 
   public:
     NodeId addNode(unsigned Size);

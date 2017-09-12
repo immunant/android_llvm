@@ -187,13 +187,11 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
 }
 
 PagerandoBinning::CallGraphAlgo::Node*
-PagerandoBinning::CallGraphAlgo::removeNode(std::vector<Node*> &WL) {
+PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
   std::sort(WL.begin(), WL.end(), Node::byTreeSize);
   auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTreeSize);
   if (I != WL.begin()) --I; // else: oversized SCC
-  Node *N = *I;
-  WL.erase(I);
-  return N;
+  return *I;
 }
 
 template<typename Expander, typename Action>
@@ -213,17 +211,26 @@ void PagerandoBinning::CallGraphAlgo::bfs(Node *Start, Expander Exp, Action Act)
   }
 }
 
-void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Removed) {
-  bfs(Removed,
-      [](Node *N) { return N->Callers; },
-      [Removed](Node *N) { N->TreeSize -= Removed->TreeSize; });
-}
-
-void PagerandoBinning::CallGraphAlgo::collectCalleeAssignments(
-    Node *Tree, Bin B, std::map<NodeId, Bin> &Agg) {
+void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
+    Node *Tree, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
+  std::set<Node*> Remove;
   bfs(Tree,
       [](Node *N) { return N->Callees; },
-      [B, &Agg](Node *N) { Agg.emplace(N->Id, B); });
+      [B, &Bins, &Remove](Node *N) {
+        Bins.emplace(N->Id, B);
+        Remove.insert(N);
+      });
+
+  // Replace with erase_if once we have C++17
+  WL.erase(std::remove_if(WL.begin(), WL.end(),
+                          [&Remove](Node *N) { return Remove.count(N); }),
+           WL.end());
+}
+
+void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Tree) {
+  bfs(Tree,
+      [](Node *N) { return N->Callers; },
+      [Tree](Node *N) { N->TreeSize -= N->TreeSize; });
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
@@ -233,12 +240,12 @@ PagerandoBinning::CallGraphAlgo::computeAssignments() {
     Worklist.push_back(&N);
   }
 
-  std::map<NodeId, Bin> Assignments;
+  std::map<NodeId, Bin> Bins;
   while (!Worklist.empty()) {
-    auto *N = removeNode(Worklist);
+    auto *N = selectNode(Worklist);
     auto Bin = SAlgo.assignToBin(N->TreeSize);
-    collectCalleeAssignments(N, Bin, Assignments);
+    assignAndRemoveCallees(N, Bin, Bins, Worklist);
     adjustCallerSizes(N);
   }
-  return Assignments;
+  return Bins;
 }
