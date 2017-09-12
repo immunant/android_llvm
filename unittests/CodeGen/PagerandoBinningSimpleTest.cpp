@@ -14,7 +14,6 @@ using namespace llvm;
 
 namespace {
 
-// Test fixture
 struct PagerandoBinningSimpleTest : public testing::Test {
   PagerandoBinning::SimpleAlgo Algo;
 

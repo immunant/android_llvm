@@ -9,6 +9,7 @@ set(CodeGenSources
   DIEHashTest.cpp
   LowLevelTypeTest.cpp
   MachineInstrBundleIteratorTest.cpp
+  PagerandoBinningCallGraphTest.cpp
   PagerandoBinningSimpleTest.cpp
   )
 
