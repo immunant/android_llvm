@@ -249,32 +249,6 @@ def test_device(android_base, clang_version, device, max_jobs, clean_output,
     return result
 
 
-def install_wrappers(llvm_install_path):
-    wrapper_path = utils.llvm_path('android', 'compiler_wrapper.py')
-    bin_path = os.path.join(llvm_install_path, 'bin')
-    clang_path = os.path.join(bin_path, 'clang')
-    clangxx_path = os.path.join(bin_path, 'clang++')
-    clang_tidy_path = os.path.join(bin_path, 'clang-tidy')
-
-    # Rename clang and clang++ to clang.real and clang++.real.
-    # clang and clang-tidy may already be moved by this script if we use a
-    # prebuilt clang. So we only move them if clang.real and clang-tidy.real
-    # doesn't exist.
-    if not os.path.exists(clang_path + '.real'):
-        shutil.move(clang_path, clang_path + '.real')
-    if not os.path.exists(clang_tidy_path + '.real'):
-        shutil.move(clang_tidy_path, clang_tidy_path + '.real')
-    utils.remove(clang_path)
-    utils.remove(clangxx_path)
-    utils.remove(clang_tidy_path)
-    utils.remove(clangxx_path + '.real')
-    os.symlink('clang.real', clangxx_path + '.real')
-
-    shutil.copy2(wrapper_path, clang_path)
-    shutil.copy2(wrapper_path, clangxx_path)
-    shutil.copy2(wrapper_path, clang_tidy_path)
-
-
 def build_clang(instrumented=False):
     stage1_install = utils.out_path('stage1-install')
     stage2_install = utils.out_path('stage2-install')
@@ -300,7 +274,7 @@ def main():
     else:
         clang_path = args.clang_path
         clang_version = build.extract_clang_version(clang_path)
-    install_wrappers(clang_path)
+    build.install_wrappers(clang_path)
     link_clang(args.android_path, clang_path)
 
     if args.build_only:

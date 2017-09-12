@@ -650,6 +650,34 @@ def build_runtimes(stage2_install):
     build_asan_test(stage2_install)
 
 
+def install_wrappers(llvm_install_path):
+    wrapper_path = utils.llvm_path('android', 'compiler_wrapper.py')
+    bisect_path = utils.llvm_path('android', 'bisect_driver.py')
+    bin_path = os.path.join(llvm_install_path, 'bin')
+    clang_path = os.path.join(bin_path, 'clang')
+    clangxx_path = os.path.join(bin_path, 'clang++')
+    clang_tidy_path = os.path.join(bin_path, 'clang-tidy')
+
+    # Rename clang and clang++ to clang.real and clang++.real.
+    # clang and clang-tidy may already be moved by this script if we use a
+    # prebuilt clang. So we only move them if clang.real and clang-tidy.real
+    # doesn't exist.
+    if not os.path.exists(clang_path + '.real'):
+        shutil.move(clang_path, clang_path + '.real')
+    if not os.path.exists(clang_tidy_path + '.real'):
+        shutil.move(clang_tidy_path, clang_tidy_path + '.real')
+    utils.remove(clang_path)
+    utils.remove(clangxx_path)
+    utils.remove(clang_tidy_path)
+    utils.remove(clangxx_path + '.real')
+    os.symlink('clang.real', clangxx_path + '.real')
+
+    shutil.copy2(wrapper_path, clang_path)
+    shutil.copy2(wrapper_path, clangxx_path)
+    shutil.copy2(wrapper_path, clang_tidy_path)
+    install_file(bisect_path, bin_path)
+
+
 def install_winpthreads(is_windows32, install_dir):
     """Installs the winpthreads runtime to the Windows bin directory."""
     lib_name = 'libwinpthread-1.dll'
@@ -734,6 +762,9 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     # For Windows, add other relevant libraries.
     if is_windows:
         install_winpthreads(is_windows32, install_dir)
+
+    if not is_windows:
+        install_wrappers(install_dir)
 
     # Add an AndroidVersion.txt file.
     version = extract_clang_version(build_dir)
