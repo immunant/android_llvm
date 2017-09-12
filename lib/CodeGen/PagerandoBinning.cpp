@@ -214,8 +214,7 @@ void PagerandoBinning::CallGraphAlgo::bfs(Node *Start, Expander Exp, Action Act)
 void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
     Node *Tree, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
   std::set<Node*> Remove;
-  bfs(Tree,
-      [](Node *N) { return N->Callees; },
+  bfs(Tree, std::mem_fn(&Node::Callees),
       [B, &Bins, &Remove](Node *N) {
         Bins.emplace(N->Id, B);
         Remove.insert(N);
@@ -228,8 +227,7 @@ void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
 }
 
 void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Tree) {
-  bfs(Tree,
-      [](Node *N) { return N->Callers; },
+  bfs(Tree, std::mem_fn(&Node::Callers),
       [Tree](Node *N) { N->TreeSize -= N->TreeSize; });
 }
 
