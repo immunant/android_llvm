@@ -16,6 +16,7 @@
 #
 
 import argparse
+import glob
 import logging
 import os
 import shutil
@@ -678,6 +679,38 @@ def install_wrappers(llvm_install_path):
     install_file(bisect_path, bin_path)
 
 
+def install_license_files(install_dir):
+    projects = (
+        'llvm',
+        'llvm/projects/compiler-rt',
+        'llvm/projects/libcxx',
+        'llvm/projects/libcxxabi',
+        'llvm/projects/openmp',
+        'llvm/tools/clang',
+        'llvm/tools/clang/tools/extra',
+        'llvm/tools/lld',
+    )
+
+    # Get generic MODULE_LICENSE_* files from our android subdirectory.
+    toolchain_path = utils.android_path('toolchain')
+    llvm_android_path = os.path.join(toolchain_path, 'llvm', 'android')
+    license_pattern = os.path.join(llvm_android_path, 'MODULE_LICENSE_*')
+    for license_file in glob.glob(license_pattern):
+        install_file(license_file, install_dir)
+
+    # Fetch all the LICENSE.* files under our projects and append them into a
+    # single NOTICE file for the resulting prebuilts.
+    notices = []
+    for project in projects:
+        project_path = os.path.join(toolchain_path, project)
+        license_pattern = os.path.join(project_path, 'LICENSE.*')
+        for license_file in glob.glob(license_pattern):
+            with open(license_file) as notice_file:
+                notices.append(notice_file.read())
+    with open(os.path.join(install_dir, 'NOTICE'), 'w') as notice_file:
+        notice_file.write('\n'.join(notices))
+
+
 def install_winpthreads(is_windows32, install_dir):
     """Installs the winpthreads runtime to the Windows bin directory."""
     lib_name = 'libwinpthread-1.dll'
@@ -765,6 +798,9 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
 
     if not is_windows:
         install_wrappers(install_dir)
+
+    # Install license files as NOTICE in the toolchain install dir.
+    install_license_files(install_dir)
 
     # Add an AndroidVersion.txt file.
     version = extract_clang_version(build_dir)
