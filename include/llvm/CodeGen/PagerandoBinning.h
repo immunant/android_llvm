@@ -59,7 +59,7 @@ public:
     std::multimap<unsigned, Bin> Bins; // <free space  ->  bin numbers>
     unsigned BinCount = 1;
   public:
-    unsigned assignToBin(unsigned FnSize);
+    Bin assignToBin(unsigned FnSize);
   };
 
   class CallGraphAlgo {
@@ -78,7 +78,7 @@ public:
     std::vector<Node> Nodes;
     SimpleAlgo SAlgo;
 
-    Node *removeNode(std::vector<Node *> &WL);
+    Node *removeNode(std::vector<Node*> &WL);
     template<typename Expander, typename Action>
     void bfs(Node *Start, Expander Exp, Action Act);
     void adjustCallerSizes(Node *Removed);

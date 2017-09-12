@@ -70,6 +70,7 @@ bool PagerandoBinning::runOnModule(Module &M) {
   case BStrat::Simple:    return binSimple(M);
   case BStrat::CallGraph: return binCallGraph();
   }
+  llvm_unreachable("Unexpected binning strategy");
 }
 
 void PagerandoBinning::setBin(Function &F, Bin Bin) {
@@ -102,7 +103,8 @@ bool PagerandoBinning::binSimple(Module &M) {
   return Changed;
 }
 
-unsigned PagerandoBinning::SimpleAlgo::assignToBin(unsigned FnSize) {
+PagerandoBinning::Bin
+PagerandoBinning::SimpleAlgo::assignToBin(unsigned FnSize) {
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -185,11 +187,10 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
 }
 
 PagerandoBinning::CallGraphAlgo::Node*
-PagerandoBinning::CallGraphAlgo::removeNode(std::vector<Node *> &WL) {
+PagerandoBinning::CallGraphAlgo::removeNode(std::vector<Node*> &WL) {
   std::sort(WL.begin(), WL.end(), Node::byTreeSize);
   auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTreeSize);
-  if (I != WL.begin()) --I;
-  else llvm_unreachable("no component is smaller than a page!!!!");
+  if (I != WL.begin()) --I; // else: oversized SCC
   Node *N = *I;
   WL.erase(I);
   return N;
