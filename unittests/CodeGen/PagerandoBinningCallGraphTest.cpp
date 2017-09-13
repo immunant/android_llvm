@@ -40,7 +40,6 @@ struct PagerandoBinningCallGraphTest : public testing::Test {
 
     NodeId Id = 0;
     for (auto ExpectedBin : ExpectedBins) {
-      errs() << "node id: " << Id << "\n";
       unsigned Bin = Bins.at(Id++);
       ASSERT_EQ(Bin, ExpectedBin);
     }
@@ -48,8 +47,8 @@ struct PagerandoBinningCallGraphTest : public testing::Test {
 };
 
 TEST_F(PagerandoBinningCallGraphTest, NoEdges) {
-  defineGraph({2003, 2002, 2001}, {});
-  ASSERT_ASSIGNMENTS({1, 1, 2});
+  defineGraph({2001, 2002, 2003}, {});
+  ASSERT_ASSIGNMENTS({2, 1, 1});
 }
 
 TEST_F(PagerandoBinningCallGraphTest, StandardExample) {
@@ -132,13 +131,14 @@ TEST_F(PagerandoBinningCallGraphTest, StandardExample) {
   ASSERT_ASSIGNMENTS({4, 2, 3, 2, 2, 2, 1, 3});
 }
 
-//TEST_F(PagerandoBinningSimpleTest, UsesBinWithLeastFreeSpace) {
-//  ASSERT_ASSIGNMENTS({
-//      {3000, 1},
-//      {3001, 2},
-//      {3000, 3},
-//      { 100, 2},
-//  });
-//}
+TEST_F(PagerandoBinningCallGraphTest, UsesRemainingFreeSpace) {
+  defineGraph({3001, 3002, 1001, 1002}, {{0, 1}});
+  ASSERT_ASSIGNMENTS({2, 1, 2, 1});
+}
+
+TEST_F(PagerandoBinningCallGraphTest, CallGraphTakesPriorityOverFreeSpace) {
+  defineGraph({3001, 3002, 1001, 1002}, {{0, 1}, {2, 3}});
+  ASSERT_ASSIGNMENTS({2, 1, 3, 3});
+}
 
 } // end anonymous namespace
