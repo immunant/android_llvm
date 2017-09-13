@@ -136,7 +136,12 @@ def parse_args():
         default=False,
         help='Do not use PGO profile to build stage2 Clang (defaults to False)')
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.profile and not args.no_pgo:
+        parser.error(
+            '--no-pgo must be specified along with --generate-clang-profile')
+
+    return args
 
 
 def link_clang(android_base, clang_path):
