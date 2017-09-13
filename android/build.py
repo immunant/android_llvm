@@ -781,6 +781,7 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
         'clang-format' + ext,
         'clang-tidy' + ext,
         'git-clang-format',  # No extension here
+        'lld' + ext,
         'llvm-ar' + ext,
         'llvm-as' + ext,
         'llvm-dis' + ext,
