@@ -196,13 +196,13 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   From.Callees.insert(Callee);
   To.Callers.insert(Caller);
   // This only works because we build the graph bottom-up via scc_iterator
-  From.Size += To.Size;
+//  From.Size += To.Size;
 }
 
 PagerandoBinning::CallGraphAlgo::Node*
 PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
-  std::sort(WL.begin(), WL.end(), Node::bySize);
-  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toSize);
+  std::sort(WL.begin(), WL.end(), Node::byTransitiveSize);
+  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTransitiveSize);
   if (I != WL.begin()) --I; // else: oversized SCC
   return *I;
 }
@@ -224,6 +224,11 @@ void PagerandoBinning::CallGraphAlgo::bfs(Node *Start, Expander Exp, Action Act)
   }
 }
 
+void PagerandoBinning::CallGraphAlgo::computeTransitiveSize(Node *Start) {
+  bfs(Start, std::mem_fn(&Node::Callees),
+      [&Start](Node *N) { Start->TransitiveSize += N->Size; });
+}
+
 void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
     Node *Start, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
   std::set<Node*> Remove;
@@ -240,21 +245,23 @@ void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
 }
 
 void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Start) {
-  unsigned Size = Start->Size;
-  bfs(Start, std::mem_fn(&Node::Callers), [Size](Node *N) { N->Size -= Size; });
+  unsigned Size = Start->TransitiveSize;
+  bfs(Start, std::mem_fn(&Node::Callers),
+      [Size](Node *N) { N->TransitiveSize -= Size; });
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
 PagerandoBinning::CallGraphAlgo::computeAssignments() {
   std::vector<Node*> Worklist;
   for (auto &N : Nodes) {
+    computeTransitiveSize(&N);
     Worklist.push_back(&N);
   }
 
   std::map<NodeId, Bin> Bins;
   while (!Worklist.empty()) {
     auto *N = selectNode(Worklist);
-    auto Bin = SAlgo.assignToBin(N->Size);
+    auto Bin = SAlgo.assignToBin(N->TransitiveSize);
     assignAndRemoveCallees(N, Bin, Bins, Worklist);
     adjustCallerSizes(N);
   }

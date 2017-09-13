@@ -56,14 +56,14 @@ public:
   class CallGraphAlgo {
     struct Node {
       NodeId Id;
-      unsigned Size;
+      unsigned Size, TransitiveSize;
       std::set<NodeId> Callers, Callees;
 
-      static bool bySize(const Node *A, const Node *B) {
-        return A->Size < B->Size;
+      static bool byTransitiveSize(const Node *A, const Node *B) {
+        return A->TransitiveSize < B->TransitiveSize;
       }
-      static bool toSize(unsigned Size, const Node *N) {
-        return Size < N->Size;
+      static bool toTransitiveSize(unsigned Size, const Node *N) {
+        return Size < N->TransitiveSize;
       }
     };
     std::vector<Node> Nodes;
@@ -72,6 +72,7 @@ public:
     Node *selectNode(std::vector<Node*> &WL);
     template<typename Expander, typename Action>
     void bfs(Node *Start, Expander Exp, Action Act);
+    void computeTransitiveSize(Node *Start);
     void assignAndRemoveCallees(Node *Start, Bin B, std::map<NodeId, Bin> &Bins,
                                 std::vector<Node*> &WL);
     void adjustCallerSizes(Node *Start);
