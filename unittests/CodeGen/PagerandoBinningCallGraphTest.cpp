@@ -47,9 +47,8 @@ struct PagerandoBinningCallGraphTest : public testing::Test {
 };
 
 TEST_F(PagerandoBinningCallGraphTest, StandardExample) {
-  defineGraph(
-//       0     1     2     3     4     5     6     7
-      { 600,  800, 3500, 1000, 1000, 1000, 4000,  100},
+//               0     1     2     3     4     5     6     7
+  defineGraph({ 600,  800, 3500, 1000, 1000, 1000, 4000,  100},
       {{0, 1}, {0, 2},
        {1, 3}, {1, 4}, {1, 5},
        {2, 6}, {2, 7}
@@ -132,8 +131,50 @@ TEST_F(PagerandoBinningCallGraphTest, UsesRemainingFreeSpace) {
 }
 
 TEST_F(PagerandoBinningCallGraphTest, CallGraphTakesPriorityOverFreeSpace) {
-  defineGraph({3001, 3002, 1001, 1002}, {{0, 1}, {2, 3}});
+  defineGraph({3000, 3000, 1000, 1000}, {{0, 1}, {2, 3}});
   ASSERT_ASSIGNMENTS({2, 1, 3, 3});
+}
+
+TEST_F(PagerandoBinningCallGraphTest, DoNotCountSizeTwice) {
+  defineGraph({1000, 1000, 1000, 1000}, {{0, 1}, {0, 2}, {1, 3}, {2, 3}});
+// -----------------------------------------------------------------------------
+//       (0)
+//      4000           This test case exposes a wrongly computed size for
+//      1000           node (0) that contains the size of node (3) twice. The
+//        |            incorrect size is 5000, which leads to node (0) being
+//    +---+---+        assigned to a separate bin (although it should not).
+//    |       |
+//   (1)     (2)
+//  1000    1000
+//  2000    2000
+//    |       |
+//    +---+---+
+//        |
+//       (3)
+//      1000
+// -----------------------------------------------------------------------------
+  ASSERT_ASSIGNMENTS({1, 1, 1, 1});
+}
+
+TEST_F(PagerandoBinningCallGraphTest, DoNotSubtractSizeTwice) {
+  defineGraph({2000, 1000, 1000, 1000}, {{0, 1}, {0, 2}, {1, 3}, {2, 3}});
+// -----------------------------------------------------------------------------
+//       (0)
+//      5000           This test case exposes a wrongly adjusted size for
+//      2000           node (0) that had the size of node (3) subtracted twice.
+//        |            The incorrect size is 4000, which leads to node (0) not
+//    +---+---+        being assigned to a separate bin (although it should).
+//    |       |
+//   (1)     (2)
+//  1000    1000
+//  2000    2000
+//    |       |
+//    +---+---+
+//        |
+//       (3)
+//      1000
+// -----------------------------------------------------------------------------
+  ASSERT_ASSIGNMENTS({2, 2, 1, 1});
 }
 
 } // end anonymous namespace
