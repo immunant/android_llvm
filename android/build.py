@@ -66,7 +66,8 @@ def extract_clang_long_version(clang_install):
 
 def pgo_profdata_file(version_str):
     profdata_file = '%s.profdata' % version_str
-    profile = utils.llvm_path('android', 'profiles', profdata_file)
+    profile = utils.android_path('prebuilts', 'clang', 'host', 'linux-x86',
+                                 'profiles', profdata_file)
     return profile if os.path.exists(profile) else None
 
 
