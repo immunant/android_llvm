@@ -46,11 +46,6 @@ struct PagerandoBinningCallGraphTest : public testing::Test {
   }
 };
 
-TEST_F(PagerandoBinningCallGraphTest, NoEdges) {
-  defineGraph({2001, 2002, 2003}, {});
-  ASSERT_ASSIGNMENTS({2, 1, 1});
-}
-
 TEST_F(PagerandoBinningCallGraphTest, StandardExample) {
   defineGraph(
 //       0     1     2     3     4     5     6     7
