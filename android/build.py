@@ -66,8 +66,7 @@ def extract_clang_long_version(clang_install):
 
 def pgo_profdata_file(version_str):
     profdata_file = '%s.profdata' % version_str
-    profile = utils.llvm_path('android', 'profiles', profdata_file)
-    return profile if os.path.exists(profile) else None
+    return utils.llvm_path('android', 'profiles', profdata_file)
 
 
 def ndk_base():
@@ -923,6 +922,8 @@ def main():
         profdata = pgo_profdata_file(long_version)
         # Do not use PGO profiles if profdata file doesn't exist unless failure
         # is explicitly requested via --check-pgo-profile.
+        if not os.path.exists(profdata):
+            profdata = None
         if profdata is None and args.check_pgo_profile:
             raise RuntimeError('Profdata file does not exist for ' +
                                long_version)

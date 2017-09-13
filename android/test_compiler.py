@@ -274,6 +274,8 @@ def build_clang(instrumented=False, pgo=True):
     if pgo:
         long_version = build.extract_clang_long_version(stage1_install)
         profdata = build.pgo_profdata_file(long_version)
+        if not os.path.exists(profdata):
+            profdata = None
 
     build.build_stage2(
         stage1_install,
