@@ -7,17 +7,30 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This pass assigns pagerando-enabled functions to bins. Normal functions
-// (and pagerando wrappers) are not assigned to a bin.
+// This pass assigns Pagerando-enabled functions to bins. Normal functions
+// (and currently also Pagerando wrappers) are not assigned to a bin. The bin
+// size is 4KB.
 // Function sizes are estimated by adding up the size of all instructions
-// inside the corresponding MachineFunction. The default bin size is 4KB.
-// The current bin allocation strategy is a greedy algorithm that, for every
-// function, picks the bin with the smallest remaining free space that still
-// accommodates the function. If such a bin does not exist, a new one is
-// created. Functions that are larger than the default bin size are assigned to
-// a new bin which forces the expansion of said bin.
-// Because this pass estimates function sizes it should run as late as possible,
-// but before Pagerando optimizer passes (since they rely on bin assignments).
+// of the corresponding MachineFunction. To improve estimate accuracy this pass
+// should run as late as possible, but must run before the Pagerando optimizer
+// passes (since they rely on bin assignments).
+//
+// Binning strategies:
+// -) Simple: a greedy algorithm that, for every function, picks the bin with
+// the smallest remaining free space that still accommodates the function. If
+// such a bin does not exist, a new one is created. Functions that are larger
+// than the bin size are assigned to a new bin which forces the expansion of
+// said bin.
+// -) CallGraph: this algorithm tries to put functions that call each other in
+// the same bin (to provide more opportunities to the Pagerando optimizers). We
+// translate LLVM's call graph into a graph of strongly-connected components
+// which removes cycles, i.e., functions that recursively call each other are
+// combined into one node. The size of a node is the sum of its function sizes
+// plus the size of its callees. We select the node with the greatest size that
+// is still smaller or equal to the bin size and assign it to a bin with the
+// Simple strategy. Afterwards we remove the node and all of its (transitive)
+// callees, adjust the size of its (transitive) callers, and then select the
+// next node. See [PagerandoBinningCallGraphTest.cpp] for a visual example.
 //
 //===----------------------------------------------------------------------===//
 
