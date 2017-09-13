@@ -196,13 +196,13 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   From.Callees.insert(Callee);
   To.Callers.insert(Caller);
   // This only works because we build the graph bottom-up via scc_iterator
-  From.TreeSize += To.TreeSize;
+  From.Size += To.Size;
 }
 
 PagerandoBinning::CallGraphAlgo::Node*
 PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
-  std::sort(WL.begin(), WL.end(), Node::byTreeSize);
-  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTreeSize);
+  std::sort(WL.begin(), WL.end(), Node::bySize);
+  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toSize);
   if (I != WL.begin()) --I; // else: oversized SCC
   return *I;
 }
@@ -225,9 +225,9 @@ void PagerandoBinning::CallGraphAlgo::bfs(Node *Start, Expander Exp, Action Act)
 }
 
 void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
-    Node *Tree, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
+    Node *Start, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
   std::set<Node*> Remove;
-  bfs(Tree, std::mem_fn(&Node::Callees),
+  bfs(Start, std::mem_fn(&Node::Callees),
       [B, &Bins, &Remove](Node *N) {
         Bins.emplace(N->Id, B);
         Remove.insert(N);
@@ -239,10 +239,9 @@ void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
            WL.end());
 }
 
-void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Tree) {
-  unsigned Size = Tree->TreeSize;
-  bfs(Tree, std::mem_fn(&Node::Callers),
-      [Size](Node *N) { N->TreeSize -= Size; });
+void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Start) {
+  unsigned Size = Start->Size;
+  bfs(Start, std::mem_fn(&Node::Callers), [Size](Node *N) { N->Size -= Size; });
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
@@ -255,7 +254,7 @@ PagerandoBinning::CallGraphAlgo::computeAssignments() {
   std::map<NodeId, Bin> Bins;
   while (!Worklist.empty()) {
     auto *N = selectNode(Worklist);
-    auto Bin = SAlgo.assignToBin(N->TreeSize);
+    auto Bin = SAlgo.assignToBin(N->Size);
     assignAndRemoveCallees(N, Bin, Bins, Worklist);
     adjustCallerSizes(N);
   }

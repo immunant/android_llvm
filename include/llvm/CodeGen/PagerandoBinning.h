@@ -56,14 +56,14 @@ public:
   class CallGraphAlgo {
     struct Node {
       NodeId Id;
-      unsigned TreeSize;
+      unsigned Size;
       std::set<NodeId> Callers, Callees;
 
-      static bool byTreeSize(const Node *A, const Node *B) {
-        return A->TreeSize < B->TreeSize;
+      static bool bySize(const Node *A, const Node *B) {
+        return A->Size < B->Size;
       }
-      static bool toTreeSize(unsigned Size, const Node *N) {
-        return Size < N->TreeSize;
+      static bool toSize(unsigned Size, const Node *N) {
+        return Size < N->Size;
       }
     };
     std::vector<Node> Nodes;
@@ -72,9 +72,9 @@ public:
     Node *selectNode(std::vector<Node*> &WL);
     template<typename Expander, typename Action>
     void bfs(Node *Start, Expander Exp, Action Act);
-    void assignAndRemoveCallees(Node *Tree, Bin B, std::map<NodeId, Bin> &Bins,
+    void assignAndRemoveCallees(Node *Start, Bin B, std::map<NodeId, Bin> &Bins,
                                 std::vector<Node*> &WL);
-    void adjustCallerSizes(Node *Tree);
+    void adjustCallerSizes(Node *Start);
 
   public:
     NodeId addNode(unsigned Size);
