@@ -142,7 +142,7 @@ TEST_F(PagerandoBinningCallGraphTest, DoNotCountSizeTwice) {
 //      4000           This test case exposes a wrongly computed size for
 //      1000           node (0) that contains the size of node (3) twice. The
 //        |            incorrect size is 5000, which leads to node (0) being
-//    +---+---+        assigned to a separate bin (although it should not).
+//    +---+---+        assigned to a separate bin (although it should not be).
 //    |       |
 //   (1)     (2)
 //  1000    1000
@@ -163,7 +163,7 @@ TEST_F(PagerandoBinningCallGraphTest, DoNotSubtractSizeTwice) {
 //      5000           This test case exposes a wrongly adjusted size for
 //      2000           node (0) that had the size of node (3) subtracted twice.
 //        |            The incorrect size is 4000, which leads to node (0) not
-//    +---+---+        being assigned to a separate bin (although it should).
+//    +---+---+        being assigned to a separate bin (although it should be).
 //    |       |
 //   (1)     (2)
 //  1000    1000
