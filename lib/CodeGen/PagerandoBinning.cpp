@@ -188,21 +188,19 @@ PagerandoBinning::NodeId
 PagerandoBinning::CallGraphAlgo::addNode(unsigned Size) {
   NodeId Id = Nodes.size();
   Nodes.emplace_back(Node{Id, Size});
-//  Nodes.at(Id).TraCallees.insert(Id); // Add itself to transitive callees
+  Nodes.at(Id).TraCallees.insert(Id); // Add itself to transitive callees
   return Id;
 }
 
 void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   Node &From = Nodes.at(Caller);
   Node &To = Nodes.at(Callee);
-  From.TraCallees.insert(Callee);
   To.Callers.insert(Caller);
   // This only works because we build the graph bottom-up via scc_iterator
   From.TraCallees.insert(To.TraCallees.begin(), To.TraCallees.end());
 }
 
 void PagerandoBinning::CallGraphAlgo::computeTransitiveSize(Node &N) {
-  N.TraSize = N.Size;
   for (NodeId C : N.TraCallees) {
     N.TraSize += Nodes.at(C).Size;
   }
@@ -242,9 +240,8 @@ void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
 
   // Replace with erase_if once we have C++17
   WL.erase(std::remove_if(WL.begin(), WL.end(),
-                          [&N](Node *X) { return N.TraCallees.count(X->Id); }),
+                          [&N](Node *C) { return N.TraCallees.count(C->Id); }),
            WL.end());
-  WL.erase(std::find(WL.begin(), WL.end(), &N));
 }
 
 void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Start) {
