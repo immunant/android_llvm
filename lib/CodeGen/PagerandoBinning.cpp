@@ -25,12 +25,13 @@
 // the same bin (to provide more opportunities to the Pagerando optimizers). We
 // translate LLVM's call graph into a graph of strongly-connected components
 // which removes cycles, i.e., functions that recursively call each other are
-// combined into one node. The size of a node is the sum of its function sizes
-// plus the size of its callees. We select the node with the greatest size that
-// is still smaller or equal to the bin size and assign it to a bin with the
-// Simple strategy. Afterwards we remove the node and all of its (transitive)
-// callees, adjust the size of its (transitive) callers, and then select the
-// next node. See [PagerandoBinningCallGraphTest.cpp] for a visual example.
+// combined into one node. The transitive size of a node is the sum of its
+// function sizes plus the size of all of its transitive callees. We select the
+// node with the greatest transitive size that is still smaller or equal to the
+// bin size and assign it to a bin using the Simple strategy. Afterwards we
+// remove the node and all of its transitive callees, adjust the size of its
+// transitive callers, and then select the next node.
+// See [PagerandoBinningCallGraphTest.cpp] for a visual example.
 //
 //===----------------------------------------------------------------------===//
 
@@ -187,16 +188,24 @@ PagerandoBinning::NodeId
 PagerandoBinning::CallGraphAlgo::addNode(unsigned Size) {
   NodeId Id = Nodes.size();
   Nodes.emplace_back(Node{Id, Size});
+//  Nodes.at(Id).TraCallees.insert(Id); // Add itself to transitive callees
   return Id;
 }
 
 void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
   Node &From = Nodes.at(Caller);
   Node &To = Nodes.at(Callee);
-  From.Callees.insert(Callee);
+  From.TraCallees.insert(Callee);
   To.Callers.insert(Caller);
   // This only works because we build the graph bottom-up via scc_iterator
-//  From.Size += To.Size;
+  From.TraCallees.insert(To.TraCallees.begin(), To.TraCallees.end());
+}
+
+void PagerandoBinning::CallGraphAlgo::computeTransitiveSize(Node &N) {
+  N.TraSize = N.Size;
+  for (NodeId C : N.TraCallees) {
+    N.TraSize += Nodes.at(C).Size;
+  }
 }
 
 PagerandoBinning::CallGraphAlgo::Node*
@@ -224,45 +233,39 @@ void PagerandoBinning::CallGraphAlgo::bfs(Node *Start, Expander Exp, Action Act)
   }
 }
 
-void PagerandoBinning::CallGraphAlgo::computeTransitiveSize(Node *Start) {
-  bfs(Start, std::mem_fn(&Node::Callees),
-      [&Start](Node *N) { Start->TransitiveSize += N->Size; });
-}
-
 void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
-    Node *Start, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
-  std::set<Node*> Remove;
-  bfs(Start, std::mem_fn(&Node::Callees),
-      [B, &Bins, &Remove](Node *N) {
-        Bins.emplace(N->Id, B);
-        Remove.insert(N);
-      });
+    Node &N, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
+  Bins.emplace(N.Id, B);
+  for (NodeId C : N.TraCallees) {
+    Bins.emplace(C, B);
+  }
 
   // Replace with erase_if once we have C++17
   WL.erase(std::remove_if(WL.begin(), WL.end(),
-                          [&Remove](Node *N) { return Remove.count(N); }),
+                          [&N](Node *X) { return N.TraCallees.count(X->Id); }),
            WL.end());
+  WL.erase(std::find(WL.begin(), WL.end(), &N));
 }
 
 void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Start) {
-  unsigned Size = Start->TransitiveSize;
+  unsigned Size = Start->TraSize;
   bfs(Start, std::mem_fn(&Node::Callers),
-      [Size](Node *N) { N->TransitiveSize -= Size; });
+      [Size](Node *N) { N->TraSize -= Size; });
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
 PagerandoBinning::CallGraphAlgo::computeAssignments() {
   std::vector<Node*> Worklist;
   for (auto &N : Nodes) {
-    computeTransitiveSize(&N);
+    computeTransitiveSize(N);
     Worklist.push_back(&N);
   }
 
   std::map<NodeId, Bin> Bins;
   while (!Worklist.empty()) {
     auto *N = selectNode(Worklist);
-    auto Bin = SAlgo.assignToBin(N->TransitiveSize);
-    assignAndRemoveCallees(N, Bin, Bins, Worklist);
+    auto Bin = SAlgo.assignToBin(N->TraSize);
+    assignAndRemoveCallees(*N, Bin, Bins, Worklist);
     adjustCallerSizes(N);
   }
   return Bins;
