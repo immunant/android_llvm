@@ -71,8 +71,6 @@ public:
 
     void computeTransitiveSize(Node &N);
     Node *selectNode(std::vector<Node*> &WL);
-    template<typename Expander, typename Action>
-    void bfs(Node *Start, Expander Exp, Action Act);
     void assignAndRemoveCallees(Node &N, Bin B, std::map<NodeId, Bin> &Bins,
                                 std::vector<Node*> &WL);
     void adjustCallerSizes(Node *Start);

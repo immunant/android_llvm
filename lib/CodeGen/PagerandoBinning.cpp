@@ -214,23 +214,6 @@ PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
   return *I;
 }
 
-template<typename Expander, typename Action>
-void PagerandoBinning::CallGraphAlgo::bfs(Node *Start, Expander Exp, Action Act) {
-  std::queue<Node*> Queue({Start});
-  std::set<Node*> Discovered{Start};
-
-  while (!Queue.empty()) {
-    Node *N = Queue.front(); Queue.pop();
-    Act(N);
-    for (NodeId CId : Exp(N)) {
-      Node *C = &Nodes.at(CId);
-      if (Discovered.insert(C).second) {
-        Queue.push(C);
-      }
-    }
-  }
-}
-
 void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
     Node &N, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
   Bins.emplace(N.Id, B);
@@ -246,8 +229,20 @@ void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
 
 void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Start) {
   unsigned Size = Start->TraSize;
-  bfs(Start, std::mem_fn(&Node::Callers),
-      [Size](Node *N) { N->TraSize -= Size; });
+  // Standard BFS
+  std::queue<Node*> Queue({Start});
+  std::set<Node*> Discovered{Start};
+
+  while (!Queue.empty()) {
+    Node *N = Queue.front(); Queue.pop();
+    N->TraSize -= Size;
+    for (NodeId CId : N->Callers) {
+      Node *C = &Nodes.at(CId);
+      if (Discovered.insert(C).second) {
+        Queue.push(C);
+      }
+    }
+  }
 }
 
 std::map<PagerandoBinning::NodeId, PagerandoBinning::Bin>
