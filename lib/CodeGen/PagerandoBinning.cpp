@@ -208,8 +208,8 @@ void PagerandoBinning::CallGraphAlgo::computeTransitiveSize(Node &N) {
 
 PagerandoBinning::CallGraphAlgo::Node*
 PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
-  std::sort(WL.begin(), WL.end(), Node::byTransitiveSize);
-  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTransitiveSize);
+  std::sort(WL.begin(), WL.end(), Node::byTraSize);
+  auto I = std::upper_bound(WL.begin(), WL.end(), BinSize+0, Node::toTraSize);
   if (I != WL.begin()) --I; // else: oversized SCC
   return *I;
 }

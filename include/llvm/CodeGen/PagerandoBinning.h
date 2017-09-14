@@ -59,10 +59,10 @@ public:
       unsigned Size, TraSize; // Transitive size
       std::set<NodeId> Callers, TraCallees;
 
-      static bool byTransitiveSize(const Node *A, const Node *B) {
+      static bool byTraSize(const Node *A, const Node *B) {
         return A->TraSize < B->TraSize;
       }
-      static bool toTransitiveSize(unsigned Size, const Node *N) {
+      static bool toTraSize(unsigned Size, const Node *N) {
         return Size < N->TraSize;
       }
     };
