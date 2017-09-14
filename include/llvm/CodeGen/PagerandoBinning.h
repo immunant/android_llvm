@@ -71,8 +71,8 @@ public:
 
     void computeTransitiveSize(Node &N);
     Node *selectNode(std::vector<Node*> &WL);
-    void assignAndRemoveCallees(Node &N, Bin B, std::map<NodeId, Bin> &Bins,
-                                std::vector<Node*> &WL);
+    void collectAssignments(std::map<NodeId, Bin> &Bins, Node& N, Bin Bin);
+    void removeCallees(std::vector<Node*> &WL, Node &N);
     void adjustCallerSizes(Node *Start);
 
   public:

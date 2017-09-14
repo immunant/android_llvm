@@ -201,8 +201,8 @@ void PagerandoBinning::CallGraphAlgo::addEdge(NodeId Caller, NodeId Callee) {
 }
 
 void PagerandoBinning::CallGraphAlgo::computeTransitiveSize(Node &N) {
-  for (NodeId C : N.TraCallees) {
-    N.TraSize += Nodes.at(C).Size;
+  for (auto Id : N.TraCallees) {
+    N.TraSize += Nodes.at(Id).Size;
   }
 }
 
@@ -214,16 +214,19 @@ PagerandoBinning::CallGraphAlgo::selectNode(std::vector<Node*> &WL) {
   return *I;
 }
 
-void PagerandoBinning::CallGraphAlgo::assignAndRemoveCallees(
-    Node &N, Bin B, std::map<NodeId, Bin> &Bins, std::vector<Node*> &WL) {
-  Bins.emplace(N.Id, B);
-  for (NodeId C : N.TraCallees) {
-    Bins.emplace(C, B);
+void PagerandoBinning::CallGraphAlgo::collectAssignments(
+    std::map<NodeId, Bin> &Bins, Node &N, Bin Bin) {
+  for (auto Id : N.TraCallees) {
+    Bins.emplace(Id, Bin);
   }
+}
 
+void PagerandoBinning::CallGraphAlgo::removeCallees(std::vector<Node *> &WL,
+                                                    Node &N) {
+  auto &Remove = N.TraCallees;
   // Replace with erase_if once we have C++17
   WL.erase(std::remove_if(WL.begin(), WL.end(),
-                          [&N](Node *C) { return N.TraCallees.count(C->Id); }),
+                          [&Remove](Node *C) { return Remove.count(C->Id); }),
            WL.end());
 }
 
@@ -257,7 +260,8 @@ PagerandoBinning::CallGraphAlgo::computeAssignments() {
   while (!Worklist.empty()) {
     auto *N = selectNode(Worklist);
     auto Bin = SAlgo.assignToBin(N->TraSize);
-    assignAndRemoveCallees(*N, Bin, Bins, Worklist);
+    collectAssignments(Bins, *N, Bin);
+    removeCallees(Worklist, *N);
     adjustCallerSizes(N);
   }
   return Bins;
