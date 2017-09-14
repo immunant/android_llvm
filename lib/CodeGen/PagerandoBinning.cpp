@@ -231,8 +231,8 @@ void PagerandoBinning::CallGraphAlgo::removeCallees(std::vector<Node *> &WL,
 }
 
 void PagerandoBinning::CallGraphAlgo::adjustCallerSizes(Node *Start) {
-  unsigned Size = Start->TraSize;
-  // Standard BFS
+  auto Size = Start->TraSize;
+  // Standard BFS algorithm
   std::queue<Node*> Queue({Start});
   std::set<Node*> Discovered{Start};
 
