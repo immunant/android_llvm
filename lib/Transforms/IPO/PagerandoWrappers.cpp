@@ -113,10 +113,53 @@ bool PagerandoWrappers::runOnModule(Module &M) {
 }
 
 static bool skipFunctionUse(const Use &U);
-static bool IsDirectCallOfBitcast(User *Usr) {
+static bool IsSkippableBitcast(User *Usr) {
   auto CE = dyn_cast<ConstantExpr>(Usr);
   return CE && CE->getOpcode() == Instruction::BitCast
       && std::all_of(CE->use_begin(), CE->use_end(), skipFunctionUse);
+}
+
+static User* getSingleUserOrNull(Value *V) {
+  if (!V || !V->hasOneUse())
+    return nullptr;
+
+  return *V->user_begin();
+}
+
+static bool IsHiddenVTable(User *U) {
+  // We want to verify that this use is a vtable initializer here. This relies
+  // on the availability of TBAA to positively identify VTable uses, rather than
+  // using a heuristic.
+  //
+  // We don't need to handle bitcasts because we have already stripped bitcast
+  // exprs in IsSkippableBitcast.
+
+  // We have one user (hopefully a vtable initializer)
+  auto *CA = dyn_cast<ConstantArray>(U);
+
+  // Struct containing the i8* array
+  auto *CS = getSingleUserOrNull(CA);
+
+  // Our user is an internal global
+  auto *VTable = dyn_cast_or_null<GlobalValue>(getSingleUserOrNull(CS));
+  if (!VTable || !VTable->hasLocalLinkage())
+    return false;
+
+  // All users of the vtable are marked as vtable accesses
+  for (auto *VTUser : VTable->users()) {
+    // Find the instruction using the (potential) VTable
+    User *U = VTUser;
+    while (U && !isa<Instruction>(U))
+      U = getSingleUserOrNull(U);
+    if (!U)
+      return false;
+
+    MDNode *Tag = cast<Instruction>(U)->getMetadata(LLVMContext::MD_tbaa);
+    if (!Tag || !Tag->isTBAAVtableAccess())
+      return false;
+  }
+
+  return true;
 }
 
 static bool skipFunctionUse(const Use &U) {
@@ -128,7 +171,8 @@ static bool skipFunctionUse(const Use &U) {
       || isa<GlobalAlias>(User)   // No need to indirect
       || isa<BlockAddress>(User)  // Handled in AsmPrinter::EmitBasicBlockStart
       || (UserFn && UserFn->getPersonalityFn() == U.get()) // Skip pers. fn uses
-      || IsDirectCallOfBitcast(User); // Calls to bitcasted functions end up as direct calls
+      || IsSkippableBitcast(User) // Calls to bitcasted functions end up as direct calls
+      || IsHiddenVTable(User);
 }
 
 void PagerandoWrappers::processFunction(Function *F) {
