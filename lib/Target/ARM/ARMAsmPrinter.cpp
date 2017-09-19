@@ -476,11 +476,7 @@ void ARMAsmPrinter::EmitStartOfAsmFile(Module &M) {
   // Use the triple's architecture and subarchitecture to determine
   // if we're thumb for the purposes of the top level code16 assembler
   // flag.
-  bool isThumb = TT.getArch() == Triple::thumb ||
-                 TT.getArch() == Triple::thumbeb ||
-                 TT.getSubArch() == Triple::ARMSubArch_v7m ||
-                 TT.getSubArch() == Triple::ARMSubArch_v6m;
-  if (!M.getModuleInlineAsm().empty() && isThumb)
+  if (!M.getModuleInlineAsm().empty() && TT.isThumb())
     OutStreamer->EmitAssemblerFlag(MCAF_Code16);
 }
 
@@ -869,11 +865,12 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
     // However, if this global is promoted into several functions we must ensure
     // we don't try and emit duplicate symbols!
     auto *ACPC = cast<ARMConstantPoolConstant>(ACPV);
-    auto *GV = ACPC->getPromotedGlobal();
-    if (!EmittedPromotedGlobalLabels.count(GV)) {
-      MCSymbol *GVSym = getSymbol(GV);
-      OutStreamer->EmitLabel(GVSym);
-      EmittedPromotedGlobalLabels.insert(GV);
+    for (const auto *GV : ACPC->promotedGlobals()) {
+      if (!EmittedPromotedGlobalLabels.count(GV)) {
+        MCSymbol *GVSym = getSymbol(GV);
+        OutStreamer->EmitLabel(GVSym);
+        EmittedPromotedGlobalLabels.insert(GV);
+      }
     }
     return EmitGlobalConstant(DL, ACPC->getPromotedGlobalInit());
   }
