@@ -106,39 +106,41 @@ static User* getSingleUserOrNull(Value *V) {
 }
 
 static bool IsHiddenVTable(User *U) {
-  // We want to verify that this use is a vtable initializer here. This relies
-  // on the availability of TBAA to positively identify VTable uses, rather than
-  // using a heuristic.
+  // Verify that this use is in a vtable initializer. This relies on the
+  // availability of TBAA to positively identify VTable uses, rather than using
+  // a heuristic.
   //
-  // We don't need to handle bitcasts because we have already stripped bitcast
-  // exprs in IsSkippableBitcast.
+  // We don't need to handle bitcasts in the vtable because we have already
+  // stripped bitcast exprs in IsSkippableBitcast.
 
-  // We have one user (hopefully a vtable initializer)
-  auto *CA = dyn_cast<ConstantArray>(U);
+  // VTables function address uses are ConstantArrays
+  if (!isa<ConstantArray>(U))
+    return false;
 
-  // Struct containing the i8* array
-  auto *CS = getSingleUserOrNull(CA);
+  // Struct containing the i8* ConstantArray
+  auto *CS = getSingleUserOrNull(U);
 
-  // Our user is an internal global
+  // VTable should be an internal global
   auto *VTable = dyn_cast_or_null<GlobalValue>(getSingleUserOrNull(CS));
   if (!VTable || !VTable->hasLocalLinkage())
     return false;
 
-  // All users of the vtable are marked as vtable accesses
-  for (auto *VTUser : VTable->users()) {
-    // Find the instruction using the (potential) VTable
-    User *U = VTUser;
-    while (U && !isa<Instruction>(U))
-      U = getSingleUserOrNull(U);
-    if (!U)
-      return false;
-
-    MDNode *Tag = cast<Instruction>(U)->getMetadata(LLVMContext::MD_tbaa);
-    if (!Tag || !Tag->isTBAAVtableAccess())
-      return false;
+  // At least one instruction user of the vtable is marked as a vtable access
+  SmallVector<User*, 8> vtableUses(VTable->user_begin(), VTable->user_end());
+  while (!vtableUses.empty()) {
+    User *U = vtableUses.pop_back_val();
+    if (auto *I = dyn_cast<Instruction>(U)) {
+      MDNode *Tag = I->getMetadata(LLVMContext::MD_tbaa);
+      if (Tag && Tag->isTBAAVtableAccess())
+        return true;
+    } else if (isa<ConstantExpr>(U)) {
+      // Look through bitcast, GEP, etc. expressions
+      for (User *UU : U->users())
+        vtableUses.push_back(UU);
+    }
   }
 
-  return true;
+  return false;
 }
 
 static bool skipFunctionUse(const Use &U) {
