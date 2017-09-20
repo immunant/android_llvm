@@ -327,7 +327,7 @@ def build_libcxx(stage2_install, clang_version):
             install=False)
         # We need to install libcxx manually.
         libcxx_install = os.path.join(stage2_install, 'lib64', 'clang',
-                                      clang_version.short_version(), 'lib',
+                                      clang_version.long_version(), 'lib',
                                       'linux', arch)
         libcxx_libs = os.path.join(libcxx_path, 'lib')
         check_create_path(libcxx_install)
@@ -344,7 +344,7 @@ def build_crts(stage2_install, clang_version):
         logger().info('Building compiler-rt for %s', arch)
         crt_path = utils.out_path('lib', 'clangrt-' + arch)
         crt_install = os.path.join(stage2_install, 'lib64', 'clang',
-                                   clang_version.short_version())
+                                   clang_version.long_version())
 
         crt_defines['ANDROID'] = '1'
         crt_defines['LLVM_CONFIG_PATH'] = llvm_config
@@ -414,7 +414,7 @@ def build_libfuzzers(stage2_install, clang_version):
         # We need to install libfuzzer manually.
         static_lib = os.path.join(libfuzzer_path, 'libLLVMFuzzer.a')
         lib_dir = os.path.join(stage2_install, 'lib64', 'clang',
-                               clang_version.short_version(), 'lib', 'linux',
+                               clang_version.long_version(), 'lib', 'linux',
                                arch)
         check_create_path(lib_dir)
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libFuzzer.a'))
