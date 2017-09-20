@@ -791,8 +791,18 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
         'llvm-symbolizer' + ext,
         'sancov' + ext,
         'sanstats' + ext,
+        'scan-build' + ext,
+        'scan-view' + ext,
         'LLVMgold' + shlib_ext,
     ]
+
+    # scripts that should not be stripped
+    script_bins = [
+        'git-clang-format',
+        'scan-build',
+        'scan-view',
+    ]
+
     bin_dir = os.path.join(install_dir, 'bin')
     bin_files = os.listdir(bin_dir)
     for bin_filename in bin_files:
@@ -801,7 +811,7 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
             if bin_filename not in necessary_bin_files:
                 remove(binary)
             elif strip:
-                if not bin_filename.startswith('git-clang-format'):
+                if bin_filename not in script_bins:
                     check_call(['strip', binary])
 
     # TODO(srhines): Add/install the compiler wrappers.
