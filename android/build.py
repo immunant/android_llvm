@@ -429,6 +429,49 @@ def build_libfuzzers(stage2_install, clang_version):
             shutil.copy2(os.path.join(header_src, f), header_dst)
 
 
+def build_libomp(stage2_install, clang_version):
+
+    for (arch, llvm_triple, libomp_defines,
+         cflags) in cross_compile_configs(stage2_install):
+
+        logger().info('Building libomp for %s', arch)
+        cflags.extend([
+            '-isystem %s' % libcxx_headers(),
+            '-isystem %s' % libcxxabi_headers(),
+            '-isystem %s' % support_headers()
+        ])
+
+        libomp_path = utils.out_path('lib', 'libomp-' + arch)
+        libomp_defines['CMAKE_BUILD_TYPE'] = 'Release'
+
+        libomp_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+        libomp_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
+        libomp_defines['LIBOMP_ENABLE_SHARED'] = 'FALSE'
+
+        # Minimum version for OpenMP's CMake is too low for the CMP0056 policy
+        # to be ON by default.
+        libomp_defines['CMAKE_POLICY_DEFAULT_CMP0056'] = 'NEW'
+
+        libomp_cmake_path = utils.llvm_path('projects', 'openmp', 'runtime')
+        libomp_env = dict(ORIG_ENV)
+        rm_cmake_cache(libomp_path)
+        invoke_cmake(
+            out_path=libomp_path,
+            defines=libomp_defines,
+            env=libomp_env,
+            cmake_path=libomp_cmake_path,
+            install=False)
+
+        # We need to install libomp manually.
+        static_lib = os.path.join(libomp_path, 'src', 'libomp.a')
+        lib_dir = os.path.join(stage2_install, 'lib64', 'clang',
+                               clang_version.long_version(), 'lib', 'linux',
+                               arch)
+        check_create_path(lib_dir)
+        shutil.copy2(static_lib, os.path.join(lib_dir, 'libomp.a'))
+
+
+
 def build_llvm(targets,
                build_dir,
                install_dir,
@@ -664,6 +707,7 @@ def build_runtimes(stage2_install):
     version = extract_clang_version(stage2_install)
     build_crts(stage2_install, version)
     build_libfuzzers(stage2_install, version)
+    build_libomp(stage2_install, version)
     # Bug: http://b/64037266. `strtod_l` is missing in NDK r15. This will break
     # libcxx build.
     # build_libcxx(stage2_install, version)
