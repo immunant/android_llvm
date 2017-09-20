@@ -471,7 +471,6 @@ def build_libomp(stage2_install, clang_version):
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libomp.a'))
 
 
-
 def build_llvm(targets,
                build_dir,
                install_dir,
@@ -971,6 +970,11 @@ def main():
     # TODO(pirama): Once we have a set of prebuilts with lld, pass use_lld for
     # stage1 as well.
     if do_build:
+        for install_dir in (stage2_install, windows32_install,
+                            windows64_install):
+            if os.path.exists(install_dir):
+                utils.rm_tree(install_dir)
+
         instrumented = utils.host_is_linux() and args.build_instrumented
 
         build_stage1(stage1_install, build_llvm_tools=instrumented)
