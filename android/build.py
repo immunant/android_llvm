@@ -805,6 +805,7 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     package_name = 'clang-' + build_name
     install_host_dir = utils.out_path('install', host)
     install_dir = os.path.join(install_host_dir, package_name)
+    version = extract_clang_version(build_dir)
 
     # Remove any previously installed toolchain so it doesn't pollute the
     # build.
@@ -859,9 +860,10 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
 
     # Next, we remove unnecessary static libraries.
     if is_windows32:
-        remove_static_libraries(os.path.join(install_dir, 'lib'))
+        lib_dir = 'lib'
     else:
-        remove_static_libraries(os.path.join(install_dir, 'lib64'))
+        lib_dir = 'lib64'
+    remove_static_libraries(os.path.join(install_dir, lib_dir))
 
     # For Windows, add other relevant libraries.
     if is_windows:
@@ -870,11 +872,16 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
     if not is_windows:
         install_wrappers(install_dir)
 
+    # Symlink lib*/clang/<short-version> to lib*/clang/<long-version>
+    resdir_top = os.path.join(install_dir, lib_dir, 'clang')
+    os.symlink(
+        os.path.join(version.long_version()),
+        os.path.join(resdir_top, version.short_version()))
+
     # Install license files as NOTICE in the toolchain install dir.
     install_license_files(install_dir)
 
     # Add an AndroidVersion.txt file.
-    version = extract_clang_version(build_dir)
     version_file_path = os.path.join(install_dir, 'AndroidVersion.txt')
     with open(version_file_path, 'w') as version_file:
         version_file.write('{}\n'.format(version.long_version()))
