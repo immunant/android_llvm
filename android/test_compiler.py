@@ -200,7 +200,7 @@ def build_target(android_base, clang_version, target, max_jobs, redirect_stderr,
         env[compiler_wrapper.PREBUILT_COMPILER_PATH_KEY] = fallback_path
 
     env['LLVM_PREBUILTS_VERSION'] = 'clang-dev'
-    env['LLVM_RELEASE_VERSION'] = clang_version.short_version()
+    env['LLVM_RELEASE_VERSION'] = clang_version.long_version()
 
     # http://b/62869798, we need to invoke cpp-define-generator manually to
     # avoid potential build failure. This should be removed when
