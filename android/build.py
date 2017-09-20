@@ -857,8 +857,6 @@ def package_toolchain(build_dir, build_name, host, dist_dir, strip=True):
                 if bin_filename not in script_bins:
                     check_call(['strip', binary])
 
-    # TODO(srhines): Add/install the compiler wrappers.
-
     # Next, we remove unnecessary static libraries.
     if is_windows32:
         remove_static_libraries(os.path.join(install_dir, 'lib'))
