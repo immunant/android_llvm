@@ -362,8 +362,8 @@ def build_crts(stage2_install, clang_version):
         # manually here.
         crt_defines['SANITIZER_CXX_ABI'] = 'libc++'
         # The following two lines can be removed after r309074.
-        crt_defines['ASAN_DYNAMIC_LIBS'] = 'c++'
-        crt_defines['UBSAN_DYNAMIC_LIBS'] = 'c++'
+        crt_defines['ASAN_DYNAMIC_LIBS'] = 'c++abi -latomic -nostdlib++'
+        crt_defines['UBSAN_DYNAMIC_LIBS'] = 'c++abi -latomic -nostdlib++'
         crt_defines.update(base_cmake_defines())
 
         crt_env = dict(ORIG_ENV)
