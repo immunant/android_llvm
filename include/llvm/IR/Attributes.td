@@ -174,7 +174,7 @@ def WriteOnly : EnumAttr<"writeonly">;
 def ZExt : EnumAttr<"zeroext">;
 
 /// Function is placed into a Pagerando bin.
-def PagerandoBinned : EnumAttr<"pagerando_binned">;
+def Pagerando : EnumAttr<"pagerando">;
 
 /// Function is a Pagerando wrapper.
 def PagerandoWrapper : EnumAttr<"pagerando_wrapper">;

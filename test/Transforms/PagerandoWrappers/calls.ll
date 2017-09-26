@@ -18,5 +18,5 @@ define internal void @user() {
 
 ; CHECK-LABEL: define void @global() #1 {
 
-; CHECK-LABEL: attributes #0 = { pagerando_binned }
-; CHECK-LABEL: attributes #1 = { noinline optsize pagerando_wrapper }
+; CHECK-LABEL: attributes #0 = { pagerando }
+; CHECK-LABEL: attributes #1 = { noinline optsize }

@@ -172,7 +172,7 @@ void PagerandoWrappers::processFunction(Function *F) {
   }
 
   F->setSection("");
-  F->addFnAttr(Attribute::PagerandoBinned);
+  F->addFnAttr(Attribute::Pagerando);
 }
 
 static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
@@ -200,8 +200,6 @@ Function *PagerandoWrappers::createWrapper(Function &F,
   Wrapper->copyAttributesFrom(&F);
   Wrapper->setComdat(F.getComdat());
 
-  Wrapper->addFnAttr(Attribute::PagerandoWrapper);
-  //Wrapper->addFnAttr(Attribute::PagerandoBinned);  // TODO: SJC can we place wrappers on randomly located pages? I don't see why not, but this is safer for now
   Wrapper->addFnAttr(Attribute::NoInline);
   Wrapper->addFnAttr(Attribute::OptimizeForSize);
 

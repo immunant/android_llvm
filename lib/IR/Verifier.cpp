@@ -1358,8 +1358,7 @@ void Verifier::verifyAttributeTypes(AttributeList Attrs, unsigned Idx,
         I->getKindAsEnum() == Attribute::InaccessibleMemOnly ||
         I->getKindAsEnum() == Attribute::InaccessibleMemOrArgMemOnly ||
         I->getKindAsEnum() == Attribute::AllocSize ||
-        I->getKindAsEnum() == Attribute::PagerandoBinned ||
-        I->getKindAsEnum() == Attribute::PagerandoWrapper) {
+        I->getKindAsEnum() == Attribute::Pagerando) {
       if (!isFunction) {
         CheckFailed("Attribute '" + I->getAsString() +
                     "' only applies to functions!", V);

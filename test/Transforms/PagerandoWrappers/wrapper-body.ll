@@ -11,5 +11,5 @@ define i32 @foo(i32 %arg) {
 ; CHECK-NEXT:    %2 = call i32 @"foo$$orig"(i32 %0)
 ; CHECK-NEXT:    ret i32 %2
 
-; CHECK-LABEL: attributes #0 = { pagerando_binned }
-; CHECK-LABEL: attributes #1 = { noinline optsize pagerando_wrapper }
+; CHECK-LABEL: attributes #0 = { pagerando }
+; CHECK-LABEL: attributes #1 = { noinline optsize }

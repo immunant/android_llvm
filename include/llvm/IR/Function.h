@@ -444,7 +444,7 @@ public:
   /// @brief True if the function is compatible with Pagerando and should be
   /// placed into a randomized bin.
   bool isPagerando() const {
-    return hasFnAttribute(Attribute::PagerandoBinned);
+    return hasFnAttribute(Attribute::Pagerando);
   }
   /// @brief True if the function is a Pagerando wrapper.
   bool isPagerandoWrapper() const {

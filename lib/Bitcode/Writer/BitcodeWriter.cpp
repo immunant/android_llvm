@@ -708,10 +708,8 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_WRITEONLY;
   case Attribute::ZExt:
     return bitc::ATTR_KIND_Z_EXT;
-  case Attribute::PagerandoBinned:
-    return bitc::ATTR_KIND_PAGERANDO_BINNED;
-  case Attribute::PagerandoWrapper:
-    return bitc::ATTR_KIND_PAGERANDO_WRAPPER;
+  case Attribute::Pagerando:
+    return bitc::ATTR_KIND_PAGERANDO;
   case Attribute::EndAttrKinds:
     llvm_unreachable("Can not encode end-attribute kinds marker.");
   case Attribute::None:
