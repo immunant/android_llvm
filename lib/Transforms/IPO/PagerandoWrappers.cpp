@@ -57,7 +57,7 @@ private:
 
   void processFunction(Function *F);
   Function *rewriteVarargs(Function &F, Type *&VAListTy);
-  Function *createWrapper(Function &F, const std::vector<Use *> &AddressUses);
+  Function *createWrapper(Function &F, const SmallVectorImpl<Use *> &AddressUses);
   void createWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy);
 };
 } // end anonymous namespace
@@ -157,7 +157,7 @@ static bool skipFunctionUse(const Use &U) {
 }
 
 void PagerandoWrappers::processFunction(Function *F) {
-  std::vector<Use*> AddressUses;
+  SmallVector<Use*, 4> AddressUses;
   for (Use &U : F->uses()) {
     if (!skipFunctionUse(U))
       AddressUses.push_back(&U);
@@ -191,7 +191,7 @@ static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
 }
 
 Function *PagerandoWrappers::createWrapper(Function &F,
-                                           const std::vector<Use *> &AddressUses) {
+                                           const SmallVectorImpl<Use *> &AddressUses) {
   std::string Name = F.getName();
   F.setName(Name + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
 
