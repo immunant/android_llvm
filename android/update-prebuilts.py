@@ -103,7 +103,9 @@ def update_clang(host, build_number, use_current_branch, download_dir, bug,
         check_call(
             ['repo', 'start', branch_name, '.'])
 
-    package = '{}/clang-{}-{}.tar.bz2'.format(download_dir, build_number, host)
+    host_filename = 'windows-i386' if host == 'windows-x86_32' else host
+    package = '{}/clang-{}-{}.tar.bz2'.format(
+            download_dir, build_number, host_filename)
     manifest_file = '{}/{}'.format(download_dir, manifest)
 
     install_subdir = 'clang-' + build_number
@@ -145,9 +147,7 @@ def main():
     os.chdir(download_dir)
 
     targets = ['linux', 'darwin_mac']
-    # Bug: http://b/65857918 tracks support for windows-x86_32 prebuilts.
-    # hosts = ['darwin-x86', 'linux-x86', 'windows-x86', 'windows-x86_32']
-    hosts = ['darwin-x86', 'linux-x86', 'windows-x86']
+    hosts = ['darwin-x86', 'linux-x86', 'windows-x86', 'windows-x86_32']
     clang_pattern = 'clang-*.tar.bz2'
     manifest = 'manifest_{}.xml'.format(args.build)
     branch = 'aosp-llvm-toolchain'
