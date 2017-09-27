@@ -217,10 +217,10 @@ static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
 
 Function *PagerandoWrappers::createWrapper(Function &F,
                                            const SmallVectorImpl<Use *> &AddressUses) {
-  std::string Name = F.getName();
-  F.setName(Name + (F.isVarArg() ? OrigVASuffix : OrigSuffix));
+  std::string OriginalName = F.getName();
+  F.setName(Twine(OriginalName, F.isVarArg() ? OrigVASuffix : OrigSuffix));
 
-  auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(), Name,
+  auto Wrapper = Function::Create(F.getFunctionType(), F.getLinkage(), OriginalName,
                                   F.getParent());
   Wrapper->copyAttributesFrom(&F);
   Wrapper->setComdat(F.getComdat());
