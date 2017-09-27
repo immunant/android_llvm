@@ -166,8 +166,10 @@ void PagerandoWrappers::processFunction(Function *F) {
   if (!F->hasLocalLinkage() || !AddressUses.empty()) {
     auto Wrapper = createWrapper(*F, AddressUses);
     Type *VAListTy = nullptr;
-    if (F->isVarArg())
-      F = rewriteVarargs(*F, /* out */ VAListTy); // Reassign F, it might have been deleted
+    if (F->isVarArg()) {
+      // Reassign F, it might have been deleted
+      F = rewriteVarargs(*F, /* out */ VAListTy);
+    }
     createWrapperBody(Wrapper, F, VAListTy);
   }
 
@@ -177,14 +179,16 @@ void PagerandoWrappers::processFunction(Function *F) {
 
 static void replaceAddressTakenUse(Use *U, Function *F, Function *Wrapper,
                                    SmallSet<Constant*, 8> &Constants) {
-  if (!U->get()) return; // Already replaced this use?
+  // Already replaced this use?
+  if (!U->get()) return;
 
   if (auto GV = dyn_cast<GlobalVariable>(U->getUser())) {
     assert(GV->getInitializer() == F);
     GV->setInitializer(Wrapper);
   } else if (auto C = dyn_cast<Constant>(U->getUser())) {
-    if (Constants.insert(C).second)       // Constant::handleOperandChange must
-      C->handleOperandChange(F, Wrapper); // not be called more than once per user
+    // Constant::handleOperandChange must not be called more than once per user
+    if (Constants.insert(C).second)
+      C->handleOperandChange(F, Wrapper);
   } else {
     U->set(Wrapper);
   }
