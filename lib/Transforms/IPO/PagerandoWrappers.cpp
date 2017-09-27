@@ -70,19 +70,40 @@ ModulePass *llvm::createPagerandoWrappersPass() {
   return new PagerandoWrappers();
 }
 
+// We can safely skip functions consisting of only debug, trap, and unreachable
+// instructions. Such functions are created for abstract, non-base
+// destructors. We do not need to randomize these functions since they are
+// trivial and not useful for an attacker to reuse.
+static bool isTrivialFunction(const Function &F) {
+  for (auto &I : F.getEntryBlock()) {
+    if (isa<DbgInfoIntrinsic>(&I))
+      continue;
+    if (auto *Int = dyn_cast<IntrinsicInst>(&I))
+      if (Int->getIntrinsicID() == Intrinsic::trap)
+        continue;
+    if (isa<UnreachableInst>(&I))
+      continue;
+
+    // We found an instruction that is not debug, trap, or unreachable.
+    return false;
+  }
+
+  // We only found debug, trap, or unreachable instructions.
+  return true;
+}
+
 static bool skipFunction(const Function &F) {
   return F.isDeclaration()
-      || F.hasAvailableExternallyLinkage()
-      || F.hasComdat()  // TODO: Support COMDAT
-      || isa<UnreachableInst>(F.getEntryBlock().getTerminator());
-      // Above condition is different from F.doesNotReturn(), which we do not
-      // include (at least for now).
+    || F.hasAvailableExternallyLinkage()
+    || F.hasComdat() // TODO: Support COMDAT
+    || isTrivialFunction(F);
 }
 
 bool PagerandoWrappers::runOnModule(Module &M) {
   std::vector<Function*> Worklist;
   for (auto &F : M) {
-    if (!skipFunction(F)) Worklist.push_back(&F);
+    if (!skipFunction(F))
+      Worklist.push_back(&F);
   }
 
   for (auto F : Worklist)
