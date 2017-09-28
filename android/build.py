@@ -637,6 +637,7 @@ def build_stage2(stage1_install,
                  stage2_targets,
                  use_lld=False,
                  enable_assertions=False,
+                 debug_build=False,
                  build_instrumented=False,
                  profdata_file=None):
     # TODO(srhines): Build LTO plugin (Chromium folks say ~10% perf speedup)
@@ -657,6 +658,9 @@ def build_stage2(stage1_install,
 
     if enable_assertions:
         stage2_extra_defines['LLVM_ENABLE_ASSERTIONS'] = 'ON'
+
+    if debug_build:
+        stage2_extra_defines['CMAKE_BUILD_TYPE'] = 'Debug'
 
     if build_instrumented:
         stage2_extra_defines['LLVM_BUILD_INSTRUMENTED'] = 'ON'
@@ -928,6 +932,12 @@ def parse_args():
         help='Enable assertions (only affects stage2)')
 
     parser.add_argument(
+        '--debug',
+        action='store_true',
+        default=False,
+        help='Build debuggable Clang and LLVM tools (only affects stage2)')
+
+    parser.add_argument(
         '--build-instrumented',
         action='store_true',
         default=False,
@@ -969,6 +979,7 @@ def main():
     do_build = not args.skip_build
     do_package = not args.skip_package
     do_strip = not args.no_strip
+    do_strip_host_package = do_strip and not args.debug
 
     log_levels = [logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
@@ -1001,8 +1012,8 @@ def main():
                                long_version)
 
         build_stage2(stage1_install, stage2_install, STAGE2_TARGETS,
-                     args.use_lld, args.enable_assertions, instrumented,
-                     profdata)
+                     args.use_lld, args.enable_assertions, args.debug,
+                     instrumented, profdata)
 
     if do_build and utils.host_is_linux():
         build_runtimes(stage2_install)
@@ -1038,7 +1049,7 @@ def main():
             args.build_name,
             utils.build_os_type(),
             dist_dir,
-            strip=do_strip)
+            strip=do_strip_host_package)
 
         if utils.host_is_linux():
             package_toolchain(
