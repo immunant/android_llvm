@@ -442,8 +442,9 @@ def build_libomp(stage2_install, clang_version):
         ])
 
         libomp_path = utils.out_path('lib', 'libomp-' + arch)
-        libomp_defines['CMAKE_BUILD_TYPE'] = 'Release'
 
+        libomp_defines['ANDROID'] = '1'
+        libomp_defines['CMAKE_BUILD_TYPE'] = 'Release'
         libomp_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libomp_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
         libomp_defines['LIBOMP_ENABLE_SHARED'] = 'FALSE'
