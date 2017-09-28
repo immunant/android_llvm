@@ -1049,8 +1049,6 @@ def main():
             is_32_bit=True)
 
     if do_package:
-        # TODO(srhines): This only packages builds for the host OS. It needs
-        # to be extended to package up the Windows build as well.
         dist_dir = ORIG_ENV.get('DIST_DIR', utils.out_path())
         package_toolchain(
             stage2_install,
