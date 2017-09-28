@@ -966,6 +966,12 @@ def parse_args():
         help='Don\'t strip binaries/libraries')
 
     parser.add_argument(
+        '--no-build-windows',
+        action='store_true',
+        default=False,
+        help='Don\'t build toolchain for Windows')
+
+    parser.add_argument(
         '--check-pgo-profile',
         action='store_true',
         default=False,
@@ -980,6 +986,7 @@ def main():
     do_package = not args.skip_package
     do_strip = not args.no_strip
     do_strip_host_package = do_strip and not args.debug
+    need_windows = utils.host_is_linux() and not args.no_build_windows
 
     log_levels = [logging.INFO, logging.DEBUG]
     verbosity = min(args.verbose, len(log_levels) - 1)
@@ -1018,6 +1025,7 @@ def main():
     if do_build and utils.host_is_linux():
         build_runtimes(stage2_install)
 
+    if do_build and need_windows:
         # Build single-stage clang for Windows
         windows_targets = STAGE2_TARGETS
 
@@ -1051,7 +1059,7 @@ def main():
             dist_dir,
             strip=do_strip_host_package)
 
-        if utils.host_is_linux():
+        if need_windows:
             package_toolchain(
                 windows32_install,
                 args.build_name,
