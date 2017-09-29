@@ -69,7 +69,6 @@ llvm_defaults {
 
             // Add on ncurses to have support for terminfo
             host_ldlibs: [
-                "-ldl",
                 "-lncurses",
                 "-lgcc_s",
             ],
@@ -82,7 +81,6 @@ llvm_defaults {
 
             // Add on ncurses to have support for terminfo
             host_ldlibs: [
-                "-ldl",
                 "-lncurses",
             ],
         },
@@ -261,18 +259,6 @@ cc_library_shared {
                 "-lpsapi",
                 "-lole32",
                 "-lversion",
-            ],
-        },
-        darwin: {
-            host_ldlibs: [
-                "-ldl",
-                "-lpthread",
-            ],
-        },
-        linux: {
-            host_ldlibs: [
-                "-ldl",
-                "-lpthread",
             ],
         },
         android: {
