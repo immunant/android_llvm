@@ -446,10 +446,6 @@ public:
   bool isPagerando() const {
     return hasFnAttribute(Attribute::Pagerando);
   }
-  /// @brief True if the function is a Pagerando wrapper.
-  bool isPagerandoWrapper() const {
-    return hasFnAttribute(Attribute::PagerandoWrapper);
-  }
 
   /// @brief Determine if the parameter or return value is marked with NoAlias
   /// attribute.

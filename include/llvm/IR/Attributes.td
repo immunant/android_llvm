@@ -176,9 +176,6 @@ def ZExt : EnumAttr<"zeroext">;
 /// Function is placed into a Pagerando bin.
 def Pagerando : EnumAttr<"pagerando">;
 
-/// Function is a Pagerando wrapper.
-def PagerandoWrapper : EnumAttr<"pagerando_wrapper">;
-
 /// Target-independent string attributes.
 def LessPreciseFPMAD : StrBoolAttr<"less-precise-fpmad">;
 def NoInfsFPMath : StrBoolAttr<"no-infs-fp-math">;
