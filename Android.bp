@@ -64,7 +64,7 @@ llvm_defaults {
 
             host_ldlibs: ["-luuid"],
         },
-        linux: {
+        linux_glibc: {
             cppflags: ["-Woverloaded-virtual"],
 
             // Add on ncurses to have support for terminfo
