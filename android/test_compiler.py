@@ -31,6 +31,13 @@ DEFAULT_TIDY_CHECKS = ('*', '-readability-*', '-google-readability-*',
                        '-google-runtime-references', '-cppcoreguidelines-*',
                        '-modernize-*', '-clang-analyzer-alpha*')
 
+# We may introduce some new warnings after rebasing and we need to disable them
+# before we fix those warnings.
+DISABLED_WARNINGS = [
+    '-Wno-error=zero-as-null-pointer-constant',
+    '-Wno-error=unknown-warning-option'
+]
+
 
 class ClangProfileHandler(object):
 
@@ -198,6 +205,8 @@ def build_target(android_base, clang_version, target, max_jobs, redirect_stderr,
         env[redirect_key] = redirect_path
         fallback_path = build.clang_prebuilt_bin_dir()
         env[compiler_wrapper.PREBUILT_COMPILER_PATH_KEY] = fallback_path
+        env[compiler_wrapper.DISABLED_WARNINGS_KEY] = ' '.join(
+            DISABLED_WARNINGS)
 
     env['LLVM_PREBUILTS_VERSION'] = 'clang-dev'
     env['LLVM_RELEASE_VERSION'] = clang_version.long_version()
