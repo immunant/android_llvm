@@ -35,13 +35,7 @@ DEFAULT_BISECT_DIR = os.path.expanduser('~/ANDROID_BISECT')
 BISECT_DIR = os.environ.get('BISECT_DIR') or DEFAULT_BISECT_DIR
 STDERR_REDIRECT_KEY = 'ANDROID_LLVM_STDERR_REDIRECT'
 PREBUILT_COMPILER_PATH_KEY = 'ANDROID_LLVM_PREBUILT_COMPILER_PATH'
-
-# We may introduce some new warnings after rebasing and we need to disable
-# them before we fix those warnings.
-DISABLED_WARNINGS = [
-    '-Wno-error=zero-as-null-pointer-constant',
-    '-Wno-error=unknown-warning-option'
-]
+DISABLED_WARNINGS_KEY = 'ANDROID_LLVM_FALLBACK_DISABLED_WARNINGS'
 
 
 def process_arg_file(arg_file):
@@ -125,7 +119,12 @@ class CompilerWrapper():
     def exec_clang_with_fallback(self):
         # We only want to pass extra flags to clang and clang++.
         if os.path.basename(__file__) in ['clang', 'clang++']:
-            self.execargs += ['-fno-color-diagnostics'] + DISABLED_WARNINGS
+            # We may introduce some new warnings after rebasing and we need to
+            # disable them before we fix those warnings.
+            disabled_warnings_env = os.environ.get(DISABLED_WARNINGS_KEY, '')
+            disabled_warnings = disabled_warnings_env.split(' ')
+            self.execargs += ['-fno-color-diagnostics'] + disabled_warnings
+
         p = subprocess.Popen(self.execargs, stderr=subprocess.PIPE)
         (_, err) = p.communicate()
         sys.stderr.write(err)
