@@ -277,6 +277,8 @@ def cross_compile_configs(stage2_install):
             '-L' + toolchain_lib,
             '--sysroot=%s' % sysroot_libs
         ]
+        if arch != 'mips' and arch != 'mips64':
+            ldflags += ['-Wl,--hash-style=both']
         defines['CMAKE_EXE_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_SHARED_LINKER_FLAGS'] = ' '.join(ldflags)
         defines['CMAKE_MODULE_LINKER_FLAGS'] = ' '.join(ldflags)
