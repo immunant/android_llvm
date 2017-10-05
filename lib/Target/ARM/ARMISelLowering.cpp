@@ -1998,7 +1998,12 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
   auto PtrVt = getPointerTy(DAG.getDataLayout());
 
-  auto F = dyn_cast_or_null<Function>(GV);
+  // Is GV a function or alias to a function?
+  const Function *F = dyn_cast_or_null<Function>(GV);
+  if (auto *GA = dyn_cast_or_null<GlobalAlias>(GV)) {
+    if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+      F = dyn_cast<Function>(Aliasee);
+  }
   bool UsePIPAddressing = MF.getFunction()->isPagerando() ||
                           (F && F->isPagerando());
   if (UsePIPAddressing) {
@@ -3208,7 +3213,12 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
 
   MachineFunction &MF = DAG.getMachineFunction();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
-  auto F = dyn_cast<Function>(GV);
+  // Is GV a function or alias to a function?
+  const Function *F = dyn_cast<Function>(GV);
+  if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+    if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+      F = dyn_cast<Function>(Aliasee);
+  }
   if (MF.getFunction()->isPagerando() || (F && F->isPagerando())) {
     // Position-independent pages, access through the POT
     // TODO: Add support for MOVT/W
