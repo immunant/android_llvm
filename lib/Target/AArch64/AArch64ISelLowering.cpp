@@ -3269,7 +3269,12 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     }
   } else if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     const GlobalValue *GV = G->getGlobal();
-    auto F = dyn_cast<Function>(GV);
+    // Is GV a function or alias to a function?
+    const Function *F = dyn_cast<Function>(GV);
+    if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+      if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+        F = dyn_cast<Function>(Aliasee);
+    }
     bool UsePIPAddressing = MF.getFunction()->isPagerando() ||
                             (F && F->isPagerando());
     if (UsePIPAddressing) {
@@ -3486,7 +3491,13 @@ SDValue AArch64TargetLowering::LowerGlobalAddress(SDValue Op,
          "unexpected offset in global node");
 
   MachineFunction &MF = DAG.getMachineFunction();
-  auto F = dyn_cast<Function>(GV);
+
+  // Is GV a function or alias to a function?
+  const Function *F = dyn_cast<Function>(GV);
+  if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+    if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+      F = dyn_cast<Function>(Aliasee);
+  }
   bool pagerandoBinTarget = F && F->isPagerando();
   if (MF.getFunction()->isPagerando() ||
       pagerandoBinTarget) {
