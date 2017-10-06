@@ -92,11 +92,19 @@ static bool isTrivialFunction(const Function &F) {
   return true;
 }
 
+// We skip functions that are only declarations, comdat, trivial trap functions,
+// and naked functions. Skipping naked functions is important so that CFI jump
+// tables are not placed in pagerando sections. CFI jump tables are marked as
+// naked in LowerTypeTests::createJumpTable. If this ever changes, this function
+// will also need to be updated.
+//
+// TODO: Support COMDAT
 static bool skipFunction(const Function &F) {
   return F.isDeclaration()
     || F.hasAvailableExternallyLinkage()
-    || F.hasComdat() // TODO: Support COMDAT
-    || isTrivialFunction(F);
+    || F.hasComdat()
+    || isTrivialFunction(F)
+    || F.hasFnAttribute(Attribute::Naked);
 }
 
 bool PagerandoWrappers::runOnModule(Module &M) {
