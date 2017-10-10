@@ -76,8 +76,10 @@ def ndk_base():
     return utils.android_path('toolchain/prebuilts/ndk', ndk_version)
 
 
-def android_api(arch):
-    if arch in ['arm', 'i386', 'mips']:
+def android_api(arch, platform=False):
+    if platform:
+        return '26'
+    elif arch in ['arm', 'i386', 'mips']:
         return '14'
     else:
         return '21'
@@ -88,12 +90,12 @@ def ndk_path(arch):
     return os.path.join(ndk_base(), 'platforms', platform_level)
 
 
-def libcxx_headers():
+def ndk_libcxx_headers():
     return os.path.join(ndk_base(), 'sources', 'cxx-stl', 'llvm-libc++',
                         'include')
 
 
-def libcxxabi_headers():
+def ndk_libcxxabi_headers():
     return os.path.join(ndk_base(), 'sources', 'cxx-stl', 'llvm-libc++abi',
                         'include')
 
@@ -128,6 +130,29 @@ def clang_prebuilt_bin_dir():
 
 def clang_prebuilt_lib_dir():
     return utils.android_path(clang_prebuilt_base_dir(), 'lib64')
+
+
+def clang_resource_dir(version, arch):
+    return os.path.join('lib64', 'clang', version, 'lib', 'linux', arch)
+
+
+def clang_prebuilt_libcxx_headers():
+    return utils.android_path(clang_prebuilt_base_dir(), 'include', 'c++', 'v1')
+
+
+def libcxx_header_dirs(ndk_cxx):
+    if ndk_cxx:
+        return [
+            ndk_libcxx_headers(),
+            ndk_libcxxabi_headers(),
+            support_headers()
+        ]
+    else:
+        # <prebuilts>/include/c++/v1 includes the cxxabi headers
+        return [
+            clang_prebuilt_libcxx_headers(),
+            utils.android_path('bionic', 'libc', 'include')
+        ]
 
 
 def cmake_prebuilt_bin_dir():
@@ -196,7 +221,7 @@ def invoke_cmake(out_path, defines, env, cmake_path, target=None, install=True):
         check_call([ninja_bin_path(), 'install'], cwd=out_path, env=env)
 
 
-def cross_compile_configs(stage2_install):
+def cross_compile_configs(stage2_install, platform=False):
     configs = [
         # Bug: http://b/35404115: Switch to armv7-linux-android once armv5 is
         # deprecated from the NDK
@@ -289,7 +314,7 @@ def cross_compile_configs(stage2_install):
             '--target=%s' % llvm_triple,
             '-B%s' % toolchain_bin,
             '-isystem %s' % sysroot_headers,
-            '-D__ANDROID_API__=%s' % android_api(arch),
+            '-D__ANDROID_API__=%s' % android_api(arch, platform=platform),
             extra_flags,
         ]
         yield (arch, llvm_triple, defines, cflags)
@@ -331,6 +356,7 @@ def build_libcxx(stage2_install, clang_version):
         libcxx_install = os.path.join(stage2_install, 'lib64', 'clang',
                                       clang_version.long_version(), 'lib',
                                       'linux', arch)
+
         libcxx_libs = os.path.join(libcxx_path, 'lib')
         check_create_path(libcxx_install)
         for f in os.listdir(libcxx_libs):
@@ -384,22 +410,22 @@ def build_crts(stage2_install, clang_version):
             cmake_path=crt_cmake_path)
 
 
-def build_libfuzzers(stage2_install, clang_version):
+def build_libfuzzers(stage2_install, clang_version, ndk_cxx=False):
 
-    for (arch, llvm_triple, libfuzzer_defines,
-         cflags) in cross_compile_configs(stage2_install):
-        logger().info('Building libfuzzer for %s', arch)
+    for (arch, llvm_triple, libfuzzer_defines, cflags) in cross_compile_configs(
+            stage2_install, platform=(not ndk_cxx)):
+        logger().info('Building libfuzzer for %s (ndk_cxx? %s)', arch, ndk_cxx)
+
         libfuzzer_path = utils.out_path('lib', 'libfuzzer-' + arch)
+        if ndk_cxx:
+            libfuzzer_path += '-ndk-cxx'
+
         libfuzzer_defines['CMAKE_BUILD_TYPE'] = 'Release'
         libfuzzer_defines['LLVM_USE_SANITIZER'] = 'Address'
         libfuzzer_defines['LLVM_USE_SANITIZE_COVERAGE'] = 'YES'
         libfuzzer_defines['CMAKE_CXX_STANDARD'] = '11'
 
-        cflags.extend([
-            '-isystem %s' % libcxx_headers(),
-            '-isystem %s' % libcxxabi_headers(),
-            '-isystem %s' % support_headers()
-        ])
+        cflags.extend('-isystem ' + d for d in libcxx_header_dirs(ndk_cxx))
 
         libfuzzer_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
         libfuzzer_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
@@ -420,9 +446,12 @@ def build_libfuzzers(stage2_install, clang_version):
             install=False)
         # We need to install libfuzzer manually.
         static_lib = os.path.join(libfuzzer_path, 'libLLVMFuzzer.a')
-        lib_dir = os.path.join(stage2_install, 'lib64', 'clang',
-                               clang_version.long_version(), 'lib', 'linux',
-                               arch)
+        if ndk_cxx:
+            lib_subdir = os.path.join('runtimes_ndk_cxx', arch)
+        else:
+            lib_subdir = clang_resource_dir(clang_version.long_version(), arch)
+        lib_dir = os.path.join(stage2_install, lib_subdir)
+
         check_create_path(lib_dir)
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libFuzzer.a'))
 
@@ -436,19 +465,18 @@ def build_libfuzzers(stage2_install, clang_version):
             shutil.copy2(os.path.join(header_src, f), header_dst)
 
 
-def build_libomp(stage2_install, clang_version):
+def build_libomp(stage2_install, clang_version, ndk_cxx=False):
 
-    for (arch, llvm_triple, libomp_defines,
-         cflags) in cross_compile_configs(stage2_install):
+    for (arch, llvm_triple, libomp_defines, cflags) in cross_compile_configs(
+            stage2_install, platform=(not ndk_cxx)):
 
-        logger().info('Building libomp for %s', arch)
-        cflags.extend([
-            '-isystem %s' % libcxx_headers(),
-            '-isystem %s' % libcxxabi_headers(),
-            '-isystem %s' % support_headers()
-        ])
+        logger().info('Building libomp for %s (ndk_cxx? %s)', arch, ndk_cxx)
+        cflags.extend('-isystem ' + d for d in libcxx_header_dirs(ndk_cxx))
+        cflags.append('-isystem %s' % support_headers())
 
         libomp_path = utils.out_path('lib', 'libomp-' + arch)
+        if ndk_cxx:
+            libomp_path += '-ndk-cxx'
 
         libomp_defines['ANDROID'] = '1'
         libomp_defines['CMAKE_BUILD_TYPE'] = 'Release'
@@ -472,9 +500,12 @@ def build_libomp(stage2_install, clang_version):
 
         # We need to install libomp manually.
         static_lib = os.path.join(libomp_path, 'src', 'libomp.a')
-        lib_dir = os.path.join(stage2_install, 'lib64', 'clang',
-                               clang_version.long_version(), 'lib', 'linux',
-                               arch)
+        if ndk_cxx:
+            lib_subdir = os.path.join('runtimes_ndk_cxx', arch)
+        else:
+            lib_subdir = clang_resource_dir(clang_version.long_version(), arch)
+        lib_dir = os.path.join(stage2_install, lib_subdir)
+
         check_create_path(lib_dir)
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libomp.a'))
 
@@ -718,7 +749,9 @@ def build_runtimes(stage2_install):
     version = extract_clang_version(stage2_install)
     build_crts(stage2_install, version)
     build_libfuzzers(stage2_install, version)
+    build_libfuzzers(stage2_install, version, ndk_cxx=True)
     build_libomp(stage2_install, version)
+    build_libomp(stage2_install, version, ndk_cxx=True)
     # Bug: http://b/64037266. `strtod_l` is missing in NDK r15. This will break
     # libcxx build.
     # build_libcxx(stage2_install, version)
