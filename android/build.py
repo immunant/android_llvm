@@ -510,6 +510,48 @@ def build_libomp(stage2_install, clang_version, ndk_cxx=False):
         shutil.copy2(static_lib, os.path.join(lib_dir, 'libomp.a'))
 
 
+def build_crts_host_i686(stage2_install, clang_version):
+    llvm_config = os.path.join(stage2_install, 'bin', 'llvm-config')
+
+    crt_install = os.path.join(stage2_install, 'lib64', 'clang',
+                               clang_version.long_version())
+    crt_cmake_path = utils.llvm_path('projects', 'compiler-rt')
+
+    crt_defines = base_cmake_defines()
+    crt_defines['CMAKE_C_COMPILER'] = os.path.join(stage2_install, 'bin',
+                                                   'clang')
+    crt_defines['CMAKE_CXX_COMPILER'] = os.path.join(stage2_install, 'bin',
+                                                     'clang++')
+
+    # Skip building runtimes for i386
+    crt_defines['COMPILER_RT_DEFAULT_TARGET_ONLY'] = 'ON'
+
+    # Due to CMake and Clang oddities, we need to explicitly set
+    # CMAKE_C_COMPILER_TARGET and use march=i686 in cflags below instead of
+    # relying on auto-detection from the Compiler-rt CMake files.
+    crt_defines['CMAKE_C_COMPILER_TARGET'] = 'i686-linux-gnu'
+
+    cflags = ['--target=i686-linux-gnu', "-march=i686"]
+    crt_defines['CMAKE_C_FLAGS'] = ' '.join(cflags)
+    crt_defines['CMAKE_CXX_FLAGS'] = ' '.join(cflags)
+
+    crt_defines['LLVM_CONFIG_PATH'] = llvm_config
+    crt_defines['COMPILER_RT_INCLUDE_TESTS'] = 'ON'
+    crt_defines['COMPILER_RT_ENABLE_WERROR'] = 'ON'
+    crt_defines['CMAKE_INSTALL_PREFIX'] = crt_install
+    crt_defines['SANITIZER_CXX_ABI'] = 'libc++'
+
+    crt_env = dict(ORIG_ENV)
+
+    crt_path = utils.out_path('lib', 'clangrt-i686-host')
+    rm_cmake_cache(crt_path)
+    invoke_cmake(
+        out_path=crt_path,
+        defines=crt_defines,
+        env=crt_env,
+        cmake_path=crt_cmake_path)
+
+
 def build_llvm(targets,
                build_dir,
                install_dir,
@@ -748,6 +790,7 @@ def build_stage2(stage1_install,
 def build_runtimes(stage2_install):
     version = extract_clang_version(stage2_install)
     build_crts(stage2_install, version)
+    build_crts_host_i686(stage2_install, version)
     build_libfuzzers(stage2_install, version)
     build_libfuzzers(stage2_install, version, ndk_cxx=True)
     build_libomp(stage2_install, version)
