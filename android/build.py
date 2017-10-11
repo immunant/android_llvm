@@ -725,6 +725,7 @@ def build_stage2(stage1_install,
     stage2_extra_defines['CMAKE_CXX_COMPILER'] = stage2_cxx
     stage2_extra_defines['LLVM_BUILD_RUNTIME'] = 'ON'
     stage2_extra_defines['LLVM_ENABLE_LIBCXX'] = 'ON'
+    stage2_extra_defines['SANITIZER_CAN_USE_CXXABI'] = 'OFF'
 
     if use_lld:
         stage2_extra_defines['LLVM_ENABLE_LLD'] = 'ON'
