@@ -211,18 +211,6 @@ def build_target(android_base, clang_version, target, max_jobs, redirect_stderr,
     env['LLVM_PREBUILTS_VERSION'] = 'clang-dev'
     env['LLVM_RELEASE_VERSION'] = clang_version.long_version()
 
-    # http://b/62869798, we need to invoke cpp-define-generator manually to
-    # avoid potential build failure. This should be removed when
-    # art/runtime/generated/asm_support_gen.h is updated.
-    subprocess.check_call(
-        ['/bin/bash', '-c', 'make cpp-define-generator-data ' + jobs + ' dist'],
-        cwd=android_base,
-        env=env)
-    asm_support_path = os.path.join(android_base, 'art', 'tools',
-                                    'cpp-define-generator')
-    subprocess.check_call(
-        ['./generate-asm-support'], cwd=asm_support_path, env=env)
-
     if with_tidy:
         env['WITH_TIDY'] = '1'
         if 'DEFAULT_GLOBAL_TIDY_CHECKS' not in env:
