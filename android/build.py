@@ -132,6 +132,10 @@ def clang_prebuilt_lib_dir():
     return utils.android_path(clang_prebuilt_base_dir(), 'lib64')
 
 
+def arch_from_triple(triple):
+    return triple.split('-')[0]
+
+
 def clang_resource_dir(version, arch):
     return os.path.join('lib64', 'clang', version, 'lib', 'linux', arch)
 
@@ -346,9 +350,9 @@ def build_libcxx(stage2_install, clang_version):
             cmake_path=libcxx_cmake_path,
             install=False)
         # We need to install libcxx manually.
-        libcxx_install = os.path.join(stage2_install, 'lib64', 'clang',
-                                      clang_version.long_version(), 'lib',
-                                      'linux', arch)
+        install_subdir = clang_resource_dir(clang_version.long_version(),
+                                            arch_from_triple(llvm_triple))
+        libcxx_install = os.path.join(stage2_install, install_subdir)
 
         libcxx_libs = os.path.join(libcxx_path, 'lib')
         check_create_path(libcxx_install)
@@ -439,10 +443,12 @@ def build_libfuzzers(stage2_install, clang_version, ndk_cxx=False):
             install=False)
         # We need to install libfuzzer manually.
         static_lib = os.path.join(libfuzzer_path, 'libLLVMFuzzer.a')
+        triple_arch = arch_from_triple(llvm_triple)
         if ndk_cxx:
-            lib_subdir = os.path.join('runtimes_ndk_cxx', arch)
+            lib_subdir = os.path.join('runtimes_ndk_cxx', triple_arch)
         else:
-            lib_subdir = clang_resource_dir(clang_version.long_version(), arch)
+            lib_subdir = clang_resource_dir(clang_version.long_version(),
+                                            triple_arch)
         lib_dir = os.path.join(stage2_install, lib_subdir)
 
         check_create_path(lib_dir)
@@ -493,10 +499,12 @@ def build_libomp(stage2_install, clang_version, ndk_cxx=False):
 
         # We need to install libomp manually.
         static_lib = os.path.join(libomp_path, 'src', 'libomp.a')
+        triple_arch = arch_from_triple(llvm_triple)
         if ndk_cxx:
-            lib_subdir = os.path.join('runtimes_ndk_cxx', arch)
+            lib_subdir = os.path.join('runtimes_ndk_cxx', triple_arch)
         else:
-            lib_subdir = clang_resource_dir(clang_version.long_version(), arch)
+            lib_subdir = clang_resource_dir(clang_version.long_version(),
+                                            triple_arch)
         lib_dir = os.path.join(stage2_install, lib_subdir)
 
         check_create_path(lib_dir)
