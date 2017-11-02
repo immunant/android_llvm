@@ -228,7 +228,7 @@ def invoke_cmake(out_path, defines, env, cmake_path, target=None, install=True):
 def cross_compile_configs(stage2_install, platform=False):
     configs = [
         ('arm', 'arm', 'arm/arm-linux-androideabi-4.9/arm-linux-androideabi',
-         'armv7-linux-android', ''),
+         'arm-linux-android', '-march=armv7-a'),
         ('aarch64', 'arm64',
          'aarch64/aarch64-linux-android-4.9/aarch64-linux-android',
          'aarch64-linux-android', ''),
