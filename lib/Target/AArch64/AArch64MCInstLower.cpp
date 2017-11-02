@@ -150,10 +150,20 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
     Expr = MCBinaryExpr::createAdd(
         Expr, MCConstantExpr::create(MO.getOffset(), Ctx), Ctx);
 
+  const GlobalObject* GO = nullptr;
+  if (MO.isGlobal()) {
+    auto *GV = MO.getGlobal();
+    GO = dyn_cast<GlobalObject>(GV);
+    if (auto *GA = dyn_cast<GlobalAlias>(GV)) {
+      if (auto *Aliasee = dyn_cast<GlobalValue>(GA->getAliasee()))
+        GO = dyn_cast<GlobalObject>(Aliasee);
+    }
+  }
+
   if (SourceFlag == AArch64II::MO_POT) {
     unsigned index;
     if (MO.isGlobal()) {
-      auto *GO = cast<GlobalObject>(MO.getGlobal());
+      assert(GO && "Cannot handle global aliases to constexprs");
       index = Printer.GetPOTIndex(GO);
     } else {
       assert(MO.isCPI() && "Can only handle globals or constant pool indices");
@@ -163,7 +173,7 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
   } else if (SourceFlag == AArch64II::MO_SEC) {
     const MCSymbol *SecSym;
     if (MO.isGlobal()) {
-      auto *GO = cast<GlobalObject>(MO.getGlobal());
+      assert(GO && "Cannot handle global aliases to constexprs");
       SecSym = Printer.GetSectionSymbol(GO);
     } else {
       assert(MO.isCPI() && "Can only handle globals or constant pool indices");
