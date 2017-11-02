@@ -47,6 +47,7 @@ class GlobalValue;
 class GlobalVariable;
 class GCStrategy;
 class MachineBasicBlock;
+class MachineConstantPoolEntry;
 class MachineConstantPoolValue;
 class MachineFunction;
 class MachineInstr;
@@ -216,6 +217,12 @@ public:
 
   MCSymbol *getSymbol(const GlobalValue *GV) const;
 
+  /// Return the section this constant pool entry should be emitted to.
+  MCSection *getSectionForCPE(const MachineConstantPoolEntry &CPE) const;
+
+  /// Lookup the constant pool entry corresponding to the given constant pool
+  /// index for the current function and return the section to emit this entry
+  /// to.
   MCSection *getSectionForCPI(unsigned CPID) const;
 
   //===------------------------------------------------------------------===//

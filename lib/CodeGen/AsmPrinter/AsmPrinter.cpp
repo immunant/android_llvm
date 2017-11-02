@@ -417,11 +417,7 @@ MCSymbol *AsmPrinter::getSymbol(const GlobalValue *GV) const {
   return TM.getSymbol(GV);
 }
 
-MCSection *AsmPrinter::getSectionForCPI(unsigned CPID) const {
-  const MachineConstantPool *MCP = MF->getConstantPool();
-  const MachineConstantPoolEntry &CPE = MCP->getConstants()[CPID];
-
-  // TODO(sjc): refactor this with redundant code in EmitConstantPool()
+MCSection *AsmPrinter::getSectionForCPE(const MachineConstantPoolEntry &CPE) const {
   unsigned Align = CPE.getAlignment();
 
   SectionKind Kind = CPE.getSectionKind(&getDataLayout());
@@ -432,6 +428,13 @@ MCSection *AsmPrinter::getSectionForCPI(unsigned CPID) const {
 
   return getObjFileLowering().getSectionForConstant(getDataLayout(),
                                                     Kind, C, Align);
+}
+
+MCSection *AsmPrinter::getSectionForCPI(unsigned CPID) const {
+  const MachineConstantPool *MCP = MF->getConstantPool();
+  const MachineConstantPoolEntry &CPE = MCP->getConstants()[CPID];
+
+  return getSectionForCPE(CPE);
 }
 
 /// EmitGlobalVariable - Emit the specified global variable to the .s file.
@@ -1435,7 +1438,7 @@ void AsmPrinter::EmitConstantPool() {
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
     unsigned Align = CPE.getAlignment();
-    MCSection *S = getSectionForCPI(i);
+    MCSection *S = getSectionForCPE(CPE);
 
     // The number of sections are small, just do a linear search from the
     // last section to the first.
