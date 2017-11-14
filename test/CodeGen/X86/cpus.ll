@@ -11,13 +11,26 @@
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=core2 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=penryn 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=nehalem 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=corei7 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=westmere 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=sandybridge 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=corei7-avx 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=ivybridge 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=core-avx-i 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=haswell 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=broadwell 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=cannonlake 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=skylake 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=skylake-avx512 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=skx 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=atom 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=bonnell 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=silvermont 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=slm 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=goldmont 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=lakemont 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=knl 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=knm 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=k8 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=opteron 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=athlon64 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
@@ -34,3 +47,4 @@
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=btver1 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=btver2 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
 ; RUN: llc < %s -o /dev/null -mtriple=x86_64-unknown-unknown -mcpu=znver1 2>&1 | FileCheck %s --check-prefix=CHECK-NO-ERROR --allow-empty
+

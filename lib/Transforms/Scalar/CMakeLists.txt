@@ -7,6 +7,7 @@ add_llvm_library(LLVMScalarOpts
   CorrelatedValuePropagation.cpp
   DCE.cpp
   DeadStoreElimination.cpp
+  DivRemPairs.cpp
   EarlyCSE.cpp
   FlattenCFGPass.cpp
   Float2Int.cpp
@@ -22,7 +23,6 @@ add_llvm_library(LLVMScalarOpts
   LICM.cpp
   LoopAccessAnalysisPrinter.cpp
   LoopSink.cpp
-  LoadCombine.cpp
   LoopDeletion.cpp
   LoopDataPrefetch.cpp
   LoopDistribute.cpp
@@ -43,6 +43,7 @@ add_llvm_library(LLVMScalarOpts
   LowerExpectIntrinsic.cpp
   LowerGuardIntrinsic.cpp
   MemCpyOptimizer.cpp
+  MergeICmps.cpp
   MergedLoadStoreMotion.cpp
   NaryReassociate.cpp
   NewGVN.cpp

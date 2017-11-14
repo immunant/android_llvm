@@ -36,23 +36,19 @@ const uint32_t MIN_HEADER_SIZE = 7 * sizeof(uint32_t) + 2 * sizeof(uint16_t);
 // 8-byte because it makes everyone happy.
 const uint32_t SECTION_ALIGNMENT = sizeof(uint64_t);
 
-static const size_t ResourceMagicSize = 16;
-
-static const size_t NullEntrySize = 16;
-
 uint32_t WindowsResourceParser::TreeNode::StringCount = 0;
 uint32_t WindowsResourceParser::TreeNode::DataCount = 0;
 
 WindowsResource::WindowsResource(MemoryBufferRef Source)
     : Binary(Binary::ID_WinRes, Source) {
-  size_t LeadingSize = ResourceMagicSize + NullEntrySize;
+  size_t LeadingSize = WIN_RES_MAGIC_SIZE + WIN_RES_NULL_ENTRY_SIZE;
   BBS = BinaryByteStream(Data.getBuffer().drop_front(LeadingSize),
                          support::little);
 }
 
 Expected<std::unique_ptr<WindowsResource>>
 WindowsResource::createWindowsResource(MemoryBufferRef Source) {
-  if (Source.getBufferSize() < ResourceMagicSize + NullEntrySize)
+  if (Source.getBufferSize() < WIN_RES_MAGIC_SIZE + WIN_RES_NULL_ENTRY_SIZE)
     return make_error<GenericBinaryError>(
         "File too small to be a resource file",
         object_error::invalid_file_type);
@@ -61,19 +57,22 @@ WindowsResource::createWindowsResource(MemoryBufferRef Source) {
 }
 
 Expected<ResourceEntryRef> WindowsResource::getHeadEntry() {
-  Error Err = Error::success();
-  auto Ref = ResourceEntryRef(BinaryStreamRef(BBS), this, Err);
-  if (Err)
-    return std::move(Err);
-  return Ref;
+  if (BBS.getLength() < sizeof(WinResHeaderPrefix) + sizeof(WinResHeaderSuffix))
+    return make_error<EmptyResError>(".res contains no entries",
+                                     object_error::unexpected_eof);
+  return ResourceEntryRef::create(BinaryStreamRef(BBS), this);
 }
 
 ResourceEntryRef::ResourceEntryRef(BinaryStreamRef Ref,
-                                   const WindowsResource *Owner, Error &Err)
-    : Reader(Ref), OwningRes(Owner) {
-  if (loadNext())
-    Err = make_error<GenericBinaryError>("Could not read first entry.\n",
-                                         object_error::unexpected_eof);
+                                   const WindowsResource *Owner)
+    : Reader(Ref), OwningRes(Owner) {}
+
+Expected<ResourceEntryRef>
+ResourceEntryRef::create(BinaryStreamRef BSR, const WindowsResource *Owner) {
+  auto Ref = ResourceEntryRef(BSR, Owner);
+  if (auto E = Ref.loadNext())
+    return std::move(E);
+  return Ref;
 }
 
 Error ResourceEntryRef::moveNext(bool &End) {
@@ -105,12 +104,10 @@ static Error readStringOrId(BinaryStreamReader &Reader, uint16_t &ID,
 }
 
 Error ResourceEntryRef::loadNext() {
-  uint32_t DataSize;
-  RETURN_IF_ERROR(Reader.readInteger(DataSize));
-  uint32_t HeaderSize;
-  RETURN_IF_ERROR(Reader.readInteger(HeaderSize));
+  const WinResHeaderPrefix *Prefix;
+  RETURN_IF_ERROR(Reader.readObject(Prefix));
 
-  if (HeaderSize < MIN_HEADER_SIZE)
+  if (Prefix->HeaderSize < MIN_HEADER_SIZE)
     return make_error<GenericBinaryError>("Header size is too small.",
                                           object_error::parse_failed);
 
@@ -118,13 +115,13 @@ Error ResourceEntryRef::loadNext() {
 
   RETURN_IF_ERROR(readStringOrId(Reader, NameID, Name, IsStringName));
 
-  RETURN_IF_ERROR(Reader.padToAlignment(sizeof(uint32_t)));
+  RETURN_IF_ERROR(Reader.padToAlignment(WIN_RES_HEADER_ALIGNMENT));
 
   RETURN_IF_ERROR(Reader.readObject(Suffix));
 
-  RETURN_IF_ERROR(Reader.readArray(Data, DataSize));
+  RETURN_IF_ERROR(Reader.readArray(Data, Prefix->DataSize));
 
-  RETURN_IF_ERROR(Reader.padToAlignment(sizeof(uint32_t)));
+  RETURN_IF_ERROR(Reader.padToAlignment(WIN_RES_DATA_ALIGNMENT));
 
   return Error::success();
 }
@@ -133,8 +130,20 @@ WindowsResourceParser::WindowsResourceParser() : Root(false) {}
 
 Error WindowsResourceParser::parse(WindowsResource *WR) {
   auto EntryOrErr = WR->getHeadEntry();
-  if (!EntryOrErr)
-    return EntryOrErr.takeError();
+  if (!EntryOrErr) {
+    auto E = EntryOrErr.takeError();
+    if (E.isA<EmptyResError>()) {
+      // Check if the .res file contains no entries.  In this case we don't have
+      // to throw an error but can rather just return without parsing anything.
+      // This applies for files which have a valid PE header magic and the
+      // mandatory empty null resource entry.  Files which do not fit this
+      // criteria would have already been filtered out by
+      // WindowsResource::createWindowsResource().
+      consumeError(std::move(E));
+      return Error::success();
+    }
+    return E;
+  }
 
   ResourceEntryRef Entry = EntryOrErr.get();
   bool End = false;
@@ -307,10 +316,9 @@ uint32_t WindowsResourceParser::TreeNode::getTreeSize() const {
 
 class WindowsResourceCOFFWriter {
 public:
-  WindowsResourceCOFFWriter(std::unique_ptr<MemoryBuffer> &OutputBuffer,
-                            COFF::MachineTypes MachineType,
+  WindowsResourceCOFFWriter(COFF::MachineTypes MachineType,
                             const WindowsResourceParser &Parser, Error &E);
-  Error write();
+  std::unique_ptr<MemoryBuffer> write();
 
 private:
   void performFileLayout();
@@ -326,7 +334,7 @@ private:
   void writeDirectoryTree();
   void writeDirectoryStringTable();
   void writeFirstSectionRelocations();
-  std::unique_ptr<MemoryBuffer> &OutputBuffer;
+  std::unique_ptr<MemoryBuffer> OutputBuffer;
   char *BufferStart;
   uint64_t CurrentOffset = 0;
   COFF::MachineTypes MachineType;
@@ -346,11 +354,10 @@ private:
 };
 
 WindowsResourceCOFFWriter::WindowsResourceCOFFWriter(
-    std::unique_ptr<MemoryBuffer> &OutputBuffer, COFF::MachineTypes MachineType,
-    const WindowsResourceParser &Parser, Error &E)
-    : OutputBuffer(OutputBuffer), MachineType(MachineType),
-      Resources(Parser.getTree()), Data(Parser.getData()),
-      StringTable(Parser.getStringTable()) {
+    COFF::MachineTypes MachineType, const WindowsResourceParser &Parser,
+    Error &E)
+    : MachineType(MachineType), Resources(Parser.getTree()),
+      Data(Parser.getData()), StringTable(Parser.getStringTable()) {
   performFileLayout();
 
   OutputBuffer = MemoryBuffer::getNewMemBuffer(FileSize);
@@ -417,7 +424,7 @@ static std::time_t getTime() {
   return Now;
 }
 
-Error WindowsResourceCOFFWriter::write() {
+std::unique_ptr<MemoryBuffer> WindowsResourceCOFFWriter::write() {
   BufferStart = const_cast<char *>(OutputBuffer->getBufferStart());
 
   writeCOFFHeader();
@@ -428,7 +435,7 @@ Error WindowsResourceCOFFWriter::write() {
   writeSymbolTable();
   writeStringTable();
 
-  return Error::success();
+  return std::move(OutputBuffer);
 }
 
 void WindowsResourceCOFFWriter::writeCOFFHeader() {
@@ -470,8 +477,6 @@ void WindowsResourceCOFFWriter::writeFirstSectionHeader() {
   SectionOneHeader->PointerToLinenumbers = 0;
   SectionOneHeader->NumberOfRelocations = Data.size();
   SectionOneHeader->NumberOfLinenumbers = 0;
-  SectionOneHeader->Characteristics = COFF::IMAGE_SCN_ALIGN_1BYTES;
-  SectionOneHeader->Characteristics += COFF::IMAGE_SCN_CNT_INITIALIZED_DATA;
   SectionOneHeader->Characteristics += COFF::IMAGE_SCN_CNT_INITIALIZED_DATA;
   SectionOneHeader->Characteristics += COFF::IMAGE_SCN_MEM_READ;
 }
@@ -573,7 +578,7 @@ void WindowsResourceCOFFWriter::writeSymbolTable() {
     Symbol = reinterpret_cast<coff_symbol16 *>(BufferStart + CurrentOffset);
     strncpy(Symbol->Name.ShortName, RelocationName, (size_t)COFF::NameSize);
     Symbol->Value = DataOffsets[i];
-    Symbol->SectionNumber = 1;
+    Symbol->SectionNumber = 2;
     Symbol->Type = COFF::IMAGE_SYM_DTYPE_NULL;
     Symbol->StorageClass = COFF::IMAGE_SYM_CLASS_STATIC;
     Symbol->NumberOfAuxSymbols = 0;
@@ -619,8 +624,8 @@ void WindowsResourceCOFFWriter::writeDirectoryTree() {
     for (auto const &Child : StringChildren) {
       auto *Entry = reinterpret_cast<coff_resource_dir_entry *>(BufferStart +
                                                                 CurrentOffset);
-      Entry->Identifier.NameOffset =
-          StringTableOffsets[Child.second->getStringIndex()];
+      Entry->Identifier.setNameOffset(
+          StringTableOffsets[Child.second->getStringIndex()]);
       if (Child.second->checkIsDataNode()) {
         Entry->Offset.DataEntryOffset = NextLevelOffset;
         NextLevelOffset += sizeof(coff_resource_data_entry);
@@ -716,13 +721,13 @@ void WindowsResourceCOFFWriter::writeFirstSectionRelocations() {
   }
 }
 
-Error writeWindowsResourceCOFF(std::unique_ptr<MemoryBuffer> &OutputBuffer,
-                               COFF::MachineTypes MachineType,
-                               const WindowsResourceParser &Parser) {
+Expected<std::unique_ptr<MemoryBuffer>>
+writeWindowsResourceCOFF(COFF::MachineTypes MachineType,
+                         const WindowsResourceParser &Parser) {
   Error E = Error::success();
-  WindowsResourceCOFFWriter Writer(OutputBuffer, MachineType, Parser, E);
+  WindowsResourceCOFFWriter Writer(MachineType, Parser, E);
   if (E)
-    return E;
+    return std::move(E);
   return Writer.write();
 }
 

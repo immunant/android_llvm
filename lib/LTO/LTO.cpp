@@ -65,7 +65,9 @@ static void computeCacheKey(
     const FunctionImporter::ExportSetTy &ExportList,
     const std::map<GlobalValue::GUID, GlobalValue::LinkageTypes> &ResolvedODR,
     const GVSummaryMapTy &DefinedGlobals,
-    const TypeIdSummariesByGuidTy &TypeIdSummariesByGuid) {
+    const TypeIdSummariesByGuidTy &TypeIdSummariesByGuid,
+    const std::set<GlobalValue::GUID> &CfiFunctionDefs,
+    const std::set<GlobalValue::GUID> &CfiFunctionDecls) {
   // Compute the unique hash for this entry.
   // This is based on the current compiler version, the module itself, the
   // export list, the hash for every single module in the import list, the
@@ -118,7 +120,10 @@ static void computeCacheKey(
     AddUnsigned(*Conf.RelocModel);
   else
     AddUnsigned(-1);
-  AddUnsigned(Conf.CodeModel);
+  if (Conf.CodeModel)
+    AddUnsigned(*Conf.CodeModel);
+  else
+    AddUnsigned(-1);
   AddUnsigned(Conf.CGOptLevel);
   AddUnsigned(Conf.CGFileType);
   AddUnsigned(Conf.OptLevel);
@@ -155,22 +160,39 @@ static void computeCacheKey(
                                     sizeof(GlobalValue::LinkageTypes)));
   }
 
+  // Members of CfiFunctionDefs and CfiFunctionDecls that are referenced or
+  // defined in this module.
+  std::set<GlobalValue::GUID> UsedCfiDefs;
+  std::set<GlobalValue::GUID> UsedCfiDecls;
+
+  // Typeids used in this module.
   std::set<GlobalValue::GUID> UsedTypeIds;
 
-  auto AddUsedTypeIds = [&](GlobalValueSummary *GS) {
-    auto *FS = dyn_cast_or_null<FunctionSummary>(GS);
-    if (!FS)
-      return;
-    for (auto &TT : FS->type_tests())
-      UsedTypeIds.insert(TT);
-    for (auto &TT : FS->type_test_assume_vcalls())
-      UsedTypeIds.insert(TT.GUID);
-    for (auto &TT : FS->type_checked_load_vcalls())
-      UsedTypeIds.insert(TT.GUID);
-    for (auto &TT : FS->type_test_assume_const_vcalls())
-      UsedTypeIds.insert(TT.VFunc.GUID);
-    for (auto &TT : FS->type_checked_load_const_vcalls())
-      UsedTypeIds.insert(TT.VFunc.GUID);
+  auto AddUsedCfiGlobal = [&](GlobalValue::GUID ValueGUID) {
+    if (CfiFunctionDefs.count(ValueGUID))
+      UsedCfiDefs.insert(ValueGUID);
+    if (CfiFunctionDecls.count(ValueGUID))
+      UsedCfiDecls.insert(ValueGUID);
+  };
+
+  auto AddUsedThings = [&](GlobalValueSummary *GS) {
+    if (!GS) return;
+    for (const ValueInfo &VI : GS->refs())
+      AddUsedCfiGlobal(VI.getGUID());
+    if (auto *FS = dyn_cast<FunctionSummary>(GS)) {
+      for (auto &TT : FS->type_tests())
+        UsedTypeIds.insert(TT);
+      for (auto &TT : FS->type_test_assume_vcalls())
+        UsedTypeIds.insert(TT.GUID);
+      for (auto &TT : FS->type_checked_load_vcalls())
+        UsedTypeIds.insert(TT.GUID);
+      for (auto &TT : FS->type_test_assume_const_vcalls())
+        UsedTypeIds.insert(TT.VFunc.GUID);
+      for (auto &TT : FS->type_checked_load_const_vcalls())
+        UsedTypeIds.insert(TT.VFunc.GUID);
+      for (auto &ET : FS->calls())
+        AddUsedCfiGlobal(ET.first.getGUID());
+    }
   };
 
   // Include the hash for the linkage type to reflect internalization and weak
@@ -179,20 +201,26 @@ static void computeCacheKey(
     GlobalValue::LinkageTypes Linkage = GS.second->linkage();
     Hasher.update(
         ArrayRef<uint8_t>((const uint8_t *)&Linkage, sizeof(Linkage)));
-    AddUsedTypeIds(GS.second);
+    AddUsedCfiGlobal(GS.first);
+    AddUsedThings(GS.second);
   }
 
   // Imported functions may introduce new uses of type identifier resolutions,
   // so we need to collect their used resolutions as well.
   for (auto &ImpM : ImportList)
     for (auto &ImpF : ImpM.second)
-      AddUsedTypeIds(Index.findSummaryInModule(ImpF.first, ImpM.first()));
+      AddUsedThings(Index.findSummaryInModule(ImpF.first, ImpM.first()));
 
   auto AddTypeIdSummary = [&](StringRef TId, const TypeIdSummary &S) {
     AddString(TId);
 
     AddUnsigned(S.TTRes.TheKind);
     AddUnsigned(S.TTRes.SizeM1BitWidth);
+
+    AddUint64(S.TTRes.AlignLog2);
+    AddUint64(S.TTRes.SizeM1);
+    AddUint64(S.TTRes.BitMask);
+    AddUint64(S.TTRes.InlineBits);
 
     AddUint64(S.WPDRes.size());
     for (auto &WPD : S.WPDRes) {
@@ -207,6 +235,8 @@ static void computeCacheKey(
           AddUint64(Arg);
         AddUnsigned(ByArg.second.TheKind);
         AddUint64(ByArg.second.Info);
+        AddUnsigned(ByArg.second.Byte);
+        AddUnsigned(ByArg.second.Bit);
       }
     }
   };
@@ -218,6 +248,14 @@ static void computeCacheKey(
       for (auto *Summary : SummariesI->second)
         AddTypeIdSummary(Summary->first, Summary->second);
   }
+
+  AddUnsigned(UsedCfiDefs.size());
+  for (auto &V : UsedCfiDefs)
+    AddUint64(V);
+
+  AddUnsigned(UsedCfiDecls.size());
+  for (auto &V : UsedCfiDecls)
+    AddUint64(V);
 
   if (!Conf.SampleProfile.empty()) {
     auto FileOrErr = MemoryBuffer::getFile(Conf.SampleProfile);
@@ -472,6 +510,36 @@ Error LTO::addModule(InputFile &Input, unsigned ModI,
   return Error::success();
 }
 
+// Checks whether the given global value is in a non-prevailing comdat
+// (comdat containing values the linker indicated were not prevailing,
+// which we then dropped to available_externally), and if so, removes
+// it from the comdat. This is called for all global values to ensure the
+// comdat is empty rather than leaving an incomplete comdat. It is needed for
+// regular LTO modules, in case we are in a mixed-LTO mode (both regular
+// and thin LTO modules) compilation. Since the regular LTO module will be
+// linked first in the final native link, we want to make sure the linker
+// doesn't select any of these incomplete comdats that would be left
+// in the regular LTO module without this cleanup.
+static void
+handleNonPrevailingComdat(GlobalValue &GV,
+                          std::set<const Comdat *> &NonPrevailingComdats) {
+  Comdat *C = GV.getComdat();
+  if (!C)
+    return;
+
+  if (!NonPrevailingComdats.count(C))
+    return;
+
+  // Additionally need to drop externally visible global values from the comdat
+  // to available_externally, so that there aren't multiply defined linker
+  // errors.
+  if (!GV.hasLocalLinkage())
+    GV.setLinkage(GlobalValue::AvailableExternallyLinkage);
+
+  if (auto GO = dyn_cast<GlobalObject>(&GV))
+    GO->setComdat(nullptr);
+}
+
 // Add a regular LTO object to the link.
 // The resulting module needs to be linked into the combined LTO module with
 // linkRegularLTO.
@@ -523,6 +591,7 @@ LTO::addRegularLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
   };
   Skip();
 
+  std::set<const Comdat *> NonPrevailingComdats;
   for (const InputFile::Symbol &Sym : Syms) {
     assert(ResI != ResE);
     SymbolResolution Res = *ResI++;
@@ -557,6 +626,8 @@ LTO::addRegularLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
         // module (in linkRegularLTO), based on whether it is undefined.
         Mod.Keep.push_back(GV);
         GV->setLinkage(GlobalValue::AvailableExternallyLinkage);
+        if (GV->hasComdat())
+          NonPrevailingComdats.insert(GV->getComdat());
         cast<GlobalObject>(GV)->setComdat(nullptr);
       }
     }
@@ -574,6 +645,9 @@ LTO::addRegularLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
 
     // FIXME: use proposed local attribute for FinalDefinitionInLinkageUnit.
   }
+  if (!M.getComdatSymbolTable().empty())
+    for (GlobalValue &GV : M.global_values())
+      handleNonPrevailingComdat(GV, NonPrevailingComdats);
   assert(MsymI == MsymE);
   return std::move(Mod);
 }
@@ -629,6 +703,15 @@ Error LTO::addThinLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
         auto GUID = GlobalValue::getGUID(GlobalValue::getGlobalIdentifier(
             Sym.getIRName(), GlobalValue::ExternalLinkage, ""));
         ThinLTO.PrevailingModuleForGUID[GUID] = BM.getModuleIdentifier();
+
+        // For linker redefined symbols (via --wrap or --defsym) we want to
+        // switch the linkage to `weak` to prevent IPOs from happening.
+        // Find the summary in the module for this very GV and record the new
+        // linkage so that we can switch it when we import the GV.
+        if (Res.LinkerRedefined)
+          if (auto S = ThinLTO.CombinedIndex.findSummaryInModule(
+                  GUID, BM.getModuleIdentifier()))
+            S->setLinkage(GlobalValue::WeakAnyLinkage);
       }
     }
   }
@@ -767,6 +850,8 @@ class InProcessThinBackend : public ThinBackendProc {
   AddStreamFn AddStream;
   NativeObjectCache Cache;
   TypeIdSummariesByGuidTy TypeIdSummariesByGuid;
+  std::set<GlobalValue::GUID> CfiFunctionDefs;
+  std::set<GlobalValue::GUID> CfiFunctionDecls;
 
   Optional<Error> Err;
   std::mutex ErrMu;
@@ -786,6 +871,12 @@ public:
     // each function without needing to compute GUIDs in each backend.
     for (auto &TId : CombinedIndex.typeIds())
       TypeIdSummariesByGuid[GlobalValue::getGUID(TId.first)].push_back(&TId);
+    for (auto &Name : CombinedIndex.cfiFunctionDefs())
+      CfiFunctionDefs.insert(
+          GlobalValue::getGUID(GlobalValue::dropLLVMManglingEscape(Name)));
+    for (auto &Name : CombinedIndex.cfiFunctionDecls())
+      CfiFunctionDecls.insert(
+          GlobalValue::getGUID(GlobalValue::dropLLVMManglingEscape(Name)));
   }
 
   Error runThinLTOBackendThread(
@@ -819,7 +910,8 @@ public:
     SmallString<40> Key;
     // The module may be cached, this helps handling it.
     computeCacheKey(Key, Conf, CombinedIndex, ModuleID, ImportList, ExportList,
-                    ResolvedODR, DefinedGlobals, TypeIdSummariesByGuid);
+                    ResolvedODR, DefinedGlobals, TypeIdSummariesByGuid,
+                    CfiFunctionDefs, CfiFunctionDecls);
     if (AddStreamFn CacheAddStream = Cache(Task, Key))
       return RunThinBackend(CacheAddStream);
 
@@ -985,7 +1077,7 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
 
   // Collect for each module the list of function it defines (GUID ->
   // Summary).
-  StringMap<std::map<GlobalValue::GUID, GlobalValueSummary *>>
+  StringMap<GVSummaryMapTy>
       ModuleToDefinedGVSummaries(ThinLTO.ModuleMap.size());
   ThinLTO.CombinedIndex.collectDefinedGVSummariesPerModule(
       ModuleToDefinedGVSummaries);
@@ -1026,6 +1118,12 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
       if (ThinLTO.CombinedIndex.isGUIDLive(GUID))
         ExportedGUIDs.insert(GUID);
     }
+
+    // Any functions referenced by the jump table in the regular LTO object must
+    // be exported.
+    for (auto &Def : ThinLTO.CombinedIndex.cfiFunctionDefs())
+      ExportedGUIDs.insert(
+          GlobalValue::getGUID(GlobalValue::dropLLVMManglingEscape(Def)));
 
     auto isExported = [&](StringRef ModuleIdentifier, GlobalValue::GUID GUID) {
       const auto &ExportList = ExportLists.find(ModuleIdentifier);
@@ -1068,7 +1166,7 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
   return BackendProc->wait();
 }
 
-Expected<std::unique_ptr<tool_output_file>>
+Expected<std::unique_ptr<ToolOutputFile>>
 lto::setupOptimizationRemarks(LLVMContext &Context,
                               StringRef LTORemarksFilename,
                               bool LTOPassRemarksWithHotness, int Count) {
@@ -1081,13 +1179,13 @@ lto::setupOptimizationRemarks(LLVMContext &Context,
 
   std::error_code EC;
   auto DiagnosticFile =
-      llvm::make_unique<tool_output_file>(Filename, EC, sys::fs::F_None);
+      llvm::make_unique<ToolOutputFile>(Filename, EC, sys::fs::F_None);
   if (EC)
     return errorCodeToError(EC);
   Context.setDiagnosticsOutputFile(
       llvm::make_unique<yaml::Output>(DiagnosticFile->os()));
   if (LTOPassRemarksWithHotness)
-    Context.setDiagnosticHotnessRequested(true);
+    Context.setDiagnosticsHotnessRequested(true);
   DiagnosticFile->keep();
   return std::move(DiagnosticFile);
 }

@@ -66,13 +66,13 @@ endif:
 
 ; TOSMEM-NOT: s_m0
 ; TOSMEM: s_add_u32 m0, s7, 0x100
-; TOSMEM-NEXT: s_buffer_store_dword s{{[0-9]+}}, s{{\[[0-9]+:[0-9]+\]}}, m0 ; 4-byte Folded Spill
+; TOSMEM-NEXT: s_buffer_store_dwordx2 s{{\[[0-9]+:[0-9]+\]}}, s{{\[[0-9]+:[0-9]+\]}}, m0 ; 8-byte Folded Spill
 ; FIXME: RegScavenger::isRegUsed() always returns true if m0 is reserved, so we have to save and restore it
 ; FIXME-TOSMEM-NOT: m0
 
 ; FIXME-TOSMEM-NOT: m0
-; TOSMEM: s_add_u32 m0, s7, 0x200
-; TOSMEM: s_buffer_store_dwordx2 s{{\[[0-9]+:[0-9]+\]}}, s{{\[[0-9]+:[0-9]+\]}}, m0 ; 8-byte Folded Spill
+; TOSMEM: s_add_u32 m0, s7, 0x300
+; TOSMEM: s_buffer_store_dword s{{[0-9]+}}, s{{\[[0-9]+:[0-9]+\]}}, m0 ; 4-byte Folded Spill
 ; FIXME-TOSMEM-NOT: m0
 
 ; TOSMEM: s_mov_b64 exec,
@@ -80,7 +80,7 @@ endif:
 ; TOSMEM: s_branch
 
 ; TOSMEM: BB{{[0-9]+_[0-9]+}}:
-; TOSMEM: s_add_u32 m0, s7, 0x200
+; TOSMEM: s_add_u32 m0, s7, 0x400
 ; TOSMEM-NEXT: s_buffer_load_dwordx2 s{{\[[0-9]+:[0-9]+\]}}, s{{\[[0-9]+:[0-9]+\]}}, m0 ; 8-byte Folded Reload
 
 
@@ -119,10 +119,10 @@ endif:                                            ; preds = %else, %if
 
 ; GCN: ; clobber m0
 
-; TOSMEM: s_mov_b32 vcc_hi, m0
+; TOSMEM: s_mov_b32 s2, m0
 ; TOSMEM: s_add_u32 m0, s3, 0x100
 ; TOSMEM-NEXT: s_buffer_store_dwordx2 s{{\[[0-9]+:[0-9]+\]}}, s{{\[[0-9]+:[0-9]+\]}}, m0 ; 8-byte Folded Spill
-; TOSMEM: s_mov_b32 m0, vcc_hi
+; TOSMEM: s_mov_b32 m0, s2
 
 ; TOSMEM: s_mov_b64 exec,
 ; TOSMEM: s_cbranch_execz
@@ -170,10 +170,10 @@ endif:
 
 ; TOSMEM: s_mov_b32 m0, -1
 
-; TOSMEM: s_mov_b32 vcc_hi, m0
+; TOSMEM: s_mov_b32 s0, m0
 ; TOSMEM: s_add_u32 m0, s3, 0x100
 ; TOSMEM: s_buffer_load_dwordx2 s{{\[[0-9]+:[0-9]+\]}}, s[88:91], m0 ; 8-byte Folded Reload
-; TOSMEM: s_mov_b32 m0, vcc_hi
+; TOSMEM: s_mov_b32 m0, s0
 ; TOSMEM: s_waitcnt lgkmcnt(0)
 
 ; TOSMEM: ds_write_b64

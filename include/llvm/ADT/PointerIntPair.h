@@ -47,7 +47,7 @@ class PointerIntPair {
   intptr_t Value;
 
 public:
-  PointerIntPair() : Value(0) {}
+  constexpr PointerIntPair() : Value(0) {}
   PointerIntPair(PointerTy PtrVal, IntType IntVal) {
     setPointerAndInt(PtrVal, IntVal);
   }
@@ -201,9 +201,8 @@ struct DenseMapInfo<PointerIntPair<PointerTy, IntBits, IntType>> {
 // Teach SmallPtrSet that PointerIntPair is "basically a pointer".
 template <typename PointerTy, unsigned IntBits, typename IntType,
           typename PtrTraits>
-class PointerLikeTypeTraits<
+struct PointerLikeTypeTraits<
     PointerIntPair<PointerTy, IntBits, IntType, PtrTraits>> {
-public:
   static inline void *
   getAsVoidPointer(const PointerIntPair<PointerTy, IntBits, IntType> &P) {
     return P.getOpaqueValue();

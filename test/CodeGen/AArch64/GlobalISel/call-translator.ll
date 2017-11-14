@@ -61,10 +61,11 @@ define void @test_multiple_args(i64 %in) {
 ; CHECK-LABEL: name: test_struct_formal
 ; CHECK: [[DBL:%[0-9]+]](s64) = COPY %d0
 ; CHECK: [[I64:%[0-9]+]](s64) = COPY %x0
-; CHECK: [[I8:%[0-9]+]](s8) = COPY %w1
+; CHECK: [[I8_C:%[0-9]+]](s32) = COPY %w1
+; CHECK: [[I8:%[0-9]+]](s8) = G_TRUNC [[I8_C]]
 ; CHECK: [[ADDR:%[0-9]+]](p0) = COPY %x2
 
-; CHECK: [[UNDEF:%[0-9]+]](s192) = IMPLICIT_DEF
+; CHECK: [[UNDEF:%[0-9]+]](s192) = G_IMPLICIT_DEF
 ; CHECK: [[ARG0:%[0-9]+]](s192) = G_INSERT [[UNDEF]], [[DBL]](s64), 0
 ; CHECK: [[ARG1:%[0-9]+]](s192) = G_INSERT [[ARG0]], [[I64]](s64), 64
 ; CHECK: [[ARG2:%[0-9]+]](s192) = G_INSERT [[ARG1]], [[I8]](s8), 128
@@ -113,7 +114,7 @@ define {double, i64, i32} @test_struct_return({double, i64, i32}* %addr) {
 ; CHECK: [[E1:%[0-9]+]](s64) = COPY %x1
 ; CHECK: [[E2:%[0-9]+]](s64) = COPY %x2
 ; CHECK: [[E3:%[0-9]+]](s64) = COPY %x3
-; CHECK: [[RES:%[0-9]+]](s256) = G_SEQUENCE [[E0]](s64), 0, [[E1]](s64), 64, [[E2]](s64), 128, [[E3]](s64), 192
+; CHECK: [[RES:%[0-9]+]](s256) = G_MERGE_VALUES [[E0]](s64), [[E1]](s64), [[E2]](s64), [[E3]](s64)
 ; CHECK: G_EXTRACT [[RES]](s256), 64
 declare [4 x i64] @arr_callee([4 x i64])
 define i64 @test_arr_call([4 x i64]* %addr) {
@@ -126,7 +127,8 @@ define i64 @test_arr_call([4 x i64]* %addr) {
 
 ; CHECK-LABEL: name: test_abi_exts_call
 ; CHECK: [[VAL:%[0-9]+]](s8) = G_LOAD
-; CHECK: %w0 = COPY [[VAL]]
+; CHECK: [[VAL_TMP:%[0-9]+]](s32) = G_ANYEXT [[VAL]]
+; CHECK: %w0 = COPY [[VAL_TMP]]
 ; CHECK: BL @take_char, csr_aarch64_aapcs, implicit-def %lr, implicit %sp, implicit %w0
 ; CHECK: [[SVAL:%[0-9]+]](s32) = G_SEXT [[VAL]](s8)
 ; CHECK: %w0 = COPY [[SVAL]](s32)
@@ -208,9 +210,69 @@ define void @test_call_stack() {
 
 ; CHECK-LABEL: name: test_mem_i1
 ; CHECK: fixedStack:
-; CHECK-NEXT: - { id: [[SLOT:[0-9]+]], type: default, offset: 0, size: 1, alignment: 16, isImmutable: true,
+; CHECK-NEXT: - { id: [[SLOT:[0-9]+]], type: default, offset: 0, size: 1, alignment: 16, stack-id: 0,
+; CHECK-NEXT: isImmutable: true,
 ; CHECK: [[ADDR:%[0-9]+]](p0) = G_FRAME_INDEX %fixed-stack.[[SLOT]]
 ; CHECK: {{%[0-9]+}}(s1) = G_LOAD [[ADDR]](p0) :: (invariant load 1 from %fixed-stack.[[SLOT]], align 0)
 define void @test_mem_i1([8 x i64], i1 %in) {
+  ret void
+}
+
+; CHECK-LABEL: name: test_128bit_struct
+; CHECK: %x0 = COPY
+; CHECK: %x1 = COPY
+; CHECK: %x2 = COPY
+; CHECK: BL @take_128bit_struct
+define void @test_128bit_struct([2 x i64]* %ptr) {
+  %struct = load [2 x i64], [2 x i64]* %ptr
+  call void @take_128bit_struct([2 x i64]* null, [2 x i64] %struct)
+  ret void
+}
+
+; CHECK-LABEL: name: take_128bit_struct
+; CHECK: {{%.*}}(p0) = COPY %x0
+; CHECK: {{%.*}}(s64) = COPY %x1
+; CHECK: {{%.*}}(s64) = COPY %x2
+define void @take_128bit_struct([2 x i64]* %ptr, [2 x i64] %in) {
+  store [2 x i64] %in, [2 x i64]* %ptr
+  ret void
+}
+
+; CHECK-LABEL: name: test_split_struct
+; CHECK: [[STRUCT:%[0-9]+]](s128) = G_LOAD {{.*}}(p0)
+; CHECK: [[LO:%[0-9]+]](s64) = G_EXTRACT [[STRUCT]](s128), 0
+; CHECK: [[HI:%[0-9]+]](s64) = G_EXTRACT [[STRUCT]](s128), 64
+
+; CHECK: [[SP:%[0-9]+]](p0) = COPY %sp
+; CHECK: [[OFF:%[0-9]+]](s64) = G_CONSTANT i64 0
+; CHECK: [[ADDR:%[0-9]+]](p0) = G_GEP [[SP]], [[OFF]]
+; CHECK: G_STORE [[LO]](s64), [[ADDR]](p0) :: (store 8 into stack, align 0)
+
+; CHECK: [[SP:%[0-9]+]](p0) = COPY %sp
+; CHECK: [[OFF:%[0-9]+]](s64) = G_CONSTANT i64 8
+; CHECK: [[ADDR:%[0-9]+]](p0) = G_GEP [[SP]], [[OFF]]
+; CHECK: G_STORE [[HI]](s64), [[ADDR]](p0) :: (store 8 into stack + 8, align 0)
+define void @test_split_struct([2 x i64]* %ptr) {
+  %struct = load [2 x i64], [2 x i64]* %ptr
+  call void @take_split_struct([2 x i64]* null, i64 1, i64 2, i64 3,
+                               i64 4, i64 5, i64 6,
+                               [2 x i64] %struct)
+  ret void
+}
+
+; CHECK-LABEL: name: take_split_struct
+; CHECK: fixedStack:
+; CHECK-DAG:   - { id: [[LO_FRAME:[0-9]+]], type: default, offset: 0, size: 8
+; CHECK-DAG:   - { id: [[HI_FRAME:[0-9]+]], type: default, offset: 8, size: 8
+
+; CHECK: [[LOPTR:%[0-9]+]](p0) = G_FRAME_INDEX %fixed-stack.[[LO_FRAME]]
+; CHECK: [[LO:%[0-9]+]](s64) = G_LOAD [[LOPTR]](p0) :: (invariant load 8 from %fixed-stack.[[LO_FRAME]], align 0)
+
+; CHECK: [[HIPTR:%[0-9]+]](p0) = G_FRAME_INDEX %fixed-stack.[[HI_FRAME]]
+; CHECK: [[HI:%[0-9]+]](s64) = G_LOAD [[HIPTR]](p0) :: (invariant load 8 from %fixed-stack.[[HI_FRAME]], align 0)
+define void @take_split_struct([2 x i64]* %ptr, i64, i64, i64,
+                               i64, i64, i64,
+                               [2 x i64] %in) {
+  store [2 x i64] %in, [2 x i64]* %ptr
   ret void
 }

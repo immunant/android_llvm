@@ -47,7 +47,13 @@ template <typename T> struct MappingTraits;
 
 /// \brief Class to accumulate and hold information about a callee.
 struct CalleeInfo {
-  enum class HotnessType : uint8_t { Unknown = 0, Cold = 1, None = 2, Hot = 3 };
+  enum class HotnessType : uint8_t {
+    Unknown = 0,
+    Cold = 1,
+    None = 2,
+    Hot = 3,
+    Critical = 4
+  };
   HotnessType Hotness = HotnessType::Unknown;
 
   CalleeInfo() = default;
@@ -179,7 +185,10 @@ private:
 
 protected:
   GlobalValueSummary(SummaryKind K, GVFlags Flags, std::vector<ValueInfo> Refs)
-      : Kind(K), Flags(Flags), RefEdgeList(std::move(Refs)) {}
+      : Kind(K), Flags(Flags), RefEdgeList(std::move(Refs)) {
+    assert((K != AliasKind || Refs.empty()) &&
+           "Expect no references for AliasSummary");
+  }
 
 public:
   virtual ~GlobalValueSummary() = default;
@@ -226,6 +235,10 @@ public:
   /// Return the list of values referenced by this global value definition.
   ArrayRef<ValueInfo> refs() const { return RefEdgeList; }
 
+  /// If this is an alias summary, returns the summary of the aliased object (a
+  /// global variable or function), otherwise returns itself.
+  GlobalValueSummary *getBaseObject();
+
   friend class ModuleSummaryIndex;
   friend void computeDeadSymbols(class ModuleSummaryIndex &,
                                  const DenseSet<GlobalValue::GUID> &);
@@ -236,8 +249,8 @@ class AliasSummary : public GlobalValueSummary {
   GlobalValueSummary *AliaseeSummary;
 
 public:
-  AliasSummary(GVFlags Flags, std::vector<ValueInfo> Refs)
-      : GlobalValueSummary(AliasKind, Flags, std::move(Refs)) {}
+  AliasSummary(GVFlags Flags)
+      : GlobalValueSummary(AliasKind, Flags, ArrayRef<ValueInfo>{}) {}
 
   /// Check if this is an alias summary.
   static bool classof(const GlobalValueSummary *GVS) {
@@ -257,6 +270,12 @@ public:
   }
 };
 
+inline GlobalValueSummary *GlobalValueSummary::getBaseObject() {
+  if (auto *AS = dyn_cast<AliasSummary>(this))
+    return &AS->getAliasee();
+  return this;
+}
+
 /// \brief Function summary information to aid decisions and implementation of
 /// importing.
 class FunctionSummary : public GlobalValueSummary {
@@ -267,7 +286,7 @@ public:
   /// An "identifier" for a virtual function. This contains the type identifier
   /// represented as a GUID and the offset from the address point to the virtual
   /// function pointer, where "address point" is as defined in the Itanium ABI:
-  /// https://mentorembedded.github.io/cxx-abi/abi.html#vtable-general
+  /// https://itanium-cxx-abi.github.io/cxx-abi/abi.html#vtable-general
   struct VFuncId {
     GlobalValue::GUID GUID;
     uint64_t Offset;
@@ -281,10 +300,23 @@ public:
     std::vector<uint64_t> Args;
   };
 
+  /// Function attribute flags. Used to track if a function accesses memory,
+  /// recurses or aliases.
+  struct FFlags {
+    unsigned ReadNone : 1;
+    unsigned ReadOnly : 1;
+    unsigned NoRecurse : 1;
+    unsigned ReturnDoesNotAlias : 1;
+  };
+
 private:
   /// Number of instructions (ignoring debug instructions, e.g.) computed
   /// during the initial compile step when the summary index is first built.
   unsigned InstCount;
+
+  /// Function attribute flags. Used to track if a function accesses memory,
+  /// recurses or aliases.
+  FFlags FunFlags;
 
   /// List of <CalleeValueInfo, CalleeInfo> call edge pairs from this function.
   std::vector<EdgeTy> CallGraphEdgeList;
@@ -311,15 +343,16 @@ private:
   std::unique_ptr<TypeIdInfo> TIdInfo;
 
 public:
-  FunctionSummary(GVFlags Flags, unsigned NumInsts, std::vector<ValueInfo> Refs,
-                  std::vector<EdgeTy> CGEdges,
+  FunctionSummary(GVFlags Flags, unsigned NumInsts, FFlags FunFlags,
+                  std::vector<ValueInfo> Refs, std::vector<EdgeTy> CGEdges,
                   std::vector<GlobalValue::GUID> TypeTests,
                   std::vector<VFuncId> TypeTestAssumeVCalls,
                   std::vector<VFuncId> TypeCheckedLoadVCalls,
                   std::vector<ConstVCall> TypeTestAssumeConstVCalls,
                   std::vector<ConstVCall> TypeCheckedLoadConstVCalls)
       : GlobalValueSummary(FunctionKind, Flags, std::move(Refs)),
-        InstCount(NumInsts), CallGraphEdgeList(std::move(CGEdges)) {
+        InstCount(NumInsts), FunFlags(FunFlags),
+        CallGraphEdgeList(std::move(CGEdges)) {
     if (!TypeTests.empty() || !TypeTestAssumeVCalls.empty() ||
         !TypeCheckedLoadVCalls.empty() || !TypeTestAssumeConstVCalls.empty() ||
         !TypeCheckedLoadConstVCalls.empty())
@@ -334,6 +367,9 @@ public:
   static bool classof(const GlobalValueSummary *GVS) {
     return GVS->getSummaryKind() == FunctionKind;
   }
+
+  /// Get function attribute flags.
+  FFlags &fflags() { return FunFlags; }
 
   /// Get the instruction count recorded for this function.
   unsigned instCount() const { return InstCount; }
@@ -464,6 +500,16 @@ struct TypeTestResolution {
   /// range [1,256], this number will be 8. This helps generate the most compact
   /// instruction sequences.
   unsigned SizeM1BitWidth = 0;
+
+  // The following fields are only used if the target does not support the use
+  // of absolute symbols to store constants. Their meanings are the same as the
+  // corresponding fields in LowerTypeTestsModule::TypeIdLowering in
+  // LowerTypeTests.cpp.
+
+  uint64_t AlignLog2 = 0;
+  uint64_t SizeM1 = 0;
+  uint8_t BitMask = 0;
+  uint64_t InlineBits = 0;
 };
 
 struct WholeProgramDevirtResolution {
@@ -487,6 +533,12 @@ struct WholeProgramDevirtResolution {
     /// - UniqueRetVal: the return value associated with the unique vtable (0 or
     ///   1).
     uint64_t Info = 0;
+
+    // The following fields are only used if the target does not support the use
+    // of absolute symbols to store constants.
+
+    uint32_t Byte = 0;
+    uint32_t Bit = 0;
   };
 
   /// Resolutions for calls with all constant integer arguments (excluding the
@@ -516,7 +568,7 @@ using ModulePathStringTableTy = StringMap<std::pair<uint64_t, ModuleHash>>;
 
 /// Map of global value GUID to its summary, used to identify values defined in
 /// a particular module, and provide efficient access to their summary.
-using GVSummaryMapTy = std::map<GlobalValue::GUID, GlobalValueSummary *>;
+using GVSummaryMapTy = DenseMap<GlobalValue::GUID, GlobalValueSummary *>;
 
 /// Class to hold module path string table and global value map,
 /// and encapsulate methods for operating on them.
@@ -691,7 +743,7 @@ public:
   static std::string getGlobalNameForLocal(StringRef Name, ModuleHash ModHash) {
     SmallString<256> NewName(Name);
     NewName += ".llvm.";
-    NewName += utohexstr(ModHash[0]); // Take the first 32 bits
+    NewName += utostr(ModHash[0]); // Take the first 32 bits
     return NewName.str();
   }
 

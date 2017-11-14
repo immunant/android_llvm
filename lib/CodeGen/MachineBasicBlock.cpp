@@ -111,7 +111,7 @@ void ilist_traits<MachineInstr>::removeNodeFromList(MachineInstr *N) {
   assert(N->getParent() && "machine instruction not in a basic block");
 
   // Remove from the use/def lists.
-  if (MachineFunction *MF = N->getParent()->getParent())
+  if (MachineFunction *MF = N->getMF())
     N->RemoveRegOperandsFromUseLists(MF->getRegInfo());
 
   N->setParent(nullptr);
@@ -227,6 +227,12 @@ LLVM_DUMP_METHOD void MachineBasicBlock::dump() const {
   print(dbgs());
 }
 #endif
+
+bool MachineBasicBlock::isLegalToHoistInto() const {
+  if (isReturnBlock() || hasEHPadSuccessor())
+    return false;
+  return true;
+}
 
 StringRef MachineBasicBlock::getName() const {
   if (const BasicBlock *LBB = getBasicBlock())

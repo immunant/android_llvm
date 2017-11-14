@@ -490,6 +490,13 @@ let IntrProperties = [IntrInaccessibleMemOnly] in {
                                                       llvm_metadata_ty,
                                                       llvm_metadata_ty ]>;
 
+  def int_experimental_constrained_fma : Intrinsic<[ llvm_anyfloat_ty ],
+                                                    [ LLVMMatchType<0>,
+                                                      LLVMMatchType<0>,
+                                                      LLVMMatchType<0>,
+                                                      llvm_metadata_ty,
+                                                      llvm_metadata_ty ]>;
+
   // These intrinsics are sensitive to the rounding mode so we need constrained
   // versions of each of them.  When strict rounding and exception control are
   // not required the non-constrained versions of these intrinsics should be
@@ -576,10 +583,14 @@ let IntrProperties = [IntrNoMem, IntrSpeculatable] in {
 let IntrProperties = [IntrNoMem, IntrSpeculatable] in {
   def int_dbg_declare      : Intrinsic<[],
                                        [llvm_metadata_ty,
-                                       llvm_metadata_ty,
-                                       llvm_metadata_ty]>;
+                                        llvm_metadata_ty,
+                                        llvm_metadata_ty]>;
   def int_dbg_value        : Intrinsic<[],
-                                       [llvm_metadata_ty, llvm_i64_ty,
+                                       [llvm_metadata_ty,
+                                        llvm_metadata_ty,
+                                        llvm_metadata_ty]>;
+  def int_dbg_addr         : Intrinsic<[],
+                                       [llvm_metadata_ty,
                                         llvm_metadata_ty,
                                         llvm_metadata_ty]>;
 }
@@ -633,6 +644,13 @@ def int_annotation : Intrinsic<[llvm_anyint_ty],
                                [LLVMMatchType<0>, llvm_ptr_ty,
                                 llvm_ptr_ty, llvm_i32_ty],
                                [], "llvm.annotation">;
+
+// Annotates the current program point with metadata strings which are emitted
+// as CodeView debug info records. This is expensive, as it disables inlining
+// and is modelled as having side effects.
+def int_codeview_annotation : Intrinsic<[], [llvm_metadata_ty],
+                                        [IntrInaccessibleMemOnly, IntrNoDuplicate],
+                                        "llvm.codeview.annotation">;
 
 //===------------------------ Trampoline Intrinsics -----------------------===//
 //
@@ -872,6 +890,22 @@ def int_memcpy_element_unordered_atomic
                   IntrArgMemOnly, NoCapture<0>, NoCapture<1>, WriteOnly<0>,
                   ReadOnly<1>
                 ]>;
+
+// @llvm.memmove.element.unordered.atomic.*(dest, src, length, elementsize)
+def int_memmove_element_unordered_atomic
+    : Intrinsic<[],
+                [
+                  llvm_anyptr_ty, llvm_anyptr_ty, llvm_anyint_ty, llvm_i32_ty
+                ],
+                [
+                  IntrArgMemOnly, NoCapture<0>, NoCapture<1>, WriteOnly<0>,
+                  ReadOnly<1>
+                ]>;
+
+// @llvm.memset.element.unordered.atomic.*(dest, value, length, elementsize)
+def int_memset_element_unordered_atomic
+    : Intrinsic<[], [ llvm_anyptr_ty, llvm_i8_ty, llvm_anyint_ty, llvm_i32_ty ],
+                [ IntrArgMemOnly, NoCapture<0>, WriteOnly<0> ]>;
 
 //===------------------------ Reduction Intrinsics ------------------------===//
 //

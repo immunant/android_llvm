@@ -40,8 +40,10 @@ void DAGTypeLegalizer::PromoteIntegerResult(SDNode *N, unsigned ResNo) {
   SDValue Res = SDValue();
 
   // See if the target wants to custom expand this node.
-  if (CustomLowerNode(N, N->getValueType(ResNo), true))
+  if (CustomLowerNode(N, N->getValueType(ResNo), true)) {
+    DEBUG(dbgs() << "Node has been custom expanded, done\n");
     return;
+  }
 
   switch (N->getOpcode()) {
   default:
@@ -615,9 +617,8 @@ SDValue DAGTypeLegalizer::PromoteIntRes_SETCC(SDNode *N) {
   SDValue SetCC = DAG.getNode(N->getOpcode(), dl, SVT, LHS, RHS,
                               N->getOperand(2));
 
-  assert(NVT.bitsLE(SVT) && "Integer type overpromoted?");
   // Convert to the expected type.
-  return DAG.getNode(ISD::TRUNCATE, dl, NVT, SetCC);
+  return DAG.getSExtOrTrunc(SetCC, dl, NVT);
 }
 
 SDValue DAGTypeLegalizer::PromoteIntRes_SHL(SDNode *N) {
@@ -886,8 +887,10 @@ bool DAGTypeLegalizer::PromoteIntegerOperand(SDNode *N, unsigned OpNo) {
   DEBUG(dbgs() << "Promote integer operand: "; N->dump(&DAG); dbgs() << "\n");
   SDValue Res = SDValue();
 
-  if (CustomLowerNode(N, N->getOperand(OpNo).getValueType(), false))
+  if (CustomLowerNode(N, N->getOperand(OpNo).getValueType(), false)) {
+    DEBUG(dbgs() << "Node has been custom lowered, done\n");
     return false;
+  }
 
   switch (N->getOpcode()) {
     default:

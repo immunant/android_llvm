@@ -113,6 +113,10 @@ public:
   /// \pre I is a valid iterator into BB.
   void moveBefore(BasicBlock &BB, SymbolTableList<Instruction>::iterator I);
 
+  /// Unlink this instruction from its current basic block and insert it into
+  /// the basic block that MovePos lives in, right after MovePos.
+  void moveAfter(Instruction *MovePos);
+
   //===--------------------------------------------------------------------===//
   // Subclass classification.
   //===--------------------------------------------------------------------===//
@@ -152,9 +156,14 @@ public:
     return getOpcode() == AShr;
   }
 
+  /// Determine if the Opcode is and/or/xor.
+  static inline bool isBitwiseLogicOp(unsigned Opcode) {
+    return Opcode == And || Opcode == Or || Opcode == Xor;
+  }
+
   /// Return true if this is and/or/xor.
   inline bool isBitwiseLogicOp() const {
-    return getOpcode() == And || getOpcode() == Or || getOpcode() == Xor;
+    return isBitwiseLogicOp(getOpcode());
   }
 
   /// Determine if the OpCode is one of the CastInst instructions.
@@ -368,6 +377,21 @@ public:
   /// V and this instruction.
   void andIRFlags(const Value *V);
 
+  /// Merge 2 debug locations and apply it to the Instruction. If the
+  /// instruction is a CallIns, we need to traverse the inline chain to find
+  /// the common scope. This is not efficient for N-way merging as each time
+  /// you merge 2 iterations, you need to rebuild the hashmap to find the
+  /// common scope. However, we still choose this API because:
+  ///  1) Simplicity: it takes 2 locations instead of a list of locations.
+  ///  2) In worst case, it increases the complexity from O(N*I) to
+  ///     O(2*N*I), where N is # of Instructions to merge, and I is the
+  ///     maximum level of inline stack. So it is still linear.
+  ///  3) Merging of call instructions should be extremely rare in real
+  ///     applications, thus the N-way merging should be in code path.
+  /// The DebugLoc attached to this instruction will be overwritten by the
+  /// merged DebugLoc.
+  void applyMergedLocation(const DILocation *LocA, const DILocation *LocB);
+
 private:
   /// Return true if we have an entry in the on-the-side metadata hash.
   bool hasMetadataHashEntry() const {
@@ -551,7 +575,7 @@ public:
 
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const Value *V) {
+  static bool classof(const Value *V) {
     return V->getValueID() >= Value::InstructionVal;
   }
 

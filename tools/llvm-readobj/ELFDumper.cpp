@@ -18,6 +18,7 @@
 #include "StackMapPrinter.h"
 #include "llvm-readobj.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallString.h"
@@ -33,6 +34,7 @@
 #include "llvm/Object/Error.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Object/StackMapParser.h"
+#include "llvm/Support/AMDGPUMetadata.h"
 #include "llvm/Support/ARMAttributeParser.h"
 #include "llvm/Support/ARMBuildAttributes.h"
 #include "llvm/Support/Casting.h"
@@ -154,8 +156,6 @@ public:
   void printMipsABIFlags() override;
   void printMipsReginfo() override;
   void printMipsOptions() override;
-
-  void printAMDGPUCodeObjectMetadata() override;
 
   void printStackMap() const override;
 
@@ -820,10 +820,22 @@ static const EnumEntry<unsigned> ElfOSABI[] = {
   {"AROS",         "AROS",                 ELF::ELFOSABI_AROS},
   {"FenixOS",      "FenixOS",              ELF::ELFOSABI_FENIXOS},
   {"CloudABI",     "CloudABI",             ELF::ELFOSABI_CLOUDABI},
-  {"C6000_ELFABI", "Bare-metal C6000",     ELF::ELFOSABI_C6000_ELFABI},
-  {"C6000_LINUX",  "Linux C6000",          ELF::ELFOSABI_C6000_LINUX},
-  {"ARM",          "ARM",                  ELF::ELFOSABI_ARM},
   {"Standalone",   "Standalone App",       ELF::ELFOSABI_STANDALONE}
+};
+
+static const EnumEntry<unsigned> AMDGPUElfOSABI[] = {
+  {"AMDGPU_HSA",    "AMDGPU - HSA",    ELF::ELFOSABI_AMDGPU_HSA},
+  {"AMDGPU_PAL",    "AMDGPU - PAL",    ELF::ELFOSABI_AMDGPU_PAL},
+  {"AMDGPU_MESA3D", "AMDGPU - MESA3D", ELF::ELFOSABI_AMDGPU_MESA3D}
+};
+
+static const EnumEntry<unsigned> ARMElfOSABI[] = {
+  {"ARM", "ARM", ELF::ELFOSABI_ARM}
+};
+
+static const EnumEntry<unsigned> C6000ElfOSABI[] = {
+  {"C6000_ELFABI", "Bare-metal C6000", ELF::ELFOSABI_C6000_ELFABI},
+  {"C6000_LINUX",  "Linux C6000",      ELF::ELFOSABI_C6000_LINUX}
 };
 
 static const EnumEntry<unsigned> ElfMachineType[] = {
@@ -967,7 +979,7 @@ static const EnumEntry<unsigned> ElfMachineType[] = {
   ENUM_ENT(EM_L10M,          "EM_L10M"),
   ENUM_ENT(EM_K10M,          "EM_K10M"),
   ENUM_ENT(EM_AARCH64,       "AArch64"),
-  ENUM_ENT(EM_AVR32,         "Atmel AVR 8-bit microcontroller"),
+  ENUM_ENT(EM_AVR32,         "Atmel Corporation 32-bit microprocessor family"),
   ENUM_ENT(EM_STM8,          "STMicroeletronics STM8 8-bit microcontroller"),
   ENUM_ENT(EM_TILE64,        "Tilera TILE64 multicore architecture family"),
   ENUM_ENT(EM_TILEPRO,       "Tilera TILEPro multicore architecture family"),
@@ -1231,6 +1243,20 @@ static const EnumEntry<unsigned> ElfHeaderMipsFlags[] = {
   LLVM_READOBJ_ENUM_ENT(ELF, EF_MIPS_ARCH_64R6)
 };
 
+static const EnumEntry<unsigned> ElfHeaderAMDGPUFlags[] = {
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_ARCH_NONE),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_ARCH_R600),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_AMDGPU_ARCH_GCN)
+};
+
+static const EnumEntry<unsigned> ElfHeaderRISCVFlags[] = {
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_RISCV_RVC),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_RISCV_FLOAT_ABI_SINGLE),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_RISCV_FLOAT_ABI_DOUBLE),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_RISCV_FLOAT_ABI_QUAD),
+  LLVM_READOBJ_ENUM_ENT(ELF, EF_RISCV_RVE)
+};
+
 static const EnumEntry<unsigned> ElfSymOtherFlags[] = {
   LLVM_READOBJ_ENUM_ENT(ELF, STV_INTERNAL),
   LLVM_READOBJ_ENUM_ENT(ELF, STV_HIDDEN),
@@ -1287,12 +1313,12 @@ ELFDumper<ELFT>::ELFDumper(const ELFFile<ELFT> *Obj, ScopedPrinter &Writer)
     switch (Sec.sh_type) {
     case ELF::SHT_SYMTAB:
       if (DotSymtabSec != nullptr)
-        reportError("Multilpe SHT_SYMTAB");
+        reportError("Multiple SHT_SYMTAB");
       DotSymtabSec = &Sec;
       break;
     case ELF::SHT_DYNSYM:
       if (DynSymRegion.Size)
-        reportError("Multilpe SHT_DYNSYM");
+        reportError("Multiple SHT_DYNSYM");
       DynSymRegion = createDRIFrom(&Sec);
       // This is only used (if Elf_Shdr present)for naming section in GNU style
       DynSymtabName = unwrapOrError(Obj->getSectionName(&Sec));
@@ -1312,7 +1338,7 @@ ELFDumper<ELFT>::ELFDumper(const ELFFile<ELFT> *Obj, ScopedPrinter &Writer)
       break;
     case ELF::SHT_GNU_verneed:
       if (dot_gnu_version_r_sec != nullptr)
-        reportError("Multilpe SHT_GNU_verneed");
+        reportError("Multiple SHT_GNU_verneed");
       dot_gnu_version_r_sec = &Sec;
       break;
     }
@@ -1532,6 +1558,7 @@ static const char *getTypeString(unsigned Arch, uint64_t Type) {
   LLVM_READOBJ_TYPE_CASE(TLSDESC_PLT);
   LLVM_READOBJ_TYPE_CASE(TLSDESC_GOT);
   LLVM_READOBJ_TYPE_CASE(AUXILIARY);
+  LLVM_READOBJ_TYPE_CASE(FILTER);
   default: return "unknown";
   }
 }
@@ -1624,6 +1651,10 @@ StringRef ELFDumper<ELFT>::getDynamicString(uint64_t Value) const {
   return StringRef(DynamicStringTable.data() + Value);
 }
 
+static void printLibrary(raw_ostream &OS, const Twine &Tag, const Twine &Name) {
+  OS << Tag << ": [" << Name << "]";
+}
+
 template <class ELFT>
 void ELFDumper<ELFT>::printValue(uint64_t Type, uint64_t Value) {
   raw_ostream &OS = W.getOStream();
@@ -1687,13 +1718,16 @@ void ELFDumper<ELFT>::printValue(uint64_t Type, uint64_t Value) {
     OS << Value << " (bytes)";
     break;
   case DT_NEEDED:
-    OS << "SharedLibrary (" << getDynamicString(Value) << ")";
+    printLibrary(OS, "Shared library", getDynamicString(Value));
     break;
   case DT_SONAME:
-    OS << "LibrarySoname (" << getDynamicString(Value) << ")";
+    printLibrary(OS, "Library soname", getDynamicString(Value));
     break;
   case DT_AUXILIARY:
-    OS << "Auxiliary library: [" << getDynamicString(Value) << "]";
+    printLibrary(OS, "Auxiliary library", getDynamicString(Value));
+    break;
+  case DT_FILTER:
+    printLibrary(OS, "Filter library", getDynamicString(Value));
     break;
   case DT_RPATH:
   case DT_RUNPATH:
@@ -2318,36 +2352,6 @@ template <class ELFT> void ELFDumper<ELFT>::printMipsOptions() {
   }
 }
 
-template <class ELFT> void ELFDumper<ELFT>::printAMDGPUCodeObjectMetadata() {
-  const Elf_Shdr *Shdr = findSectionByName(*Obj, ".note");
-  if (!Shdr) {
-    W.startLine() << "There is no .note section in the file.\n";
-    return;
-  }
-  ArrayRef<uint8_t> Sec = unwrapOrError(Obj->getSectionContents(Shdr));
-
-  const uint32_t CodeObjectMetadataNoteType = 10;
-  for (auto I = reinterpret_cast<const Elf_Word *>(&Sec[0]),
-       E = I + Sec.size()/4; I != E;) {
-    uint32_t NameSZ = I[0];
-    uint32_t DescSZ = I[1];
-    uint32_t Type = I[2];
-    I += 3;
-
-    StringRef Name;
-    if (NameSZ) {
-      Name = StringRef(reinterpret_cast<const char *>(I), NameSZ - 1);
-      I += alignTo<4>(NameSZ)/4;
-    }
-
-    if (Name == "AMD" && Type == CodeObjectMetadataNoteType) {
-      StringRef Desc(reinterpret_cast<const char *>(I), DescSZ);
-      W.printString(Desc);
-    }
-    I += alignTo<4>(DescSZ)/4;
-  }
-}
-
 template <class ELFT> void ELFDumper<ELFT>::printStackMap() const {
   const Elf_Shdr *StackMapSection = nullptr;
   for (const auto &Sec : unwrapOrError(Obj->sections())) {
@@ -2361,7 +2365,6 @@ template <class ELFT> void ELFDumper<ELFT>::printStackMap() const {
   if (!StackMapSection)
     return;
 
-  StringRef StackMapContents;
   ArrayRef<uint8_t> StackMapContentsArray =
       unwrapOrError(Obj->getSectionContents(StackMapSection));
 
@@ -2433,34 +2436,91 @@ template <class ELFT> void GNUStyle<ELFT>::printFileHeaders(const ELFO *Obj) {
   printFields(OS, "Section header string table index:", Str);
 }
 
-template <class ELFT> void GNUStyle<ELFT>::printGroupSections(const ELFO *Obj) {
-  uint32_t SectionIndex = 0;
-  bool HasGroups = false;
+namespace {
+struct GroupMember {
+  StringRef Name;
+  uint64_t Index;
+};
+
+struct GroupSection {
+  StringRef Name;
+  StringRef Signature;
+  uint64_t ShName;
+  uint64_t Index;
+  uint32_t Type;
+  std::vector<GroupMember> Members;
+};
+
+template <class ELFT>
+std::vector<GroupSection> getGroups(const ELFFile<ELFT> *Obj) {
+  using Elf_Shdr = typename ELFFile<ELFT>::Elf_Shdr;
+  using Elf_Sym = typename ELFFile<ELFT>::Elf_Sym;
+  using Elf_Word = typename ELFFile<ELFT>::Elf_Word;
+
+  std::vector<GroupSection> Ret;
+  uint64_t I = 0;
   for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
-    if (Sec.sh_type == ELF::SHT_GROUP) {
-      HasGroups = true;
-      const Elf_Shdr *Symtab = unwrapOrError(Obj->getSection(Sec.sh_link));
-      StringRef StrTable = unwrapOrError(Obj->getStringTableForSymtab(*Symtab));
-      const Elf_Sym *Signature =
-          unwrapOrError(Obj->template getEntry<Elf_Sym>(Symtab, Sec.sh_info));
-      ArrayRef<Elf_Word> Data = unwrapOrError(
-          Obj->template getSectionContentsAsArray<Elf_Word>(&Sec));
-      StringRef Name = unwrapOrError(Obj->getSectionName(&Sec));
-      OS << "\n" << getGroupType(Data[0]) << " group section ["
-         << format_decimal(SectionIndex, 5) << "] `" << Name << "' ["
-         << StrTable.data() + Signature->st_name << "] contains "
-         << (Data.size() - 1) << " sections:\n"
-         << "   [Index]    Name\n";
-      for (auto &Ndx : Data.slice(1)) {
-        auto Sec = unwrapOrError(Obj->getSection(Ndx));
-        const StringRef Name = unwrapOrError(Obj->getSectionName(Sec));
-        OS << "   [" << format_decimal(Ndx, 5) << "]   " << Name
-           << "\n";
-      }
+    ++I;
+    if (Sec.sh_type != ELF::SHT_GROUP)
+      continue;
+
+    const Elf_Shdr *Symtab = unwrapOrError(Obj->getSection(Sec.sh_link));
+    StringRef StrTable = unwrapOrError(Obj->getStringTableForSymtab(*Symtab));
+    const Elf_Sym *Sym =
+        unwrapOrError(Obj->template getEntry<Elf_Sym>(Symtab, Sec.sh_info));
+    auto Data =
+        unwrapOrError(Obj->template getSectionContentsAsArray<Elf_Word>(&Sec));
+
+    StringRef Name = unwrapOrError(Obj->getSectionName(&Sec));
+    StringRef Signature = StrTable.data() + Sym->st_name;
+    Ret.push_back({Name, Signature, Sec.sh_name, I - 1, Data[0], {}});
+
+    std::vector<GroupMember> &GM = Ret.back().Members;
+    for (uint32_t Ndx : Data.slice(1)) {
+      auto Sec = unwrapOrError(Obj->getSection(Ndx));
+      const StringRef Name = unwrapOrError(Obj->getSectionName(Sec));
+      GM.push_back({Name, Ndx});
     }
-    ++SectionIndex;
   }
-  if (!HasGroups)
+  return Ret;
+}
+
+DenseMap<uint64_t, const GroupSection *>
+mapSectionsToGroups(ArrayRef<GroupSection> Groups) {
+  DenseMap<uint64_t, const GroupSection *> Ret;
+  for (const GroupSection &G : Groups)
+    for (const GroupMember &GM : G.Members)
+      Ret.insert({GM.Index, &G});
+  return Ret;
+}
+
+} // namespace
+
+template <class ELFT> void GNUStyle<ELFT>::printGroupSections(const ELFO *Obj) {
+  std::vector<GroupSection> V = getGroups<ELFT>(Obj);
+  DenseMap<uint64_t, const GroupSection *> Map = mapSectionsToGroups(V);
+  for (const GroupSection &G : V) {
+    OS << "\n"
+       << getGroupType(G.Type) << " group section ["
+       << format_decimal(G.Index, 5) << "] `" << G.Name << "' [" << G.Signature
+       << "] contains " << G.Members.size() << " sections:\n"
+       << "   [Index]    Name\n";
+    for (const GroupMember &GM : G.Members) {
+      const GroupSection *MainGroup = Map[GM.Index];
+      if (MainGroup != &G) {
+        OS.flush();
+        errs() << "Error: section [" << format_decimal(GM.Index, 5)
+               << "] in group section [" << format_decimal(G.Index, 5)
+               << "] already in group section ["
+               << format_decimal(MainGroup->Index, 5) << "]";
+        errs().flush();
+        continue;
+      }
+      OS << "   [" << format_decimal(GM.Index, 5) << "]   " << GM.Name << "\n";
+    }
+  }
+
+  if (V.empty())
     OS << "There are no section groups in this file.\n";
 }
 
@@ -3302,7 +3362,7 @@ static std::string getGNUNoteTypeName(const uint32_t NT) {
   std::string string;
   raw_string_ostream OS(string);
   OS << format("Unknown note type (0x%08x)", NT);
-  return string;
+  return OS.str();
 }
 
 static std::string getFreeBSDNoteTypeName(const uint32_t NT) {
@@ -3330,7 +3390,30 @@ static std::string getFreeBSDNoteTypeName(const uint32_t NT) {
   std::string string;
   raw_string_ostream OS(string);
   OS << format("Unknown note type (0x%08x)", NT);
-  return string;
+  return OS.str();
+}
+
+static std::string getAMDGPUNoteTypeName(const uint32_t NT) {
+  static const struct {
+    uint32_t ID;
+    const char *Name;
+  } Notes[] = {
+    {ELF::NT_AMD_AMDGPU_HSA_METADATA,
+     "NT_AMD_AMDGPU_HSA_METADATA (HSA Metadata)"},
+    {ELF::NT_AMD_AMDGPU_ISA,
+     "NT_AMD_AMDGPU_ISA (ISA Version)"},
+    {ELF::NT_AMD_AMDGPU_PAL_METADATA,
+     "NT_AMD_AMDGPU_PAL_METADATA (PAL Metadata)"}
+  };
+
+  for (const auto &Note : Notes)
+    if (Note.ID == NT)
+      return std::string(Note.Name);
+
+  std::string string;
+  raw_string_ostream OS(string);
+  OS << format("Unknown note type (0x%08x)", NT);
+  return OS.str();
 }
 
 template <typename ELFT>
@@ -3373,6 +3456,39 @@ static void printGNUNote(raw_ostream &OS, uint32_t NoteType,
   OS << '\n';
 }
 
+template <typename ELFT>
+static void printAMDGPUNote(raw_ostream &OS, uint32_t NoteType,
+                            ArrayRef<typename ELFFile<ELFT>::Elf_Word> Words,
+                            size_t Size) {
+  switch (NoteType) {
+  default:
+    return;
+    case ELF::NT_AMD_AMDGPU_HSA_METADATA:
+      OS << "    HSA Metadata:\n"
+         << StringRef(reinterpret_cast<const char *>(Words.data()), Size);
+      break;
+    case ELF::NT_AMD_AMDGPU_ISA:
+      OS << "    ISA Version:\n"
+         << "        "
+         << StringRef(reinterpret_cast<const char *>(Words.data()), Size);
+      break;
+    case ELF::NT_AMD_AMDGPU_PAL_METADATA:
+      const uint32_t *PALMetadataBegin = reinterpret_cast<const uint32_t *>(Words.data());
+      const uint32_t *PALMetadataEnd = PALMetadataBegin + Size;
+      std::vector<uint32_t> PALMetadata(PALMetadataBegin, PALMetadataEnd);
+      std::string PALMetadataString;
+      auto Error = AMDGPU::PALMD::toString(PALMetadata, PALMetadataString);
+      OS << "    PAL Metadata:\n";
+      if (Error) {
+        OS << "        Invalid";
+        return;
+      }
+      OS << PALMetadataString;
+      break;
+  }
+  OS.flush();
+}
+
 template <class ELFT>
 void GNUStyle<ELFT>::printNotes(const ELFFile<ELFT> *Obj) {
   const Elf_Ehdr *e = Obj->getHeader();
@@ -3413,6 +3529,9 @@ void GNUStyle<ELFT>::printNotes(const ELFFile<ELFT> *Obj) {
         printGNUNote<ELFT>(OS, Type, Descriptor, DescriptorSize);
       } else if (Name == "FreeBSD") {
         OS << getFreeBSDNoteTypeName(Type) << '\n';
+      } else if (Name == "AMD") {
+        OS << getAMDGPUNoteTypeName(Type) << '\n';
+        printAMDGPUNote<ELFT>(OS, Type, Descriptor, DescriptorSize);
       } else {
         OS << "Unknown note type: (" << format_hex(Type, 10) << ')';
       }
@@ -3446,13 +3565,22 @@ template <class ELFT> void LLVMStyle<ELFT>::printFileHeaders(const ELFO *Obj) {
                   makeArrayRef(ElfDataEncoding));
       W.printNumber("FileVersion", e->e_ident[ELF::EI_VERSION]);
 
-      // Handle architecture specific OS/ABI values.
-      if (e->e_machine == ELF::EM_AMDGPU &&
-          e->e_ident[ELF::EI_OSABI] == ELF::ELFOSABI_AMDGPU_HSA)
-        W.printHex("OS/ABI", "AMDGPU_HSA", ELF::ELFOSABI_AMDGPU_HSA);
-      else
-        W.printEnum("OS/ABI", e->e_ident[ELF::EI_OSABI],
-                    makeArrayRef(ElfOSABI));
+      auto OSABI = makeArrayRef(ElfOSABI);
+      if (e->e_ident[ELF::EI_OSABI] >= ELF::ELFOSABI_FIRST_ARCH &&
+          e->e_ident[ELF::EI_OSABI] <= ELF::ELFOSABI_LAST_ARCH) {
+        switch (e->e_machine) {
+        case ELF::EM_AMDGPU:
+          OSABI = makeArrayRef(AMDGPUElfOSABI);
+          break;
+        case ELF::EM_ARM:
+          OSABI = makeArrayRef(ARMElfOSABI);
+          break;
+        case ELF::EM_TI_C6000:
+          OSABI = makeArrayRef(C6000ElfOSABI);
+          break;
+        }
+      }
+      W.printEnum("OS/ABI", e->e_ident[ELF::EI_OSABI], OSABI);
       W.printNumber("ABIVersion", e->e_ident[ELF::EI_ABIVERSION]);
       W.printBinary("Unused", makeArrayRef(e->e_ident).slice(ELF::EI_PAD));
     }
@@ -3467,6 +3595,11 @@ template <class ELFT> void LLVMStyle<ELFT>::printFileHeaders(const ELFO *Obj) {
       W.printFlags("Flags", e->e_flags, makeArrayRef(ElfHeaderMipsFlags),
                    unsigned(ELF::EF_MIPS_ARCH), unsigned(ELF::EF_MIPS_ABI),
                    unsigned(ELF::EF_MIPS_MACH));
+    else if (e->e_machine == EM_AMDGPU)
+      W.printFlags("Flags", e->e_flags, makeArrayRef(ElfHeaderAMDGPUFlags),
+                   unsigned(ELF::EF_AMDGPU_ARCH));
+    else if (e->e_machine == EM_RISCV)
+      W.printFlags("Flags", e->e_flags, makeArrayRef(ElfHeaderRISCVFlags));
     else
       W.printFlags("Flags", e->e_flags);
     W.printNumber("HeaderSize", e->e_ehsize);
@@ -3481,36 +3614,32 @@ template <class ELFT> void LLVMStyle<ELFT>::printFileHeaders(const ELFO *Obj) {
 template <class ELFT>
 void LLVMStyle<ELFT>::printGroupSections(const ELFO *Obj) {
   DictScope Lists(W, "Groups");
-  uint32_t SectionIndex = 0;
-  bool HasGroups = false;
-  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
-    if (Sec.sh_type == ELF::SHT_GROUP) {
-      HasGroups = true;
-      const Elf_Shdr *Symtab = unwrapOrError(Obj->getSection(Sec.sh_link));
-      StringRef StrTable = unwrapOrError(Obj->getStringTableForSymtab(*Symtab));
-      const Elf_Sym *Sym =
-          unwrapOrError(Obj->template getEntry<Elf_Sym>(Symtab, Sec.sh_info));
-      auto Data = unwrapOrError(
-          Obj->template getSectionContentsAsArray<Elf_Word>(&Sec));
-      DictScope D(W, "Group");
-      StringRef Name = unwrapOrError(Obj->getSectionName(&Sec));
-      W.printNumber("Name", Name, Sec.sh_name);
-      W.printNumber("Index", SectionIndex);
-      W.printHex("Type", getGroupType(Data[0]), Data[0]);
-      W.startLine() << "Signature: " << StrTable.data() + Sym->st_name << "\n";
-      {
-        ListScope L(W, "Section(s) in group");
-        size_t Member = 1;
-        while (Member < Data.size()) {
-          auto Sec = unwrapOrError(Obj->getSection(Data[Member]));
-          const StringRef Name = unwrapOrError(Obj->getSectionName(Sec));
-          W.startLine() << Name << " (" << Data[Member++] << ")\n";
-        }
+  std::vector<GroupSection> V = getGroups<ELFT>(Obj);
+  DenseMap<uint64_t, const GroupSection *> Map = mapSectionsToGroups(V);
+  for (const GroupSection &G : V) {
+    DictScope D(W, "Group");
+    W.printNumber("Name", G.Name, G.ShName);
+    W.printNumber("Index", G.Index);
+    W.printHex("Type", getGroupType(G.Type), G.Type);
+    W.startLine() << "Signature: " << G.Signature << "\n";
+
+    ListScope L(W, "Section(s) in group");
+    for (const GroupMember &GM : G.Members) {
+      const GroupSection *MainGroup = Map[GM.Index];
+      if (MainGroup != &G) {
+        W.flush();
+        errs() << "Error: " << GM.Name << " (" << GM.Index
+               << ") in a group " + G.Name + " (" << G.Index
+               << ") is already in a group " + MainGroup->Name + " ("
+               << MainGroup->Index << ")\n";
+        errs().flush();
+        continue;
       }
+      W.startLine() << GM.Name << " (" << GM.Index << ")\n";
     }
-    ++SectionIndex;
   }
-  if (!HasGroups)
+
+  if (V.empty())
     W.startLine() << "There are no group sections in the file.\n";
 }
 

@@ -189,7 +189,18 @@ int PPCTTIImpl::getIntImmCost(unsigned Opcode, unsigned Idx, const APInt &Imm,
   return PPCTTIImpl::getIntImmCost(Imm, Ty);
 }
 
-void PPCTTIImpl::getUnrollingPreferences(Loop *L,
+unsigned PPCTTIImpl::getUserCost(const User *U,
+                                 ArrayRef<const Value *> Operands) {
+  if (U->getType()->isVectorTy()) {
+    // Instructions that need to be split should cost more.
+    std::pair<int, MVT> LT = TLI->getTypeLegalizationCost(DL, U->getType());
+    return LT.first * BaseT::getUserCost(U, Operands);
+  }
+  
+  return BaseT::getUserCost(U, Operands);
+}
+
+void PPCTTIImpl::getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
                                          TTI::UnrollingPreferences &UP) {
   if (ST->getDarwinDirective() == PPC::DIR_A2) {
     // The A2 is in-order with a deep pipeline, and concatenation unrolling
@@ -201,7 +212,7 @@ void PPCTTIImpl::getUnrollingPreferences(Loop *L,
     UP.AllowExpensiveTripCount = true;
   }
 
-  BaseT::getUnrollingPreferences(L, UP);
+  BaseT::getUnrollingPreferences(L, SE, UP);
 }
 
 bool PPCTTIImpl::enableAggressiveInterleaving(bool LoopHasReductions) {
@@ -215,7 +226,7 @@ bool PPCTTIImpl::enableAggressiveInterleaving(bool LoopHasReductions) {
   return LoopHasReductions;
 }
 
-bool PPCTTIImpl::expandMemCmp(Instruction *I, unsigned &MaxLoadSize) {
+bool PPCTTIImpl::enableMemCmpExpansion(unsigned &MaxLoadSize) {
   MaxLoadSize = 8;
   return true;
 }

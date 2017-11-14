@@ -370,7 +370,7 @@ define void @test36() {
 ; PPC64LE:       # BB#0:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  fence singlethread acquire
+  fence syncscope("singlethread") acquire
   ret void
 }
 
@@ -379,7 +379,7 @@ define void @test37() {
 ; PPC64LE:       # BB#0:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  fence singlethread release
+  fence syncscope("singlethread") release
   ret void
 }
 
@@ -388,7 +388,7 @@ define void @test38() {
 ; PPC64LE:       # BB#0:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  fence singlethread acq_rel
+  fence syncscope("singlethread") acq_rel
   ret void
 }
 
@@ -397,7 +397,7 @@ define void @test39() {
 ; PPC64LE:       # BB#0:
 ; PPC64LE-NEXT:    sync
 ; PPC64LE-NEXT:    blr
-  fence singlethread seq_cst
+  fence syncscope("singlethread") seq_cst
   ret void
 }
 
@@ -409,7 +409,6 @@ define void @test40(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  .LBB40_1:
 ; PPC64LE-NEXT:    stbcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB40_2
 ; PPC64LE-NEXT:  .LBB40_2:
 ; PPC64LE-NEXT:    lbarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -472,7 +471,6 @@ define void @test43(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  .LBB43_1:
 ; PPC64LE-NEXT:    stbcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB43_2
 ; PPC64LE-NEXT:  .LBB43_2:
 ; PPC64LE-NEXT:    lbarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -493,7 +491,6 @@ define void @test44(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  .LBB44_1:
 ; PPC64LE-NEXT:    stbcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB44_2
 ; PPC64LE-NEXT:  .LBB44_2:
 ; PPC64LE-NEXT:    lbarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -623,7 +620,6 @@ define void @test50(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  .LBB50_1:
 ; PPC64LE-NEXT:    sthcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB50_2
 ; PPC64LE-NEXT:  .LBB50_2:
 ; PPC64LE-NEXT:    lharx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -686,7 +682,6 @@ define void @test53(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  .LBB53_1:
 ; PPC64LE-NEXT:    sthcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB53_2
 ; PPC64LE-NEXT:  .LBB53_2:
 ; PPC64LE-NEXT:    lharx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -707,7 +702,6 @@ define void @test54(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  .LBB54_1:
 ; PPC64LE-NEXT:    sthcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB54_2
 ; PPC64LE-NEXT:  .LBB54_2:
 ; PPC64LE-NEXT:    lharx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -837,7 +831,6 @@ define void @test60(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  .LBB60_1:
 ; PPC64LE-NEXT:    stwcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB60_2
 ; PPC64LE-NEXT:  .LBB60_2:
 ; PPC64LE-NEXT:    lwarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -900,7 +893,6 @@ define void @test63(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  .LBB63_1:
 ; PPC64LE-NEXT:    stwcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB63_2
 ; PPC64LE-NEXT:  .LBB63_2:
 ; PPC64LE-NEXT:    lwarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -921,7 +913,6 @@ define void @test64(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  .LBB64_1:
 ; PPC64LE-NEXT:    stwcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB64_2
 ; PPC64LE-NEXT:  .LBB64_2:
 ; PPC64LE-NEXT:    lwarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1051,7 +1042,6 @@ define void @test70(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  .LBB70_1:
 ; PPC64LE-NEXT:    stdcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB70_2
 ; PPC64LE-NEXT:  .LBB70_2:
 ; PPC64LE-NEXT:    ldarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpd 4, 6
@@ -1114,7 +1104,6 @@ define void @test73(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  .LBB73_1:
 ; PPC64LE-NEXT:    stdcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB73_2
 ; PPC64LE-NEXT:  .LBB73_2:
 ; PPC64LE-NEXT:    ldarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpd 4, 6
@@ -1135,7 +1124,6 @@ define void @test74(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  .LBB74_1:
 ; PPC64LE-NEXT:    stdcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB74_2
 ; PPC64LE-NEXT:  .LBB74_2:
 ; PPC64LE-NEXT:    ldarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpd 4, 6
@@ -1265,7 +1253,6 @@ define void @test80(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  .LBB80_1:
 ; PPC64LE-NEXT:    stbcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB80_2
 ; PPC64LE-NEXT:  .LBB80_2:
 ; PPC64LE-NEXT:    lbarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1273,7 +1260,7 @@ define void @test80(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread monotonic monotonic
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") monotonic monotonic
   ret void
 }
 
@@ -1294,7 +1281,7 @@ define void @test81(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread acquire monotonic
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") acquire monotonic
   ret void
 }
 
@@ -1315,7 +1302,7 @@ define void @test82(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread acquire acquire
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") acquire acquire
   ret void
 }
 
@@ -1328,7 +1315,6 @@ define void @test83(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  .LBB83_1:
 ; PPC64LE-NEXT:    stbcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB83_2
 ; PPC64LE-NEXT:  .LBB83_2:
 ; PPC64LE-NEXT:    lbarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1336,7 +1322,7 @@ define void @test83(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread release monotonic
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") release monotonic
   ret void
 }
 
@@ -1349,7 +1335,6 @@ define void @test84(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  .LBB84_1:
 ; PPC64LE-NEXT:    stbcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB84_2
 ; PPC64LE-NEXT:  .LBB84_2:
 ; PPC64LE-NEXT:    lbarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1357,7 +1342,7 @@ define void @test84(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread release acquire
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") release acquire
   ret void
 }
 
@@ -1379,7 +1364,7 @@ define void @test85(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread acq_rel monotonic
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") acq_rel monotonic
   ret void
 }
 
@@ -1401,7 +1386,7 @@ define void @test86(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread acq_rel acquire
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") acq_rel acquire
   ret void
 }
 
@@ -1423,7 +1408,7 @@ define void @test87(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread seq_cst monotonic
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") seq_cst monotonic
   ret void
 }
 
@@ -1445,7 +1430,7 @@ define void @test88(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread seq_cst acquire
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") seq_cst acquire
   ret void
 }
 
@@ -1467,7 +1452,7 @@ define void @test89(i8* %ptr, i8 %cmp, i8 %val) {
 ; PPC64LE-NEXT:    stbcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val singlethread seq_cst seq_cst
+  %res = cmpxchg i8* %ptr, i8 %cmp, i8 %val syncscope("singlethread") seq_cst seq_cst
   ret void
 }
 
@@ -1479,7 +1464,6 @@ define void @test90(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  .LBB90_1:
 ; PPC64LE-NEXT:    sthcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB90_2
 ; PPC64LE-NEXT:  .LBB90_2:
 ; PPC64LE-NEXT:    lharx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1487,7 +1471,7 @@ define void @test90(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread monotonic monotonic
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") monotonic monotonic
   ret void
 }
 
@@ -1508,7 +1492,7 @@ define void @test91(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread acquire monotonic
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") acquire monotonic
   ret void
 }
 
@@ -1529,7 +1513,7 @@ define void @test92(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread acquire acquire
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") acquire acquire
   ret void
 }
 
@@ -1542,7 +1526,6 @@ define void @test93(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  .LBB93_1:
 ; PPC64LE-NEXT:    sthcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB93_2
 ; PPC64LE-NEXT:  .LBB93_2:
 ; PPC64LE-NEXT:    lharx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1550,7 +1533,7 @@ define void @test93(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread release monotonic
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") release monotonic
   ret void
 }
 
@@ -1563,7 +1546,6 @@ define void @test94(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  .LBB94_1:
 ; PPC64LE-NEXT:    sthcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB94_2
 ; PPC64LE-NEXT:  .LBB94_2:
 ; PPC64LE-NEXT:    lharx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1571,7 +1553,7 @@ define void @test94(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread release acquire
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") release acquire
   ret void
 }
 
@@ -1593,7 +1575,7 @@ define void @test95(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread acq_rel monotonic
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") acq_rel monotonic
   ret void
 }
 
@@ -1615,7 +1597,7 @@ define void @test96(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread acq_rel acquire
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") acq_rel acquire
   ret void
 }
 
@@ -1637,7 +1619,7 @@ define void @test97(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread seq_cst monotonic
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") seq_cst monotonic
   ret void
 }
 
@@ -1659,7 +1641,7 @@ define void @test98(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread seq_cst acquire
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") seq_cst acquire
   ret void
 }
 
@@ -1681,7 +1663,7 @@ define void @test99(i16* %ptr, i16 %cmp, i16 %val) {
 ; PPC64LE-NEXT:    sthcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val singlethread seq_cst seq_cst
+  %res = cmpxchg i16* %ptr, i16 %cmp, i16 %val syncscope("singlethread") seq_cst seq_cst
   ret void
 }
 
@@ -1693,7 +1675,6 @@ define void @test100(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  .LBB100_1:
 ; PPC64LE-NEXT:    stwcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB100_2
 ; PPC64LE-NEXT:  .LBB100_2:
 ; PPC64LE-NEXT:    lwarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1701,7 +1682,7 @@ define void @test100(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread monotonic monotonic
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") monotonic monotonic
   ret void
 }
 
@@ -1722,7 +1703,7 @@ define void @test101(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread acquire monotonic
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") acquire monotonic
   ret void
 }
 
@@ -1743,7 +1724,7 @@ define void @test102(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread acquire acquire
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") acquire acquire
   ret void
 }
 
@@ -1756,7 +1737,6 @@ define void @test103(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  .LBB103_1:
 ; PPC64LE-NEXT:    stwcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB103_2
 ; PPC64LE-NEXT:  .LBB103_2:
 ; PPC64LE-NEXT:    lwarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1764,7 +1744,7 @@ define void @test103(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread release monotonic
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") release monotonic
   ret void
 }
 
@@ -1777,7 +1757,6 @@ define void @test104(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  .LBB104_1:
 ; PPC64LE-NEXT:    stwcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB104_2
 ; PPC64LE-NEXT:  .LBB104_2:
 ; PPC64LE-NEXT:    lwarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpw 4, 6
@@ -1785,7 +1764,7 @@ define void @test104(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread release acquire
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") release acquire
   ret void
 }
 
@@ -1807,7 +1786,7 @@ define void @test105(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread acq_rel monotonic
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") acq_rel monotonic
   ret void
 }
 
@@ -1829,7 +1808,7 @@ define void @test106(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread acq_rel acquire
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") acq_rel acquire
   ret void
 }
 
@@ -1851,7 +1830,7 @@ define void @test107(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread seq_cst monotonic
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") seq_cst monotonic
   ret void
 }
 
@@ -1873,7 +1852,7 @@ define void @test108(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread seq_cst acquire
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") seq_cst acquire
   ret void
 }
 
@@ -1895,7 +1874,7 @@ define void @test109(i32* %ptr, i32 %cmp, i32 %val) {
 ; PPC64LE-NEXT:    stwcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val singlethread seq_cst seq_cst
+  %res = cmpxchg i32* %ptr, i32 %cmp, i32 %val syncscope("singlethread") seq_cst seq_cst
   ret void
 }
 
@@ -1907,7 +1886,6 @@ define void @test110(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  .LBB110_1:
 ; PPC64LE-NEXT:    stdcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB110_2
 ; PPC64LE-NEXT:  .LBB110_2:
 ; PPC64LE-NEXT:    ldarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpd 4, 6
@@ -1915,7 +1893,7 @@ define void @test110(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread monotonic monotonic
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") monotonic monotonic
   ret void
 }
 
@@ -1936,7 +1914,7 @@ define void @test111(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread acquire monotonic
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") acquire monotonic
   ret void
 }
 
@@ -1957,7 +1935,7 @@ define void @test112(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread acquire acquire
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") acquire acquire
   ret void
 }
 
@@ -1970,7 +1948,6 @@ define void @test113(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  .LBB113_1:
 ; PPC64LE-NEXT:    stdcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB113_2
 ; PPC64LE-NEXT:  .LBB113_2:
 ; PPC64LE-NEXT:    ldarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpd 4, 6
@@ -1978,7 +1955,7 @@ define void @test113(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread release monotonic
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") release monotonic
   ret void
 }
 
@@ -1991,7 +1968,6 @@ define void @test114(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  .LBB114_1:
 ; PPC64LE-NEXT:    stdcx. 5, 0, 3
 ; PPC64LE-NEXT:    beqlr 0
-; PPC64LE-NEXT:    b .LBB114_2
 ; PPC64LE-NEXT:  .LBB114_2:
 ; PPC64LE-NEXT:    ldarx 6, 0, 3
 ; PPC64LE-NEXT:    cmpd 4, 6
@@ -1999,7 +1975,7 @@ define void @test114(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:  # BB#3:
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread release acquire
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") release acquire
   ret void
 }
 
@@ -2021,7 +1997,7 @@ define void @test115(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread acq_rel monotonic
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") acq_rel monotonic
   ret void
 }
 
@@ -2043,7 +2019,7 @@ define void @test116(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread acq_rel acquire
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") acq_rel acquire
   ret void
 }
 
@@ -2065,7 +2041,7 @@ define void @test117(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread seq_cst monotonic
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") seq_cst monotonic
   ret void
 }
 
@@ -2087,7 +2063,7 @@ define void @test118(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread seq_cst acquire
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") seq_cst acquire
   ret void
 }
 
@@ -2109,7 +2085,7 @@ define void @test119(i64* %ptr, i64 %cmp, i64 %val) {
 ; PPC64LE-NEXT:    stdcx. 6, 0, 3
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val singlethread seq_cst seq_cst
+  %res = cmpxchg i64* %ptr, i64 %cmp, i64 %val syncscope("singlethread") seq_cst seq_cst
   ret void
 }
 
@@ -5847,7 +5823,7 @@ define i8 @test340(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw xchg i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -5862,7 +5838,7 @@ define i8 @test341(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw xchg i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -5877,7 +5853,7 @@ define i8 @test342(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw xchg i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -5893,7 +5869,7 @@ define i8 @test343(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw xchg i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -5909,7 +5885,7 @@ define i8 @test344(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw xchg i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -5923,7 +5899,7 @@ define i16 @test345(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw xchg i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -5938,7 +5914,7 @@ define i16 @test346(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw xchg i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -5953,7 +5929,7 @@ define i16 @test347(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw xchg i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -5969,7 +5945,7 @@ define i16 @test348(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw xchg i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -5985,7 +5961,7 @@ define i16 @test349(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw xchg i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -5999,7 +5975,7 @@ define i32 @test350(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw xchg i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -6014,7 +5990,7 @@ define i32 @test351(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw xchg i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -6029,7 +6005,7 @@ define i32 @test352(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw xchg i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -6045,7 +6021,7 @@ define i32 @test353(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw xchg i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -6061,7 +6037,7 @@ define i32 @test354(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw xchg i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -6075,7 +6051,7 @@ define i64 @test355(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw xchg i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -6090,7 +6066,7 @@ define i64 @test356(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw xchg i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -6105,7 +6081,7 @@ define i64 @test357(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw xchg i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -6121,7 +6097,7 @@ define i64 @test358(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw xchg i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -6137,7 +6113,7 @@ define i64 @test359(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xchg i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw xchg i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -6152,7 +6128,7 @@ define i8 @test360(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw add i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -6168,7 +6144,7 @@ define i8 @test361(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw add i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -6184,7 +6160,7 @@ define i8 @test362(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw add i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -6201,7 +6177,7 @@ define i8 @test363(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw add i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -6218,7 +6194,7 @@ define i8 @test364(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw add i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -6233,7 +6209,7 @@ define i16 @test365(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw add i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -6249,7 +6225,7 @@ define i16 @test366(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw add i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -6265,7 +6241,7 @@ define i16 @test367(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw add i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -6282,7 +6258,7 @@ define i16 @test368(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw add i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -6299,7 +6275,7 @@ define i16 @test369(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw add i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -6314,7 +6290,7 @@ define i32 @test370(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw add i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -6330,7 +6306,7 @@ define i32 @test371(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw add i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -6346,7 +6322,7 @@ define i32 @test372(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw add i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -6363,7 +6339,7 @@ define i32 @test373(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw add i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -6380,7 +6356,7 @@ define i32 @test374(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw add i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -6395,7 +6371,7 @@ define i64 @test375(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw add i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -6411,7 +6387,7 @@ define i64 @test376(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw add i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -6427,7 +6403,7 @@ define i64 @test377(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw add i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -6444,7 +6420,7 @@ define i64 @test378(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw add i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -6461,7 +6437,7 @@ define i64 @test379(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw add i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw add i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -6476,7 +6452,7 @@ define i8 @test380(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw sub i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -6492,7 +6468,7 @@ define i8 @test381(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw sub i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -6508,7 +6484,7 @@ define i8 @test382(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw sub i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -6525,7 +6501,7 @@ define i8 @test383(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw sub i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -6542,7 +6518,7 @@ define i8 @test384(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw sub i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -6557,7 +6533,7 @@ define i16 @test385(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw sub i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -6573,7 +6549,7 @@ define i16 @test386(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw sub i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -6589,7 +6565,7 @@ define i16 @test387(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw sub i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -6606,7 +6582,7 @@ define i16 @test388(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw sub i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -6623,7 +6599,7 @@ define i16 @test389(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw sub i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -6638,7 +6614,7 @@ define i32 @test390(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw sub i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -6654,7 +6630,7 @@ define i32 @test391(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw sub i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -6670,7 +6646,7 @@ define i32 @test392(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw sub i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -6687,7 +6663,7 @@ define i32 @test393(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw sub i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -6704,7 +6680,7 @@ define i32 @test394(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw sub i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -6719,7 +6695,7 @@ define i64 @test395(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw sub i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -6735,7 +6711,7 @@ define i64 @test396(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw sub i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -6751,7 +6727,7 @@ define i64 @test397(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw sub i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -6768,7 +6744,7 @@ define i64 @test398(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw sub i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -6785,7 +6761,7 @@ define i64 @test399(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw sub i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw sub i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -6800,7 +6776,7 @@ define i8 @test400(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw and i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -6816,7 +6792,7 @@ define i8 @test401(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw and i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -6832,7 +6808,7 @@ define i8 @test402(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw and i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -6849,7 +6825,7 @@ define i8 @test403(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw and i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -6866,7 +6842,7 @@ define i8 @test404(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw and i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -6881,7 +6857,7 @@ define i16 @test405(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw and i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -6897,7 +6873,7 @@ define i16 @test406(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw and i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -6913,7 +6889,7 @@ define i16 @test407(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw and i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -6930,7 +6906,7 @@ define i16 @test408(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw and i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -6947,7 +6923,7 @@ define i16 @test409(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw and i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -6962,7 +6938,7 @@ define i32 @test410(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw and i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -6978,7 +6954,7 @@ define i32 @test411(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw and i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -6994,7 +6970,7 @@ define i32 @test412(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw and i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -7011,7 +6987,7 @@ define i32 @test413(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw and i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -7028,7 +7004,7 @@ define i32 @test414(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw and i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -7043,7 +7019,7 @@ define i64 @test415(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw and i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -7059,7 +7035,7 @@ define i64 @test416(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw and i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -7075,7 +7051,7 @@ define i64 @test417(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw and i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -7092,7 +7068,7 @@ define i64 @test418(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw and i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -7109,7 +7085,7 @@ define i64 @test419(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw and i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw and i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -7124,7 +7100,7 @@ define i8 @test420(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw nand i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -7140,7 +7116,7 @@ define i8 @test421(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw nand i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -7156,7 +7132,7 @@ define i8 @test422(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw nand i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -7173,7 +7149,7 @@ define i8 @test423(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw nand i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -7190,7 +7166,7 @@ define i8 @test424(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw nand i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -7205,7 +7181,7 @@ define i16 @test425(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw nand i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -7221,7 +7197,7 @@ define i16 @test426(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw nand i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -7237,7 +7213,7 @@ define i16 @test427(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw nand i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -7254,7 +7230,7 @@ define i16 @test428(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw nand i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -7271,7 +7247,7 @@ define i16 @test429(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw nand i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -7286,7 +7262,7 @@ define i32 @test430(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw nand i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -7302,7 +7278,7 @@ define i32 @test431(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw nand i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -7318,7 +7294,7 @@ define i32 @test432(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw nand i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -7335,7 +7311,7 @@ define i32 @test433(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw nand i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -7352,7 +7328,7 @@ define i32 @test434(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw nand i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -7367,7 +7343,7 @@ define i64 @test435(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw nand i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -7383,7 +7359,7 @@ define i64 @test436(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw nand i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -7399,7 +7375,7 @@ define i64 @test437(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw nand i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -7416,7 +7392,7 @@ define i64 @test438(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw nand i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -7433,7 +7409,7 @@ define i64 @test439(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw nand i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw nand i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -7448,7 +7424,7 @@ define i8 @test440(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw or i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -7464,7 +7440,7 @@ define i8 @test441(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw or i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -7480,7 +7456,7 @@ define i8 @test442(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw or i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -7497,7 +7473,7 @@ define i8 @test443(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw or i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -7514,7 +7490,7 @@ define i8 @test444(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw or i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -7529,7 +7505,7 @@ define i16 @test445(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw or i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -7545,7 +7521,7 @@ define i16 @test446(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw or i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -7561,7 +7537,7 @@ define i16 @test447(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw or i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -7578,7 +7554,7 @@ define i16 @test448(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw or i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -7595,7 +7571,7 @@ define i16 @test449(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw or i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -7610,7 +7586,7 @@ define i32 @test450(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw or i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -7626,7 +7602,7 @@ define i32 @test451(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw or i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -7642,7 +7618,7 @@ define i32 @test452(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw or i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -7659,7 +7635,7 @@ define i32 @test453(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw or i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -7676,7 +7652,7 @@ define i32 @test454(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw or i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -7691,7 +7667,7 @@ define i64 @test455(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw or i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -7707,7 +7683,7 @@ define i64 @test456(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw or i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -7723,7 +7699,7 @@ define i64 @test457(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw or i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -7740,7 +7716,7 @@ define i64 @test458(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw or i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -7757,7 +7733,7 @@ define i64 @test459(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw or i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw or i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -7772,7 +7748,7 @@ define i8 @test460(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw xor i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -7788,7 +7764,7 @@ define i8 @test461(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw xor i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -7804,7 +7780,7 @@ define i8 @test462(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw xor i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -7821,7 +7797,7 @@ define i8 @test463(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw xor i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -7838,7 +7814,7 @@ define i8 @test464(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw xor i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -7853,7 +7829,7 @@ define i16 @test465(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw xor i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -7869,7 +7845,7 @@ define i16 @test466(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw xor i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -7885,7 +7861,7 @@ define i16 @test467(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw xor i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -7902,7 +7878,7 @@ define i16 @test468(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw xor i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -7919,7 +7895,7 @@ define i16 @test469(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw xor i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -7934,7 +7910,7 @@ define i32 @test470(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw xor i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -7950,7 +7926,7 @@ define i32 @test471(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw xor i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -7966,7 +7942,7 @@ define i32 @test472(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw xor i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -7983,7 +7959,7 @@ define i32 @test473(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw xor i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -8000,7 +7976,7 @@ define i32 @test474(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw xor i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -8015,7 +7991,7 @@ define i64 @test475(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw xor i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -8031,7 +8007,7 @@ define i64 @test476(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw xor i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -8047,7 +8023,7 @@ define i64 @test477(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  # BB#2:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw xor i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -8064,7 +8040,7 @@ define i64 @test478(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw xor i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -8081,7 +8057,7 @@ define i64 @test479(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw xor i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw xor i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -8099,7 +8075,7 @@ define i8 @test480(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB480_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw max i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -8118,7 +8094,7 @@ define i8 @test481(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB481_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw max i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -8137,7 +8113,7 @@ define i8 @test482(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB482_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw max i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -8157,7 +8133,7 @@ define i8 @test483(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw max i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -8177,7 +8153,7 @@ define i8 @test484(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw max i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -8195,7 +8171,7 @@ define i16 @test485(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB485_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw max i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -8214,7 +8190,7 @@ define i16 @test486(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB486_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw max i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -8233,7 +8209,7 @@ define i16 @test487(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB487_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw max i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -8253,7 +8229,7 @@ define i16 @test488(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw max i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -8273,7 +8249,7 @@ define i16 @test489(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw max i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -8290,7 +8266,7 @@ define i32 @test490(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB490_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw max i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -8308,7 +8284,7 @@ define i32 @test491(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB491_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw max i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -8326,7 +8302,7 @@ define i32 @test492(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB492_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw max i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -8345,7 +8321,7 @@ define i32 @test493(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw max i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -8364,7 +8340,7 @@ define i32 @test494(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw max i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -8381,7 +8357,7 @@ define i64 @test495(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB495_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw max i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -8399,7 +8375,7 @@ define i64 @test496(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB496_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw max i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -8417,7 +8393,7 @@ define i64 @test497(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB497_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw max i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -8436,7 +8412,7 @@ define i64 @test498(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw max i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -8455,7 +8431,7 @@ define i64 @test499(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw max i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw max i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -8473,7 +8449,7 @@ define i8 @test500(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB500_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw min i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -8492,7 +8468,7 @@ define i8 @test501(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB501_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw min i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -8511,7 +8487,7 @@ define i8 @test502(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB502_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw min i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -8531,7 +8507,7 @@ define i8 @test503(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw min i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -8551,7 +8527,7 @@ define i8 @test504(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw min i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -8569,7 +8545,7 @@ define i16 @test505(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB505_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw min i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -8588,7 +8564,7 @@ define i16 @test506(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB506_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw min i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -8607,7 +8583,7 @@ define i16 @test507(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB507_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw min i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -8627,7 +8603,7 @@ define i16 @test508(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw min i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -8647,7 +8623,7 @@ define i16 @test509(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw min i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -8664,7 +8640,7 @@ define i32 @test510(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB510_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw min i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -8682,7 +8658,7 @@ define i32 @test511(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB511_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw min i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -8700,7 +8676,7 @@ define i32 @test512(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB512_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw min i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -8719,7 +8695,7 @@ define i32 @test513(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw min i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -8738,7 +8714,7 @@ define i32 @test514(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw min i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -8755,7 +8731,7 @@ define i64 @test515(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB515_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw min i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -8773,7 +8749,7 @@ define i64 @test516(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB516_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw min i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -8791,7 +8767,7 @@ define i64 @test517(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB517_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw min i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -8810,7 +8786,7 @@ define i64 @test518(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw min i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -8829,7 +8805,7 @@ define i64 @test519(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw min i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw min i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -8846,7 +8822,7 @@ define i8 @test520(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB520_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw umax i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -8864,7 +8840,7 @@ define i8 @test521(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB521_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw umax i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -8882,7 +8858,7 @@ define i8 @test522(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB522_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw umax i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -8901,7 +8877,7 @@ define i8 @test523(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw umax i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -8920,7 +8896,7 @@ define i8 @test524(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw umax i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -8937,7 +8913,7 @@ define i16 @test525(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB525_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw umax i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -8955,7 +8931,7 @@ define i16 @test526(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB526_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw umax i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -8973,7 +8949,7 @@ define i16 @test527(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB527_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw umax i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -8992,7 +8968,7 @@ define i16 @test528(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw umax i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -9011,7 +8987,7 @@ define i16 @test529(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw umax i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -9028,7 +9004,7 @@ define i32 @test530(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB530_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw umax i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -9046,7 +9022,7 @@ define i32 @test531(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB531_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw umax i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -9064,7 +9040,7 @@ define i32 @test532(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB532_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw umax i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -9083,7 +9059,7 @@ define i32 @test533(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw umax i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -9102,7 +9078,7 @@ define i32 @test534(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw umax i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -9119,7 +9095,7 @@ define i64 @test535(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB535_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw umax i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -9137,7 +9113,7 @@ define i64 @test536(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB536_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw umax i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -9155,7 +9131,7 @@ define i64 @test537(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB537_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw umax i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -9174,7 +9150,7 @@ define i64 @test538(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw umax i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -9193,7 +9169,7 @@ define i64 @test539(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umax i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw umax i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 
@@ -9210,7 +9186,7 @@ define i8 @test540(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB540_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i8* %ptr, i8 %val singlethread monotonic
+  %ret = atomicrmw umin i8* %ptr, i8 %val syncscope("singlethread") monotonic
   ret i8 %ret
 }
 
@@ -9228,7 +9204,7 @@ define i8 @test541(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB541_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i8* %ptr, i8 %val singlethread acquire
+  %ret = atomicrmw umin i8* %ptr, i8 %val syncscope("singlethread") acquire
   ret i8 %ret
 }
 
@@ -9246,7 +9222,7 @@ define i8 @test542(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:  .LBB542_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i8* %ptr, i8 %val singlethread release
+  %ret = atomicrmw umin i8* %ptr, i8 %val syncscope("singlethread") release
   ret i8 %ret
 }
 
@@ -9265,7 +9241,7 @@ define i8 @test543(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i8* %ptr, i8 %val singlethread acq_rel
+  %ret = atomicrmw umin i8* %ptr, i8 %val syncscope("singlethread") acq_rel
   ret i8 %ret
 }
 
@@ -9284,7 +9260,7 @@ define i8 @test544(i8* %ptr, i8 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i8* %ptr, i8 %val singlethread seq_cst
+  %ret = atomicrmw umin i8* %ptr, i8 %val syncscope("singlethread") seq_cst
   ret i8 %ret
 }
 
@@ -9301,7 +9277,7 @@ define i16 @test545(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB545_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i16* %ptr, i16 %val singlethread monotonic
+  %ret = atomicrmw umin i16* %ptr, i16 %val syncscope("singlethread") monotonic
   ret i16 %ret
 }
 
@@ -9319,7 +9295,7 @@ define i16 @test546(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB546_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i16* %ptr, i16 %val singlethread acquire
+  %ret = atomicrmw umin i16* %ptr, i16 %val syncscope("singlethread") acquire
   ret i16 %ret
 }
 
@@ -9337,7 +9313,7 @@ define i16 @test547(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:  .LBB547_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i16* %ptr, i16 %val singlethread release
+  %ret = atomicrmw umin i16* %ptr, i16 %val syncscope("singlethread") release
   ret i16 %ret
 }
 
@@ -9356,7 +9332,7 @@ define i16 @test548(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i16* %ptr, i16 %val singlethread acq_rel
+  %ret = atomicrmw umin i16* %ptr, i16 %val syncscope("singlethread") acq_rel
   ret i16 %ret
 }
 
@@ -9375,7 +9351,7 @@ define i16 @test549(i16* %ptr, i16 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i16* %ptr, i16 %val singlethread seq_cst
+  %ret = atomicrmw umin i16* %ptr, i16 %val syncscope("singlethread") seq_cst
   ret i16 %ret
 }
 
@@ -9392,7 +9368,7 @@ define i32 @test550(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB550_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i32* %ptr, i32 %val singlethread monotonic
+  %ret = atomicrmw umin i32* %ptr, i32 %val syncscope("singlethread") monotonic
   ret i32 %ret
 }
 
@@ -9410,7 +9386,7 @@ define i32 @test551(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB551_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i32* %ptr, i32 %val singlethread acquire
+  %ret = atomicrmw umin i32* %ptr, i32 %val syncscope("singlethread") acquire
   ret i32 %ret
 }
 
@@ -9428,7 +9404,7 @@ define i32 @test552(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:  .LBB552_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i32* %ptr, i32 %val singlethread release
+  %ret = atomicrmw umin i32* %ptr, i32 %val syncscope("singlethread") release
   ret i32 %ret
 }
 
@@ -9447,7 +9423,7 @@ define i32 @test553(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i32* %ptr, i32 %val singlethread acq_rel
+  %ret = atomicrmw umin i32* %ptr, i32 %val syncscope("singlethread") acq_rel
   ret i32 %ret
 }
 
@@ -9466,7 +9442,7 @@ define i32 @test554(i32* %ptr, i32 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i32* %ptr, i32 %val singlethread seq_cst
+  %ret = atomicrmw umin i32* %ptr, i32 %val syncscope("singlethread") seq_cst
   ret i32 %ret
 }
 
@@ -9483,7 +9459,7 @@ define i64 @test555(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB555_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i64* %ptr, i64 %val singlethread monotonic
+  %ret = atomicrmw umin i64* %ptr, i64 %val syncscope("singlethread") monotonic
   ret i64 %ret
 }
 
@@ -9501,7 +9477,7 @@ define i64 @test556(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB556_3:
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i64* %ptr, i64 %val singlethread acquire
+  %ret = atomicrmw umin i64* %ptr, i64 %val syncscope("singlethread") acquire
   ret i64 %ret
 }
 
@@ -9519,7 +9495,7 @@ define i64 @test557(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:  .LBB557_3:
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i64* %ptr, i64 %val singlethread release
+  %ret = atomicrmw umin i64* %ptr, i64 %val syncscope("singlethread") release
   ret i64 %ret
 }
 
@@ -9538,7 +9514,7 @@ define i64 @test558(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i64* %ptr, i64 %val singlethread acq_rel
+  %ret = atomicrmw umin i64* %ptr, i64 %val syncscope("singlethread") acq_rel
   ret i64 %ret
 }
 
@@ -9557,7 +9533,7 @@ define i64 @test559(i64* %ptr, i64 %val) {
 ; PPC64LE-NEXT:    mr 3, 5
 ; PPC64LE-NEXT:    lwsync
 ; PPC64LE-NEXT:    blr
-  %ret = atomicrmw umin i64* %ptr, i64 %val singlethread seq_cst
+  %ret = atomicrmw umin i64* %ptr, i64 %val syncscope("singlethread") seq_cst
   ret i64 %ret
 }
 

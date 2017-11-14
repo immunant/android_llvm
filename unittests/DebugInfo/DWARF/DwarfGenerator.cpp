@@ -153,7 +153,7 @@ llvm::Error dwarfgen::Generator::init(Triple TheTriple, uint16_t V) {
 
   MOFI.reset(new MCObjectFileInfo);
   MC.reset(new MCContext(MAI.get(), MRI.get(), MOFI.get()));
-  MOFI->InitMCObjectFileInfo(TheTriple, /*PIC*/ false, CodeModel::Default, *MC);
+  MOFI->InitMCObjectFileInfo(TheTriple, /*PIC*/ false, *MC);
 
   MCTargetOptions Options;
   MAB = TheTarget->createMCAsmBackend(*MRI, TripleName, "", Options);
@@ -181,7 +181,8 @@ llvm::Error dwarfgen::Generator::init(Triple TheTriple, uint16_t V) {
 
   MCTargetOptions MCOptions = InitMCTargetOptionsFromFlags();
   MS = TheTarget->createMCObjectStreamer(
-      TheTriple, *MC, *MAB, *Stream, MCE, *MSTI, MCOptions.MCRelaxAll,
+      TheTriple, *MC, std::unique_ptr<MCAsmBackend>(MAB), *Stream,
+      std::unique_ptr<MCCodeEmitter>(MCE), *MSTI, MCOptions.MCRelaxAll,
       MCOptions.MCIncrementalLinkerCompatible,
       /*DWARFMustBeAtTheEnd*/ false);
   if (!MS)

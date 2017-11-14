@@ -30,7 +30,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/OptimizationDiagnosticInfo.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/CodeGen/CalcSpillWeights.h"
 #include "llvm/CodeGen/EdgeBundles.h"
 #include "llvm/CodeGen/LiveInterval.h"
@@ -546,14 +546,17 @@ void RAGreedy::getAnalysisUsage(AnalysisUsage &AU) const {
 //===----------------------------------------------------------------------===//
 
 bool RAGreedy::LRE_CanEraseVirtReg(unsigned VirtReg) {
+  LiveInterval &LI = LIS->getInterval(VirtReg);
   if (VRM->hasPhys(VirtReg)) {
-    LiveInterval &LI = LIS->getInterval(VirtReg);
     Matrix->unassign(LI);
     aboutToRemoveInterval(LI);
     return true;
   }
   // Unassigned virtreg is probably in the priority queue.
   // RegAllocBase will erase it after dequeueing.
+  // Nonetheless, clear the live-range so that the debug
+  // dump will show the right state for that VirtReg.
+  LI.clear();
   return false;
 }
 
@@ -2051,6 +2054,15 @@ unsigned RAGreedy::trySplit(LiveInterval &VirtReg, AllocationOrder &Order,
 //                          Last Chance Recoloring
 //===----------------------------------------------------------------------===//
 
+/// Return true if \p reg has any tied def operand.
+static bool hasTiedDef(MachineRegisterInfo *MRI, unsigned reg) {
+  for (const MachineOperand &MO : MRI->def_operands(reg))
+    if (MO.isTied())
+      return true;
+
+  return false;
+}
+
 /// mayRecolorAllInterferences - Check if the virtual registers that
 /// interfere with \p VirtReg on \p PhysReg (or one of its aliases) may be
 /// recolored to free \p PhysReg.
@@ -2079,10 +2091,13 @@ RAGreedy::mayRecolorAllInterferences(unsigned PhysReg, LiveInterval &VirtReg,
       LiveInterval *Intf = Q.interferingVRegs()[i - 1];
       // If Intf is done and sit on the same register class as VirtReg,
       // it would not be recolorable as it is in the same state as VirtReg.
-      if ((getStage(*Intf) == RS_Done &&
-           MRI->getRegClass(Intf->reg) == CurRC) ||
+      // However, if VirtReg has tied defs and Intf doesn't, then
+      // there is still a point in examining if it can be recolorable.
+      if (((getStage(*Intf) == RS_Done &&
+            MRI->getRegClass(Intf->reg) == CurRC) &&
+           !(hasTiedDef(MRI, VirtReg.reg) && !hasTiedDef(MRI, Intf->reg))) ||
           FixedRegisters.count(Intf->reg)) {
-        DEBUG(dbgs() << "Early abort: the inteference is not recolorable.\n");
+        DEBUG(dbgs() << "Early abort: the interference is not recolorable.\n");
         return false;
       }
       RecoloringCandidates.insert(Intf);
@@ -2170,7 +2185,7 @@ unsigned RAGreedy::tryLastChanceRecoloring(LiveInterval &VirtReg,
     // It is only possible to recolor virtual register interference.
     if (Matrix->checkInterference(VirtReg, PhysReg) >
         LiveRegMatrix::IK_VirtReg) {
-      DEBUG(dbgs() << "Some inteferences are not with virtual registers.\n");
+      DEBUG(dbgs() << "Some interferences are not with virtual registers.\n");
 
       continue;
     }
@@ -2179,7 +2194,7 @@ unsigned RAGreedy::tryLastChanceRecoloring(LiveInterval &VirtReg,
     // the interferences.
     if (!mayRecolorAllInterferences(PhysReg, VirtReg, RecoloringCandidates,
                                     FixedRegisters)) {
-      DEBUG(dbgs() << "Some inteferences cannot be recolored.\n");
+      DEBUG(dbgs() << "Some interferences cannot be recolored.\n");
       continue;
     }
 
@@ -2458,7 +2473,7 @@ void RAGreedy::tryHintRecoloring(LiveInterval &VirtReg) {
   do {
     Reg = RecoloringCandidates.pop_back_val();
 
-    // We cannot recolor physcal register.
+    // We cannot recolor physical register.
     if (TargetRegisterInfo::isPhysicalRegister(Reg))
       continue;
 
@@ -2622,7 +2637,7 @@ unsigned RAGreedy::selectOrSplitImpl(LiveInterval &VirtReg,
   }
 
   // If we couldn't allocate a register from spilling, there is probably some
-  // invalid inline assembly. The base class wil report it.
+  // invalid inline assembly. The base class will report it.
   if (Stage >= RS_Done || !VirtReg.isSpillable())
     return tryLastChanceRecoloring(VirtReg, Order, NewVRegs, FixedRegisters,
                                    Depth);
@@ -2702,17 +2717,20 @@ void RAGreedy::reportNumberOfSplillsReloads(MachineLoop *L, unsigned &Reloads,
   if (Reloads || FoldedReloads || Spills || FoldedSpills) {
     using namespace ore;
 
-    MachineOptimizationRemarkMissed R(DEBUG_TYPE, "LoopSpillReload",
-                                      L->getStartLoc(), L->getHeader());
-    if (Spills)
-      R << NV("NumSpills", Spills) << " spills ";
-    if (FoldedSpills)
-      R << NV("NumFoldedSpills", FoldedSpills) << " folded spills ";
-    if (Reloads)
-      R << NV("NumReloads", Reloads) << " reloads ";
-    if (FoldedReloads)
-      R << NV("NumFoldedReloads", FoldedReloads) << " folded reloads ";
-    ORE->emit(R << "generated in loop");
+    ORE->emit([&]() {
+      MachineOptimizationRemarkMissed R(DEBUG_TYPE, "LoopSpillReload",
+                                        L->getStartLoc(), L->getHeader());
+      if (Spills)
+        R << NV("NumSpills", Spills) << " spills ";
+      if (FoldedSpills)
+        R << NV("NumFoldedSpills", FoldedSpills) << " folded spills ";
+      if (Reloads)
+        R << NV("NumReloads", Reloads) << " reloads ";
+      if (FoldedReloads)
+        R << NV("NumFoldedReloads", FoldedReloads) << " folded reloads ";
+      R << "generated in loop";
+      return R;
+    });
   }
 }
 

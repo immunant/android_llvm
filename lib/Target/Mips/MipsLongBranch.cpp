@@ -1,4 +1,4 @@
-//===-- MipsLongBranch.cpp - Emit long branches ---------------------------===//
+//===- MipsLongBranch.cpp - Emit long branches ----------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -16,6 +16,7 @@
 #include "MCTargetDesc/MipsABIInfo.h"
 #include "MCTargetDesc/MipsBaseInfo.h"
 #include "MCTargetDesc/MipsMCNaCl.h"
+#include "MCTargetDesc/MipsMCTargetDesc.h"
 #include "Mips.h"
 #include "MipsInstrInfo.h"
 #include "MipsMachineFunction.h"
@@ -35,6 +36,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 #include <cassert>
 #include <cstdint>
 #include <iterator>
@@ -59,8 +61,8 @@ static cl::opt<bool> ForceLongBranch(
 
 namespace {
 
-  typedef MachineBasicBlock::iterator Iter;
-  typedef MachineBasicBlock::reverse_iterator ReverseIter;
+  using Iter = MachineBasicBlock::iterator;
+  using ReverseIter = MachineBasicBlock::reverse_iterator;
 
   struct MBBInfo {
     uint64_t Size = 0;
@@ -102,9 +104,9 @@ namespace {
     unsigned LongBranchSeqSize;
   };
 
-  char MipsLongBranch::ID = 0;
-
 } // end anonymous namespace
+
+char MipsLongBranch::ID = 0;
 
 /// Iterate over list of Br's operands and search for a MachineBasicBlock
 /// operand.
@@ -274,8 +276,8 @@ void MipsLongBranch::expandToLongBranch(MBBInfo &I) {
   if (IsPIC) {
     MachineBasicBlock *BalTgtMBB = MF->CreateMachineBasicBlock(BB);
     MF->insert(FallThroughMBB, BalTgtMBB);
-    LongBrMBB->addSuccessor(BalTgtMBB, BranchProbability::getOne());
-    BalTgtMBB->addSuccessor(&*FallThroughMBB, BranchProbability::getOne());
+    LongBrMBB->addSuccessor(BalTgtMBB);
+    BalTgtMBB->addSuccessor(TgtMBB);
 
     // We must select between the MIPS32r6/MIPS64r6 BAL (which is a normal
     // instruction) and the pre-MIPS32r6/MIPS64r6 definition (which is an
@@ -342,8 +344,8 @@ void MipsLongBranch::expandToLongBranch(MBBInfo &I) {
           .addReg(Mips::SP).addImm(8);
 
       if (Subtarget.hasMips32r6())
-        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR), Mips::ZERO)
-            .addReg(Mips::AT);
+        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR))
+          .addReg(Mips::ZERO).addReg(Mips::AT);
       else
         BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JR)).addReg(Mips::AT);
 
@@ -415,8 +417,8 @@ void MipsLongBranch::expandToLongBranch(MBBInfo &I) {
         .addReg(Mips::SP_64).addImm(0);
 
       if (Subtarget.hasMips64r6())
-        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR64), Mips::ZERO_64)
-            .addReg(Mips::AT_64);
+        BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JALR64))
+          .addReg(Mips::ZERO_64).addReg(Mips::AT_64);
       else
         BuildMI(*BalTgtMBB, Pos, DL, TII->get(Mips::JR64)).addReg(Mips::AT_64);
 
@@ -467,7 +469,6 @@ bool MipsLongBranch::runOnMachineFunction(MachineFunction &F) {
       static_cast<const MipsSubtarget &>(F.getSubtarget());
   const MipsInstrInfo *TII =
       static_cast<const MipsInstrInfo *>(STI.getInstrInfo());
-
 
   const TargetMachine& TM = F.getTarget();
   IsPIC = TM.isPositionIndependent();

@@ -241,6 +241,8 @@ def HasV8_1a         : Predicate<"Subtarget->hasV8_1aOps()">,
                                  AssemblerPredicate<"HasV8_1aOps", "armv8.1a">;
 def HasV8_2a         : Predicate<"Subtarget->hasV8_2aOps()">,
                                  AssemblerPredicate<"HasV8_2aOps", "armv8.2a">;
+def HasV8_3a         : Predicate<"Subtarget->hasV8_3aOps()">,
+                                 AssemblerPredicate<"HasV8_3aOps", "armv8.3a">;
 def NoVFP            : Predicate<"!Subtarget->hasVFP2()">;
 def HasVFP2          : Predicate<"Subtarget->hasVFP2()">,
                                  AssemblerPredicate<"FeatureVFP2", "VFP2">;
@@ -257,6 +259,8 @@ def HasNEON          : Predicate<"Subtarget->hasNEON()">,
                                  AssemblerPredicate<"FeatureNEON", "NEON">;
 def HasCrypto        : Predicate<"Subtarget->hasCrypto()">,
                                  AssemblerPredicate<"FeatureCrypto", "crypto">;
+def HasDotProd       : Predicate<"Subtarget->hasDotProd()">,
+                                 AssemblerPredicate<"FeatureDotProd", "dotprod">;
 def HasCRC           : Predicate<"Subtarget->hasCRC()">,
                                  AssemblerPredicate<"FeatureCRC", "crc">;
 def HasRAS           : Predicate<"Subtarget->hasRAS()">,
@@ -313,6 +317,8 @@ def IsNotMachO       : Predicate<"!Subtarget->isTargetMachO()">;
 def IsNaCl           : Predicate<"Subtarget->isTargetNaCl()">;
 def IsWindows        : Predicate<"Subtarget->isTargetWindows()">;
 def IsNotWindows     : Predicate<"!Subtarget->isTargetWindows()">;
+def IsReadTPHard     : Predicate<"Subtarget->isReadTPHard()">;
+def IsReadTPSoft     : Predicate<"!Subtarget->isReadTPHard()">;
 def UseNaClTrap      : Predicate<"Subtarget->useNaClTrap()">,
                                  AssemblerPredicate<"FeatureNaClTrap", "NaCl">;
 def DontUseNaClTrap  : Predicate<"!Subtarget->useNaClTrap()">;
@@ -454,12 +460,13 @@ def fsub_mlx : PatFrag<(ops node:$lhs, node:$rhs),(fsub node:$lhs, node:$rhs),[{
 class ImmAsmOperand<int Low, int High> : AsmOperandClass {
   let RenderMethod = "addImmOperands";
   let PredicateMethod = "isImmediate<" # Low # "," # High # ">";
-  let DiagnosticType = "ImmRange" # Low # "_" # High;
+  let DiagnosticString = "operand must be an immediate in the range [" # Low # "," # High # "]";
 }
 
 class ImmAsmOperandMinusOne<int Low, int High> : AsmOperandClass {
   let PredicateMethod = "isImmediate<" # Low # "," # High # ">";
   let DiagnosticType = "ImmRange" # Low # "_" # High;
+  let DiagnosticString = "operand must be an immediate in the range [" # Low # "," # High # "]";
 }
 
 // Operands that are part of a memory addressing mode.
@@ -748,7 +755,6 @@ def imm1_31 : Operand<i32>, ImmLeaf<i32, [{ return Imm > 0 && Imm < 32; }]> {
 /// imm0_15 predicate - Immediate in the range [0,15].
 def Imm0_15AsmOperand: ImmAsmOperand<0,15> {
   let Name = "Imm0_15";
-  let DiagnosticType = "ImmRange0_15";
 }
 def imm0_15 : Operand<i32>, ImmLeaf<i32, [{
   return Imm >= 0 && Imm < 16;
@@ -783,7 +789,6 @@ def imm0_63 : Operand<i32>, ImmLeaf<i32, [{
 /// imm0_239 predicate - Immediate in the range [0,239].
 def Imm0_239AsmOperand : ImmAsmOperand<0,239> {
   let Name = "Imm0_239";
-  let DiagnosticType = "ImmRange0_239";
 }
 def imm0_239 : Operand<i32>, ImmLeaf<i32, [{ return Imm >= 0 && Imm < 240; }]> {
   let ParserMatchClass = Imm0_239AsmOperand;
@@ -817,6 +822,7 @@ def imm0_65535_neg : Operand<i32>, ImmLeaf<i32, [{
 def Imm0_65535ExprAsmOperand: AsmOperandClass {
   let Name = "Imm0_65535Expr";
   let RenderMethod = "addImmOperands";
+  let DiagnosticString = "operand must be an immediate in the range [0,0xffff] or a relocatable expression";
 }
 
 def imm0_65535_expr : Operand<i32> {
@@ -830,7 +836,10 @@ def imm256_65535_expr : Operand<i32> {
 }
 
 /// imm24b - True if the 32-bit immediate is encodable in 24 bits.
-def Imm24bitAsmOperand: ImmAsmOperand<0,0xffffff> { let Name = "Imm24bit"; }
+def Imm24bitAsmOperand: ImmAsmOperand<0,0xffffff> {
+  let Name = "Imm24bit";
+  let DiagnosticString = "operand must be an immediate in the range [0,0xffffff]";
+}
 def imm24b : Operand<i32>, ImmLeaf<i32, [{
   return Imm >= 0 && Imm <= 0xffffff;
 }]> {
@@ -1123,7 +1132,7 @@ class AddrMode6Align : MemOperand,
 // VLD/VST instructions and checking the alignment is not specified.
 def AddrMode6AlignNoneAsmOperand : AsmOperandClass {
   let Name = "AlignedMemoryNone";
-  let DiagnosticType = "AlignedMemoryRequiresNone";
+  let DiagnosticString = "alignment must be omitted";
 }
 def addrmode6alignNone : AddrMode6Align {
   // The alignment specifier can only be omitted.
@@ -1134,7 +1143,7 @@ def addrmode6alignNone : AddrMode6Align {
 // VLD/VST instructions and checking the alignment value.
 def AddrMode6Align16AsmOperand : AsmOperandClass {
   let Name = "AlignedMemory16";
-  let DiagnosticType = "AlignedMemoryRequires16";
+  let DiagnosticString = "alignment must be 16 or omitted";
 }
 def addrmode6align16 : AddrMode6Align {
   // The alignment specifier can only be 16 or omitted.
@@ -1145,7 +1154,7 @@ def addrmode6align16 : AddrMode6Align {
 // VLD/VST instructions and checking the alignment value.
 def AddrMode6Align32AsmOperand : AsmOperandClass {
   let Name = "AlignedMemory32";
-  let DiagnosticType = "AlignedMemoryRequires32";
+  let DiagnosticString = "alignment must be 32 or omitted";
 }
 def addrmode6align32 : AddrMode6Align {
   // The alignment specifier can only be 32 or omitted.
@@ -1156,7 +1165,7 @@ def addrmode6align32 : AddrMode6Align {
 // VLD/VST instructions and checking the alignment value.
 def AddrMode6Align64AsmOperand : AsmOperandClass {
   let Name = "AlignedMemory64";
-  let DiagnosticType = "AlignedMemoryRequires64";
+  let DiagnosticString = "alignment must be 64 or omitted";
 }
 def addrmode6align64 : AddrMode6Align {
   // The alignment specifier can only be 64 or omitted.
@@ -1167,7 +1176,7 @@ def addrmode6align64 : AddrMode6Align {
 // for VLD/VST instructions and checking the alignment value.
 def AddrMode6Align64or128AsmOperand : AsmOperandClass {
   let Name = "AlignedMemory64or128";
-  let DiagnosticType = "AlignedMemoryRequires64or128";
+  let DiagnosticString = "alignment must be 64, 128 or omitted";
 }
 def addrmode6align64or128 : AddrMode6Align {
   // The alignment specifier can only be 64, 128 or omitted.
@@ -1178,7 +1187,7 @@ def addrmode6align64or128 : AddrMode6Align {
 // encoding for VLD/VST instructions and checking the alignment value.
 def AddrMode6Align64or128or256AsmOperand : AsmOperandClass {
   let Name = "AlignedMemory64or128or256";
-  let DiagnosticType = "AlignedMemoryRequires64or128or256";
+  let DiagnosticString = "alignment must be 64, 128, 256 or omitted";
 }
 def addrmode6align64or128or256 : AddrMode6Align {
   // The alignment specifier can only be 64, 128, 256 or omitted.
@@ -1209,7 +1218,7 @@ class AddrMode6DupAlign : MemOperand,
 // VLD-dup instruction and checking the alignment is not specified.
 def AddrMode6dupAlignNoneAsmOperand : AsmOperandClass {
   let Name = "DupAlignedMemoryNone";
-  let DiagnosticType = "DupAlignedMemoryRequiresNone";
+  let DiagnosticString = "alignment must be omitted";
 }
 def addrmode6dupalignNone : AddrMode6DupAlign {
   // The alignment specifier can only be omitted.
@@ -1220,7 +1229,7 @@ def addrmode6dupalignNone : AddrMode6DupAlign {
 // instruction and checking the alignment value.
 def AddrMode6dupAlign16AsmOperand : AsmOperandClass {
   let Name = "DupAlignedMemory16";
-  let DiagnosticType = "DupAlignedMemoryRequires16";
+  let DiagnosticString = "alignment must be 16 or omitted";
 }
 def addrmode6dupalign16 : AddrMode6DupAlign {
   // The alignment specifier can only be 16 or omitted.
@@ -1231,7 +1240,7 @@ def addrmode6dupalign16 : AddrMode6DupAlign {
 // instruction and checking the alignment value.
 def AddrMode6dupAlign32AsmOperand : AsmOperandClass {
   let Name = "DupAlignedMemory32";
-  let DiagnosticType = "DupAlignedMemoryRequires32";
+  let DiagnosticString = "alignment must be 32 or omitted";
 }
 def addrmode6dupalign32 : AddrMode6DupAlign {
   // The alignment specifier can only be 32 or omitted.
@@ -1242,7 +1251,7 @@ def addrmode6dupalign32 : AddrMode6DupAlign {
 // instructions and checking the alignment value.
 def AddrMode6dupAlign64AsmOperand : AsmOperandClass {
   let Name = "DupAlignedMemory64";
-  let DiagnosticType = "DupAlignedMemoryRequires64";
+  let DiagnosticString = "alignment must be 64 or omitted";
 }
 def addrmode6dupalign64 : AddrMode6DupAlign {
   // The alignment specifier can only be 64 or omitted.
@@ -1253,7 +1262,7 @@ def addrmode6dupalign64 : AddrMode6DupAlign {
 // for VLD instructions and checking the alignment value.
 def AddrMode6dupAlign64or128AsmOperand : AsmOperandClass {
   let Name = "DupAlignedMemory64or128";
-  let DiagnosticType = "DupAlignedMemoryRequires64or128";
+  let DiagnosticString = "alignment must be 64, 128 or omitted";
 }
 def addrmode6dupalign64or128 : AddrMode6DupAlign {
   // The alignment specifier can only be 64, 128 or omitted.
@@ -2425,7 +2434,7 @@ let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [SP] in {
   def TAILJMPr : ARMPseudoExpand<(outs), (ins tcGPR:$dst),
                                  4, IIC_Br, [],
                                  (BX GPR:$dst)>, Sched<[WriteBr]>,
-                                 Requires<[IsARM]>;
+                                 Requires<[IsARM, HasV4T]>;
 }
 
 // Secure Monitor Call is a system instruction.
@@ -5033,6 +5042,8 @@ def CDP : ABI<0b1110, (outs), (ins p_imm:$cop, imm0_15:$opc1,
   let Inst{15-12} = CRd;
   let Inst{19-16} = CRn;
   let Inst{23-20} = opc1;
+
+  let DecoderNamespace = "CoProc";
 }
 
 def CDP2 : ABXI<0b1110, (outs), (ins p_imm:$cop, imm0_15:$opc1,
@@ -5056,6 +5067,8 @@ def CDP2 : ABXI<0b1110, (outs), (ins p_imm:$cop, imm0_15:$opc1,
   let Inst{15-12} = CRd;
   let Inst{19-16} = CRn;
   let Inst{23-20} = opc1;
+
+  let DecoderNamespace = "CoProc";
 }
 
 class ACI<dag oops, dag iops, string opc, string asm,
@@ -5071,6 +5084,8 @@ class ACInoP<dag oops, dag iops, string opc, string asm,
   let Inst{31-28} = 0b1111;
   let Inst{27-25} = 0b110;
 }
+
+let DecoderNamespace = "CoProc" in {
 multiclass LdStCop<bit load, bit Dbit, string asm, list<dag> pattern> {
   def _OFFSET : ACI<(outs), (ins p_imm:$cop, c_imm:$CRd, addrmode5:$addr),
                     asm, "\t$cop, $CRd, $addr", pattern> {
@@ -5224,6 +5239,8 @@ defm STCL  : LdStCop <0, 1, "stcl", [(int_arm_stcl imm:$cop, imm:$CRd, addrmode5
 defm STC2  : LdSt2Cop<0, 0, "stc2", [(int_arm_stc2 imm:$cop, imm:$CRd, addrmode5:$addr)]>, Requires<[IsARM,PreV8]>;
 defm STC2L : LdSt2Cop<0, 1, "stc2l", [(int_arm_stc2l imm:$cop, imm:$CRd, addrmode5:$addr)]>, Requires<[IsARM,PreV8]>;
 
+} // DecoderNamespace = "CoProc"
+
 //===----------------------------------------------------------------------===//
 // Move between coprocessor and ARM core register.
 //
@@ -5248,6 +5265,8 @@ class MovRCopro<string opc, bit direction, dag oops, dag iops,
   let Inst{7-5}   = opc2;
   let Inst{3-0}   = CRm;
   let Inst{19-16} = CRn;
+
+  let DecoderNamespace = "CoProc";
 }
 
 def MCR : MovRCopro<"mcr", 0 /* from ARM core register to coprocessor */,
@@ -5292,6 +5311,8 @@ class MovRCopro2<string opc, bit direction, dag oops, dag iops,
   let Inst{7-5}   = opc2;
   let Inst{3-0}   = CRm;
   let Inst{19-16} = CRn;
+
+  let DecoderNamespace = "CoProc";
 }
 
 def MCR2 : MovRCopro2<"mcr2", 0 /* from ARM core register to coprocessor */,
@@ -5519,8 +5540,13 @@ let usesCustomInserter = 1, Defs = [CPSR] in
 let isCall = 1,
   Defs = [R0, R12, LR, CPSR], Uses = [SP] in {
   def TPsoft : ARMPseudoInst<(outs), (ins), 4, IIC_Br,
-               [(set R0, ARMthread_pointer)]>, Sched<[WriteBr]>;
+               [(set R0, ARMthread_pointer)]>, Sched<[WriteBr]>,
+               Requires<[IsARM, IsReadTPSoft]>;
 }
+
+// Reading thread pointer from coprocessor register
+def : ARMPat<(ARMthread_pointer), (MRC 15, 0, 13, 0, 3)>,
+      Requires<[IsARM, IsReadTPHard]>;
 
 //===----------------------------------------------------------------------===//
 // SJLJ Exception handling intrinsics
@@ -5586,6 +5612,12 @@ def Int_eh_sjlj_dispatchsetup : PseudoInst<(outs), (ins), NoItinerary, []>;
 let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 1 in
   def MOVPCRX : ARMPseudoExpand<(outs), (ins GPR:$dst),
                     4, IIC_Br, [(brind GPR:$dst)],
+                    (MOVr PC, GPR:$dst, (ops 14, zero_reg), zero_reg)>,
+                  Requires<[IsARM, NoV4T]>, Sched<[WriteBr]>;
+
+let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1, Uses = [SP] in
+  def TAILJMPr4 : ARMPseudoExpand<(outs), (ins GPR:$dst),
+                    4, IIC_Br, [],
                     (MOVr PC, GPR:$dst, (ops 14, zero_reg), zero_reg)>,
                   Requires<[IsARM, NoV4T]>, Sched<[WriteBr]>;
 
@@ -6053,21 +6085,21 @@ def SPACE : PseudoInst<(outs GPR:$Rd), (ins i32imm:$size, GPR:$Rn),
 // significantly more naive than the standard expansion: we conservatively
 // assume seq_cst, strong cmpxchg and omit clrex on failure.
 
-let Constraints = "@earlyclobber $Rd,@earlyclobber $status",
+let Constraints = "@earlyclobber $Rd,@earlyclobber $temp",
     mayLoad = 1, mayStore = 1 in {
-def CMP_SWAP_8 : PseudoInst<(outs GPR:$Rd, GPR:$status),
+def CMP_SWAP_8 : PseudoInst<(outs GPR:$Rd, GPR:$temp),
                             (ins GPR:$addr, GPR:$desired, GPR:$new),
                             NoItinerary, []>, Sched<[]>;
 
-def CMP_SWAP_16 : PseudoInst<(outs GPR:$Rd, GPR:$status),
+def CMP_SWAP_16 : PseudoInst<(outs GPR:$Rd, GPR:$temp),
                              (ins GPR:$addr, GPR:$desired, GPR:$new),
                              NoItinerary, []>, Sched<[]>;
 
-def CMP_SWAP_32 : PseudoInst<(outs GPR:$Rd, GPR:$status),
+def CMP_SWAP_32 : PseudoInst<(outs GPR:$Rd, GPR:$temp),
                              (ins GPR:$addr, GPR:$desired, GPR:$new),
                              NoItinerary, []>, Sched<[]>;
 
-def CMP_SWAP_64 : PseudoInst<(outs GPRPair:$Rd, GPR:$status),
+def CMP_SWAP_64 : PseudoInst<(outs GPRPair:$Rd, GPR:$temp),
                              (ins GPR:$addr, GPRPair:$desired, GPRPair:$new),
                              NoItinerary, []>, Sched<[]>;
 }

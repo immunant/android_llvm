@@ -204,11 +204,11 @@ Instruction *InstCombiner::visitExtractElementInst(ExtractElementInst &EI) {
       if (I->hasOneUse() &&
           cheapToScalarize(BO, isa<ConstantInt>(EI.getOperand(1)))) {
         Value *newEI0 =
-          Builder->CreateExtractElement(BO->getOperand(0), EI.getOperand(1),
-                                        EI.getName()+".lhs");
+          Builder.CreateExtractElement(BO->getOperand(0), EI.getOperand(1),
+                                       EI.getName()+".lhs");
         Value *newEI1 =
-          Builder->CreateExtractElement(BO->getOperand(1), EI.getOperand(1),
-                                        EI.getName()+".rhs");
+          Builder.CreateExtractElement(BO->getOperand(1), EI.getOperand(1),
+                                       EI.getName()+".rhs");
         return BinaryOperator::CreateWithCopiedFlags(BO->getOpcode(),
                                                      newEI0, newEI1, BO);
       }
@@ -250,43 +250,10 @@ Instruction *InstCombiner::visitExtractElementInst(ExtractElementInst &EI) {
       // Bitcasts can change the number of vector elements, and they cost
       // nothing.
       if (CI->hasOneUse() && (CI->getOpcode() != Instruction::BitCast)) {
-        Value *EE = Builder->CreateExtractElement(CI->getOperand(0),
-                                                  EI.getIndexOperand());
+        Value *EE = Builder.CreateExtractElement(CI->getOperand(0),
+                                                 EI.getIndexOperand());
         Worklist.AddValue(EE);
         return CastInst::Create(CI->getOpcode(), EE, EI.getType());
-      }
-    } else if (SelectInst *SI = dyn_cast<SelectInst>(I)) {
-      if (SI->hasOneUse()) {
-        // TODO: For a select on vectors, it might be useful to do this if it
-        // has multiple extractelement uses. For vector select, that seems to
-        // fight the vectorizer.
-
-        // If we are extracting an element from a vector select or a select on
-        // vectors, create a select on the scalars extracted from the vector
-        // arguments.
-        Value *TrueVal = SI->getTrueValue();
-        Value *FalseVal = SI->getFalseValue();
-
-        Value *Cond = SI->getCondition();
-        if (Cond->getType()->isVectorTy()) {
-          Cond = Builder->CreateExtractElement(Cond,
-                                               EI.getIndexOperand(),
-                                               Cond->getName() + ".elt");
-        }
-
-        Value *V1Elem
-          = Builder->CreateExtractElement(TrueVal,
-                                          EI.getIndexOperand(),
-                                          TrueVal->getName() + ".elt");
-
-        Value *V2Elem
-          = Builder->CreateExtractElement(FalseVal,
-                                          EI.getIndexOperand(),
-                                          FalseVal->getName() + ".elt");
-        return SelectInst::Create(Cond,
-                                  V1Elem,
-                                  V2Elem,
-                                  SI->getName() + ".elt");
       }
     }
   }
@@ -615,6 +582,7 @@ static Instruction *foldInsSequenceIntoBroadcast(InsertElementInst &InsElt) {
   Value *SplatVal = InsElt.getOperand(1);
   InsertElementInst *CurrIE = &InsElt;  
   SmallVector<bool, 16> ElementPresent(NumElements, false);
+  InsertElementInst *FirstIE = nullptr;
 
   // Walk the chain backwards, keeping track of which indices we inserted into,
   // until we hit something that isn't an insert of the splatted value.
@@ -623,12 +591,18 @@ static Instruction *foldInsSequenceIntoBroadcast(InsertElementInst &InsElt) {
     if (!Idx || CurrIE->getOperand(1) != SplatVal)
       return nullptr;
 
-    // Check none of the intermediate steps have any additional uses.
-    if ((CurrIE != &InsElt) && !CurrIE->hasOneUse())
+    InsertElementInst *NextIE =
+      dyn_cast<InsertElementInst>(CurrIE->getOperand(0));
+    // Check none of the intermediate steps have any additional uses, except
+    // for the root insertelement instruction, which can be re-used, if it
+    // inserts at position 0.
+    if (CurrIE != &InsElt &&
+        (!CurrIE->hasOneUse() && (NextIE != nullptr || !Idx->isZero())))
       return nullptr;
 
     ElementPresent[Idx->getZExtValue()] = true;
-    CurrIE = dyn_cast<InsertElementInst>(CurrIE->getOperand(0));
+    FirstIE = CurrIE;
+    CurrIE = NextIE;
   }
 
   // Make sure we've seen an insert into every element.
@@ -636,9 +610,14 @@ static Instruction *foldInsSequenceIntoBroadcast(InsertElementInst &InsElt) {
     return nullptr;
 
   // All right, create the insert + shuffle.
-  Instruction *InsertFirst = InsertElementInst::Create(
-      UndefValue::get(VT), SplatVal,
-      ConstantInt::get(Type::getInt32Ty(InsElt.getContext()), 0), "", &InsElt);
+  Instruction *InsertFirst;
+  if (cast<ConstantInt>(FirstIE->getOperand(2))->isZero())
+    InsertFirst = FirstIE;
+  else
+    InsertFirst = InsertElementInst::Create(
+        UndefValue::get(VT), SplatVal,
+        ConstantInt::get(Type::getInt32Ty(InsElt.getContext()), 0),
+        "", &InsElt);
 
   Constant *ZeroMask = ConstantAggregateZero::get(
       VectorType::get(Type::getInt32Ty(InsElt.getContext()), NumElements));
@@ -837,7 +816,7 @@ Instruction *InstCombiner::visitInsertElementInst(InsertElementInst &IE) {
   if (Instruction *Shuf = foldConstantInsEltIntoShuffle(IE))
     return Shuf;
 
-  if (Instruction *NewInsElt = hoistInsEltConst(IE, *Builder))
+  if (Instruction *NewInsElt = hoistInsEltConst(IE, Builder))
     return NewInsElt;
 
   // Turn a sequence of inserts that broadcasts a scalar into a single
@@ -1007,22 +986,20 @@ InstCombiner::EvaluateInDifferentElementOrder(Value *V, ArrayRef<int> Mask) {
   // Mask.size() does not need to be equal to the number of vector elements.
 
   assert(V->getType()->isVectorTy() && "can't reorder non-vector elements");
-  if (isa<UndefValue>(V)) {
-    return UndefValue::get(VectorType::get(V->getType()->getScalarType(),
-                                           Mask.size()));
-  }
-  if (isa<ConstantAggregateZero>(V)) {
-    return ConstantAggregateZero::get(
-               VectorType::get(V->getType()->getScalarType(),
-                               Mask.size()));
-  }
+  Type *EltTy = V->getType()->getScalarType();
+  if (isa<UndefValue>(V))
+    return UndefValue::get(VectorType::get(EltTy, Mask.size()));
+
+  if (isa<ConstantAggregateZero>(V))
+    return ConstantAggregateZero::get(VectorType::get(EltTy, Mask.size()));
+
   if (Constant *C = dyn_cast<Constant>(V)) {
     SmallVector<Constant *, 16> MaskValues;
     for (int i = 0, e = Mask.size(); i != e; ++i) {
       if (Mask[i] == -1)
-        MaskValues.push_back(UndefValue::get(Builder->getInt32Ty()));
+        MaskValues.push_back(UndefValue::get(Builder.getInt32Ty()));
       else
-        MaskValues.push_back(Builder->getInt32(Mask[i]));
+        MaskValues.push_back(Builder.getInt32(Mask[i]));
     }
     return ConstantExpr::getShuffleVector(C, UndefValue::get(C->getType()),
                                           ConstantVector::get(MaskValues));
@@ -1095,7 +1072,7 @@ InstCombiner::EvaluateInDifferentElementOrder(Value *V, ArrayRef<int> Mask) {
 
       Value *V = EvaluateInDifferentElementOrder(I->getOperand(0), Mask);
       return InsertElementInst::Create(V, I->getOperand(1),
-                                       Builder->getInt32(Index), "", I);
+                                       Builder.getInt32(Index), "", I);
     }
   }
   llvm_unreachable("failed to reorder elements of vector instruction!");
@@ -1153,9 +1130,7 @@ Instruction *InstCombiner::visitShuffleVectorInst(ShuffleVectorInst &SVI) {
   if (Value *V = SimplifyDemandedVectorElts(&SVI, AllOnesEltMask, UndefElts)) {
     if (V != &SVI)
       return replaceInstUsesWith(SVI, V);
-    LHS = SVI.getOperand(0);
-    RHS = SVI.getOperand(1);
-    MadeChange = true;
+    return &SVI;
   }
 
   unsigned LHSWidth = LHS->getType()->getVectorNumElements();
@@ -1275,9 +1250,9 @@ Instruction *InstCombiner::visitShuffleVectorInst(ShuffleVectorInst &SVI) {
                                                 UndefValue::get(Int32Ty));
         for (unsigned I = 0, E = MaskElems, Idx = BegIdx; I != E; ++Idx, ++I)
           ShuffleMask[I] = ConstantInt::get(Int32Ty, Idx);
-        V = Builder->CreateShuffleVector(V, UndefValue::get(V->getType()),
-                                         ConstantVector::get(ShuffleMask),
-                                         SVI.getName() + ".extract");
+        V = Builder.CreateShuffleVector(V, UndefValue::get(V->getType()),
+                                        ConstantVector::get(ShuffleMask),
+                                        SVI.getName() + ".extract");
         BegIdx = 0;
       }
       unsigned SrcElemsPerTgtElem = TgtElemBitWidth / SrcElemBitWidth;
@@ -1287,10 +1262,10 @@ Instruction *InstCombiner::visitShuffleVectorInst(ShuffleVectorInst &SVI) {
       auto *NewBC =
           BCAlreadyExists
               ? NewBCs[CastSrcTy]
-              : Builder->CreateBitCast(V, CastSrcTy, SVI.getName() + ".bc");
+              : Builder.CreateBitCast(V, CastSrcTy, SVI.getName() + ".bc");
       if (!BCAlreadyExists)
         NewBCs[CastSrcTy] = NewBC;
-      auto *Ext = Builder->CreateExtractElement(
+      auto *Ext = Builder.CreateExtractElement(
           NewBC, ConstantInt::get(Int32Ty, BegIdx), SVI.getName() + ".extract");
       // The shufflevector isn't being replaced: the bitcast that used it
       // is. InstCombine will visit the newly-created instructions.

@@ -10,6 +10,12 @@
 class Proc<string Name, ProcessorItineraries itin, list<SubtargetFeature> Features>
 : Processor<Name, itin, Features>;
 
+// The code produced for "generic" is only useful for tests and cannot
+// reasonably be expected to execute on any particular target.
+def : ProcessorModel<"generic", NoSchedModel, [
+  FeatureGCN
+]>;
+
 //===----------------------------------------------------------------------===//
 // R600
 //===----------------------------------------------------------------------===//
@@ -80,12 +86,8 @@ def : Proc<"cayman",     R600_VLIW4_Itin,
 // Southern Islands
 //===----------------------------------------------------------------------===//
 
-def : ProcessorModel<"gfx600",     SIFullSpeedModel, 
+def : ProcessorModel<"gfx600",     SIFullSpeedModel,
   [FeatureISAVersion6_0_0]>;
-
-def : ProcessorModel<"SI",         SIFullSpeedModel,
-  [FeatureISAVersion6_0_0]
->;
 
 def : ProcessorModel<"tahiti",     SIFullSpeedModel,
   [FeatureISAVersion6_0_0]
@@ -95,7 +97,7 @@ def : ProcessorModel<"gfx601",     SIQuarterSpeedModel,
   [FeatureISAVersion6_0_1]
 >;
 
-def : ProcessorModel<"pitcairn",   SIQuarterSpeedModel, 
+def : ProcessorModel<"pitcairn",   SIQuarterSpeedModel,
   [FeatureISAVersion6_0_1]>;
 
 def : ProcessorModel<"verde",      SIQuarterSpeedModel,

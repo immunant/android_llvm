@@ -83,7 +83,7 @@ class AVRAsmParser : public MCTargetAsmParser {
 public:
   AVRAsmParser(const MCSubtargetInfo &STI, MCAsmParser &Parser,
                const MCInstrInfo &MII, const MCTargetOptions &Options)
-      : MCTargetAsmParser(Options, STI), STI(STI), Parser(Parser) {
+      : MCTargetAsmParser(Options, STI, MII), STI(STI), Parser(Parser) {
     MCAsmParserExtension::Initialize(Parser);
     MRI = getContext().getRegisterInfo();
 
@@ -466,6 +466,7 @@ bool AVRAsmParser::parseOperand(OperandVector &Operands) {
     if (!tryParseRegisterOperand(Operands)) {
       return false;
     }
+    LLVM_FALLTHROUGH;
   case AsmToken::LParen:
   case AsmToken::Integer:
   case AsmToken::Dot:

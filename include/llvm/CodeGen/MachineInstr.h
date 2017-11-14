@@ -139,6 +139,17 @@ public:
   const MachineBasicBlock* getParent() const { return Parent; }
   MachineBasicBlock* getParent() { return Parent; }
 
+  /// Return the function that contains the basic block that this instruction
+  /// belongs to.
+  ///
+  /// Note: this is undefined behaviour if the instruction does not have a
+  /// parent.
+  const MachineFunction *getMF() const;
+  MachineFunction *getMF() {
+    return const_cast<MachineFunction *>(
+        static_cast<const MachineInstr *>(this)->getMF());
+  }
+
   /// Return the asm printer flags bitvector.
   uint8_t getAsmPrinterFlags() const { return AsmPrinterFlags; }
 
@@ -378,6 +389,9 @@ public:
   bool hasOneMemOperand() const {
     return NumMemRefs == 1;
   }
+
+  /// Return the number of memory operands.
+  unsigned getNumMemOperands() const { return NumMemRefs; }
 
   /// API for querying MachineInstr properties. They are the same as MCInstrDesc
   /// queries but they are bundle aware.
@@ -789,7 +803,10 @@ public:
       && getOperand(1).isImm();
   }
 
-  bool isPHI() const { return getOpcode() == TargetOpcode::PHI; }
+  bool isPHI() const {
+    return getOpcode() == TargetOpcode::PHI ||
+           getOpcode() == TargetOpcode::G_PHI;
+  }
   bool isKill() const { return getOpcode() == TargetOpcode::KILL; }
   bool isImplicitDef() const { return getOpcode()==TargetOpcode::IMPLICIT_DEF; }
   bool isInlineAsm() const { return getOpcode() == TargetOpcode::INLINEASM; }
@@ -866,6 +883,7 @@ public:
       return isMetaInstruction();
     // Copy-like instructions are usually eliminated during register allocation.
     case TargetOpcode::PHI:
+    case TargetOpcode::G_PHI:
     case TargetOpcode::COPY:
     case TargetOpcode::INSERT_SUBREG:
     case TargetOpcode::SUBREG_TO_REG:

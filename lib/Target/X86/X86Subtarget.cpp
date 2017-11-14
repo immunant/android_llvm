@@ -11,10 +11,19 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "X86.h"
+
+#include "X86CallLowering.h"
+#include "X86LegalizerInfo.h"
+#include "X86RegisterBankInfo.h"
 #include "X86Subtarget.h"
 #include "MCTargetDesc/X86BaseInfo.h"
 #include "X86TargetMachine.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/CodeGen/GlobalISel/CallLowering.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
+#include "llvm/CodeGen/GlobalISel/Legalizer.h"
+#include "llvm/CodeGen/GlobalISel/RegBankSelect.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Function.h"
@@ -90,6 +99,22 @@ X86Subtarget::classifyLocalReference(const GlobalValue *GV) const {
   return X86II::MO_GOTOFF;
 }
 
+static bool shouldAssumeGlobalReferenceLocal(const X86Subtarget *ST,
+                                             const TargetMachine &TM,
+                                             const Module &M,
+                                             const GlobalValue *GV) {
+  if (!TM.shouldAssumeDSOLocal(M, GV))
+    return false;
+  // A weak reference can end up being 0. If the code can be more that 4g away
+  // from zero and we are using the small code model we have to treat it as non
+  // local.
+  if (GV && GV->hasExternalWeakLinkage() &&
+      TM.getCodeModel() == CodeModel::Small && TM.isPositionIndependent() &&
+      ST->is64Bit() && ST->isTargetELF())
+    return false;
+  return true;
+}
+
 unsigned char X86Subtarget::classifyGlobalReference(const GlobalValue *GV,
                                                     const Module &M) const {
   // Large model never uses stubs.
@@ -109,7 +134,7 @@ unsigned char X86Subtarget::classifyGlobalReference(const GlobalValue *GV,
     }
   }
 
-  if (TM.shouldAssumeDSOLocal(M, GV))
+  if (shouldAssumeGlobalReferenceLocal(this, TM, M, GV))
     return classifyLocalReference(GV);
 
   if (isTargetCOFF())
@@ -138,7 +163,12 @@ X86Subtarget::classifyGlobalFunctionReference(const GlobalValue *GV,
   if (TM.shouldAssumeDSOLocal(M, GV))
     return X86II::MO_NO_FLAG;
 
-  assert(!isTargetCOFF());
+  if (isTargetCOFF()) {
+    assert(GV->hasDLLImportStorageClass() &&
+           "shouldAssumeDSOLocal gave inconsistent answer");
+    return X86II::MO_DLLIMPORT;
+  }
+
   const Function *F = dyn_cast_or_null<Function>(GV);
 
   if (isTargetELF()) {
@@ -176,9 +206,12 @@ const char *X86Subtarget::getBZeroEntry() const {
 }
 
 bool X86Subtarget::hasSinCos() const {
-  return getTargetTriple().isMacOSX() &&
-    !getTargetTriple().isMacOSXVersionLT(10, 9) &&
-    is64Bit();
+  if (getTargetTriple().isMacOSX()) {
+    return !getTargetTriple().isMacOSXVersionLT(10, 9) && is64Bit();
+  } else if (getTargetTriple().isOSFuchsia()) {
+    return true;
+  }
+  return false;
 }
 
 /// Return true if the subtarget allows calls to immediate address.
@@ -250,6 +283,17 @@ void X86Subtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
   else if (isTargetDarwin() || isTargetLinux() || isTargetSolaris() ||
            isTargetKFreeBSD() || In64BitMode)
     stackAlignment = 16;
+ 
+  // Gather is available since Haswell (AVX2 set). So technically, we can generate Gathers 
+  // on all AVX2 processors. But the overhead on HSW is high. Skylake Client processor has
+  // faster Gathers than HSW and performance is similar to Skylake Server (AVX-512). 
+  // The specified overhead is relative to the Load operation."2" is the number provided 
+  // by Intel architects, This parameter is used for cost estimation of Gather Op and 
+  // comparison with other alternatives.
+  if (X86ProcFamily == IntelSkylake || hasAVX512())
+    GatherOverhead = 2;
+  if (hasAVX512())
+    ScatterOverhead = 2;
 }
 
 void X86Subtarget::initializeEnvironment() {
@@ -301,7 +345,6 @@ void X86Subtarget::initializeEnvironment() {
   HasSGX = false;
   HasCLFLUSHOPT = false;
   HasCLWB = false;
-  IsBTMemSlow = false;
   IsPMULLDSlow = false;
   IsSHLDSlow = false;
   IsUAMem16Slow = false;
@@ -314,11 +357,12 @@ void X86Subtarget::initializeEnvironment() {
   HasFastVectorFSQRT = false;
   HasFastLZCNT = false;
   HasFastSHLDRotate = false;
+  HasMacroFusion = false;
   HasERMSB = false;
   HasSlowDivide32 = false;
   HasSlowDivide64 = false;
   PadShortFunctions = false;
-  CallRegIndirect = false;
+  SlowTwoMemOps = false;
   LEAUsesAG = false;
   SlowLEA = false;
   Slow3OpsLEA = false;
@@ -327,6 +371,9 @@ void X86Subtarget::initializeEnvironment() {
   // FIXME: this is a known good value for Yonah. How about others?
   MaxInlineSizeThreshold = 128;
   UseSoftFloat = false;
+  X86ProcFamily = Others;
+  GatherOverhead = 1024;
+  ScatterOverhead = 1024;
 }
 
 X86Subtarget &X86Subtarget::initializeSubtargetDependencies(StringRef CPU,
@@ -360,26 +407,29 @@ X86Subtarget::X86Subtarget(const Triple &TT, StringRef CPU, StringRef FS,
     setPICStyle(PICStyles::StubPIC);
   else if (isTargetELF())
     setPICStyle(PICStyles::GOT);
+
+  CallLoweringInfo.reset(new X86CallLowering(*getTargetLowering()));
+  Legalizer.reset(new X86LegalizerInfo(*this, TM));
+
+  auto *RBI = new X86RegisterBankInfo(*getRegisterInfo());
+  RegBankInfo.reset(RBI);
+  InstSelector.reset(createX86InstructionSelector(TM, *this, *RBI));
 }
 
 const CallLowering *X86Subtarget::getCallLowering() const {
-  assert(GISel && "Access to GlobalISel APIs not set");
-  return GISel->getCallLowering();
+  return CallLoweringInfo.get();
 }
 
 const InstructionSelector *X86Subtarget::getInstructionSelector() const {
-  assert(GISel && "Access to GlobalISel APIs not set");
-  return GISel->getInstructionSelector();
+  return InstSelector.get();
 }
 
 const LegalizerInfo *X86Subtarget::getLegalizerInfo() const {
-  assert(GISel && "Access to GlobalISel APIs not set");
-  return GISel->getLegalizerInfo();
+  return Legalizer.get();
 }
 
 const RegisterBankInfo *X86Subtarget::getRegBankInfo() const {
-  assert(GISel && "Access to GlobalISel APIs not set");
-  return GISel->getRegBankInfo();
+  return RegBankInfo.get();
 }
 
 bool X86Subtarget::enableEarlyIfConversion() const {

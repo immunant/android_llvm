@@ -92,9 +92,14 @@ ARMBaseRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     }
   }
 
-  if (STI.isTargetDarwin() && STI.getTargetLowering()->supportSwiftError() &&
-      F->getAttributes().hasAttrSomewhere(Attribute::SwiftError))
-    return CSR_iOS_SwiftError_SaveList;
+  if (STI.getTargetLowering()->supportSwiftError() &&
+      F->getAttributes().hasAttrSomewhere(Attribute::SwiftError)) {
+    if (STI.isTargetDarwin())
+      return CSR_iOS_SwiftError_SaveList;
+
+    return UseSplitPush ? CSR_AAPCS_SplitPush_SwiftError_SaveList :
+      CSR_AAPCS_SwiftError_SaveList;
+  }
 
   if (STI.isTargetDarwin() && F->getCallingConv() == CallingConv::CXX_FAST_TLS)
     return MF->getInfo<ARMFunctionInfo>()->isSplitCSR()
@@ -117,12 +122,13 @@ ARMBaseRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
                                           CallingConv::ID CC) const {
   const ARMSubtarget &STI = MF.getSubtarget<ARMSubtarget>();
   if (CC == CallingConv::GHC)
-    // This is academic becase all GHC calls are (supposed to be) tail calls
+    // This is academic because all GHC calls are (supposed to be) tail calls
     return CSR_NoRegs_RegMask;
 
-  if (STI.isTargetDarwin() && STI.getTargetLowering()->supportSwiftError() &&
+  if (STI.getTargetLowering()->supportSwiftError() &&
       MF.getFunction()->getAttributes().hasAttrSomewhere(Attribute::SwiftError))
-    return CSR_iOS_SwiftError_RegMask;
+    return STI.isTargetDarwin() ? CSR_iOS_SwiftError_RegMask
+                                : CSR_AAPCS_SwiftError_RegMask;
 
   if (STI.isTargetDarwin() && CC == CallingConv::CXX_FAST_TLS)
     return CSR_iOS_CXX_TLS_RegMask;
@@ -163,7 +169,7 @@ ARMBaseRegisterInfo::getThisReturnPreservedMask(const MachineFunction &MF,
   // both or otherwise does not want to enable this optimization, the function
   // should return NULL
   if (CC == CallingConv::GHC)
-    // This is academic becase all GHC calls are (supposed to be) tail calls
+    // This is academic because all GHC calls are (supposed to be) tail calls
     return nullptr;
   return STI.isTargetDarwin() ? CSR_iOS_ThisReturn_RegMask
                               : CSR_AAPCS_ThisReturn_RegMask;
@@ -193,10 +199,11 @@ getReservedRegs(const MachineFunction &MF) const {
     for (unsigned R = 0; R < 16; ++R)
       markSuperRegs(Reserved, ARM::D16 + R);
   }
-  const TargetRegisterClass *RC  = &ARM::GPRPairRegClass;
-  for(TargetRegisterClass::iterator I = RC->begin(), E = RC->end(); I!=E; ++I)
-    for (MCSubRegIterator SI(*I, this); SI.isValid(); ++SI)
-      if (Reserved.test(*SI)) markSuperRegs(Reserved, *I);
+  const TargetRegisterClass &RC = ARM::GPRPairRegClass;
+  for (unsigned Reg : RC)
+    for (MCSubRegIterator SI(Reg, this); SI.isValid(); ++SI)
+      if (Reserved.test(*SI))
+        markSuperRegs(Reserved, Reg);
 
   assert(checkAllSuperRegsMarked(Reserved));
   return Reserved;
@@ -315,8 +322,7 @@ ARMBaseRegisterInfo::getRegAllocationHints(unsigned VirtReg,
     Hints.push_back(PairedPhys);
 
   // Then prefer even or odd registers.
-  for (unsigned I = 0, E = Order.size(); I != E; ++I) {
-    unsigned Reg = Order[I];
+  for (unsigned Reg : Order) {
     if (Reg == PairedPhys || (getEncodingValue(Reg) & 1) != Odd)
       continue;
     // Don't provide hints that are paired to a reserved register.
@@ -659,11 +665,8 @@ bool ARMBaseRegisterInfo::isFrameOffsetLegal(const MachineInstr *MI, unsigned Ba
   const MCInstrDesc &Desc = MI->getDesc();
   unsigned AddrMode = (Desc.TSFlags & ARMII::AddrModeMask);
   unsigned i = 0;
-
-  while (!MI->getOperand(i).isFI()) {
-    ++i;
-    assert(i < MI->getNumOperands() &&"Instr doesn't have FrameIndex operand!");
-  }
+  for (; !MI->getOperand(i).isFI(); ++i)
+    assert(i+1 < MI->getNumOperands() && "Instr doesn't have FrameIndex operand!");
 
   // AddrMode4 and AddrMode6 cannot handle any offset.
   if (AddrMode == ARMII::AddrMode4 || AddrMode == ARMII::AddrMode6)
@@ -804,7 +807,8 @@ bool ARMBaseRegisterInfo::shouldCoalesce(MachineInstr *MI,
                                   unsigned SubReg,
                                   const TargetRegisterClass *DstRC,
                                   unsigned DstSubReg,
-                                  const TargetRegisterClass *NewRC) const {
+                                  const TargetRegisterClass *NewRC,
+                                  LiveIntervals &LIS) const {
   auto MBB = MI->getParent();
   auto MF = MBB->getParent();
   const MachineRegisterInfo &MRI = MF->getRegInfo();

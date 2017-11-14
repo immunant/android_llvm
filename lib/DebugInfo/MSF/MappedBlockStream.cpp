@@ -8,38 +8,36 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/DebugInfo/MSF/MappedBlockStream.h"
-
-#include "llvm/DebugInfo/MSF/IMSFFile.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/DebugInfo/MSF/MSFCommon.h"
-#include "llvm/DebugInfo/MSF/MSFStreamLayout.h"
-#include "llvm/Support/BinaryStreamError.h"
+#include "llvm/Support/BinaryStreamWriter.h"
+#include "llvm/Support/Endian.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/MathExtras.h"
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <cstring>
+#include <utility>
+#include <vector>
 
 using namespace llvm;
 using namespace llvm::msf;
 
 namespace {
+
 template <typename Base> class MappedBlockStreamImpl : public Base {
 public:
   template <typename... Args>
   MappedBlockStreamImpl(Args &&... Params)
       : Base(std::forward<Args>(Params)...) {}
 };
-}
 
-static void initializeFpmStreamLayout(const MSFLayout &Layout,
-                                      MSFStreamLayout &FpmLayout) {
-  uint32_t NumFpmIntervals = msf::getNumFpmIntervals(Layout);
-  support::ulittle32_t FpmBlock = Layout.SB->FreeBlockMapBlock;
-  assert(FpmBlock == 1 || FpmBlock == 2);
-  while (NumFpmIntervals > 0) {
-    FpmLayout.Blocks.push_back(FpmBlock);
-    FpmBlock += msf::getFpmIntervalLength(Layout);
-    --NumFpmIntervals;
-  }
-  FpmLayout.Length = msf::getFullFpmByteSize(Layout);
-}
+} // end anonymous namespace
 
-typedef std::pair<uint32_t, uint32_t> Interval;
+using Interval = std::pair<uint32_t, uint32_t>;
+
 static Interval intersect(const Interval &I1, const Interval &I2) {
   return std::make_pair(std::max(I1.first, I2.first),
                         std::min(I1.second, I2.second));
@@ -84,8 +82,7 @@ std::unique_ptr<MappedBlockStream>
 MappedBlockStream::createFpmStream(const MSFLayout &Layout,
                                    BinaryStreamRef MsfData,
                                    BumpPtrAllocator &Allocator) {
-  MSFStreamLayout SL;
-  initializeFpmStreamLayout(Layout, SL);
+  MSFStreamLayout SL(getFpmStreamLayout(Layout));
   return createStream(Layout.SB->BlockSize, SL, MsfData, Allocator);
 }
 
@@ -214,7 +211,7 @@ bool MappedBlockStream::tryReadContiguously(uint32_t Offset, uint32_t Size,
   uint32_t OffsetInBlock = Offset % BlockSize;
   uint32_t BytesFromFirstBlock = std::min(Size, BlockSize - OffsetInBlock);
   uint32_t NumAdditionalBlocks =
-      llvm::alignTo(Size - BytesFromFirstBlock, BlockSize) / BlockSize;
+      alignTo(Size - BytesFromFirstBlock, BlockSize) / BlockSize;
 
   uint32_t RequiredContiguousBlocks = NumAdditionalBlocks + 1;
   uint32_t E = StreamLayout.Blocks[BlockNum];
@@ -351,10 +348,27 @@ WritableMappedBlockStream::createDirectoryStream(
 std::unique_ptr<WritableMappedBlockStream>
 WritableMappedBlockStream::createFpmStream(const MSFLayout &Layout,
                                            WritableBinaryStreamRef MsfData,
-                                           BumpPtrAllocator &Allocator) {
-  MSFStreamLayout SL;
-  initializeFpmStreamLayout(Layout, SL);
-  return createStream(Layout.SB->BlockSize, SL, MsfData, Allocator);
+                                           BumpPtrAllocator &Allocator,
+                                           bool AltFpm) {
+  // We only want to give the user a stream containing the bytes of the FPM that
+  // are actually valid, but we want to initialize all of the bytes, even those
+  // that come from reserved FPM blocks where the entire block is unused.  To do
+  // this, we first create the full layout, which gives us a stream with all
+  // bytes and all blocks, and initialize everything to 0xFF (all blocks in the
+  // file are unused).  Then we create the minimal layout (which contains only a
+  // subset of the bytes previously initialized), and return that to the user.
+  MSFStreamLayout MinLayout(getFpmStreamLayout(Layout, false, AltFpm));
+
+  MSFStreamLayout FullLayout(getFpmStreamLayout(Layout, true, AltFpm));
+  auto Result =
+      createStream(Layout.SB->BlockSize, FullLayout, MsfData, Allocator);
+  if (!Result)
+    return Result;
+  std::vector<uint8_t> InitData(Layout.SB->BlockSize, 0xFF);
+  BinaryStreamWriter Initializer(*Result);
+  while (Initializer.bytesRemaining() > 0)
+    cantFail(Initializer.writeBytes(InitData));
+  return createStream(Layout.SB->BlockSize, MinLayout, MsfData, Allocator);
 }
 
 Error WritableMappedBlockStream::readBytes(uint32_t Offset, uint32_t Size,

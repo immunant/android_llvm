@@ -213,6 +213,10 @@ public:
   /// Output \p N in hexadecimal, without any prefix or padding.
   raw_ostream &write_hex(unsigned long long N);
 
+  /// Output a formatted UUID with dash separators.
+  using uuid_t = uint8_t[16];
+  raw_ostream &write_uuid(const uuid_t UUID);
+
   /// Output \p Str, turning '\\', '\t', '\n', '"', and anything that doesn't
   /// satisfy std::isprint into an escape sequence.
   raw_ostream &write_escaped(StringRef Str, bool UseHexEscapes = false);
@@ -388,15 +392,14 @@ public:
   /// \p Flags allows optional flags to control how the file will be opened.
   ///
   /// As a special case, if Filename is "-", then the stream will use
-  /// STDOUT_FILENO instead of opening a file. Note that it will still consider
-  /// itself to own the file descriptor. In particular, it will close the
-  /// file descriptor when it is done (this is necessary to detect
-  /// output errors).
+  /// STDOUT_FILENO instead of opening a file. This will not close the stdout
+  /// descriptor.
   raw_fd_ostream(StringRef Filename, std::error_code &EC,
                  sys::fs::OpenFlags Flags);
 
   /// FD is the file descriptor that this writes to.  If ShouldClose is true,
-  /// this closes the file when the stream is destroyed.
+  /// this closes the file when the stream is destroyed. If FD is for stdout or
+  /// stderr, it will not be closed.
   raw_fd_ostream(int fd, bool shouldClose, bool unbuffered=false);
 
   ~raw_fd_ostream() override;

@@ -23,9 +23,11 @@ module LLVM_Backend {
     exclude header "CodeGen/CommandFlags.h"
     exclude header "CodeGen/LinkAllAsmWriterComponents.h"
     exclude header "CodeGen/LinkAllCodegenComponents.h"
+    exclude header "CodeGen/GlobalISel/InstructionSelectorImpl.h"
 
     // These are intended for (repeated) textual inclusion.
     textual header "CodeGen/DIEValue.def"
+    textual header "CodeGen/RuntimeLibcalls.def"
   }
 
   module Target {
@@ -47,6 +49,7 @@ module LLVM_BinaryFormat {
     textual header "BinaryFormat/ELFRelocs/AArch64.def"
     textual header "BinaryFormat/ELFRelocs/AMDGPU.def"
     textual header "BinaryFormat/ELFRelocs/ARM.def"
+    textual header "BinaryFormat/ELFRelocs/ARC.def"
     textual header "BinaryFormat/ELFRelocs/AVR.def"
     textual header "BinaryFormat/ELFRelocs/BPF.def"
     textual header "BinaryFormat/ELFRelocs/Hexagon.def"
@@ -120,6 +123,7 @@ module LLVM_DebugInfo_CodeView {
   module * { export * }
 
   // These are intended for (repeated) textual inclusion.
+  textual header "DebugInfo/CodeView/CodeViewRegisters.def"
   textual header "DebugInfo/CodeView/CodeViewTypes.def"
   textual header "DebugInfo/CodeView/CodeViewSymbols.def"
 }
@@ -146,6 +150,7 @@ module LLVM_ExecutionEngine {
   exclude header "ExecutionEngine/Orc/OrcRemoteTargetRPCAPI.h"
   exclude header "ExecutionEngine/Orc/OrcRemoteTargetClient.h"
   exclude header "ExecutionEngine/Orc/OrcRemoteTargetServer.h"
+  exclude header "ExecutionEngine/Orc/RemoteObjectLayer.h"
 }
 
 module LLVM_Pass {
@@ -221,17 +226,21 @@ module LLVM_LTO { requires cplusplus umbrella "LTO" module * { export * } }
 module LLVM_MC {
   requires cplusplus
 
-  // FIXME: Mislayered?
-  module Support_TargetRegistry {
-    header "Support/TargetRegistry.h"
-    export *
-  }
-
   umbrella "MC"
   module * { export * }
 
   // Exclude this; it's fundamentally non-modular.
   exclude header "MC/MCTargetOptionsCommandFlags.h"
+}
+
+// Used by llvm-tblgen
+module LLVM_MC_TableGen {
+  requires cplusplus
+  module MC_LaneBitmask { header "MC/LaneBitmask.h" export * }
+  module MC_FixedLenDisassembler { header "MC/MCFixedLenDisassembler.h" export * }
+  module MC_InstrItineraries { header "MC/MCInstrItineraries.h" export * }
+  module MC_Schedule { header "MC/MCSchedule.h" export * }
+  module MC_SubtargetFeature { header "MC/SubtargetFeature.h" export * }
 }
 
 module LLVM_Object {
@@ -249,6 +258,13 @@ module LLVM_ProfileData {
   module * { export * }
 
   textual header "ProfileData/InstrProfData.inc"
+}
+
+// FIXME: Mislayered?
+module LLVM_Support_TargetRegistry {
+  requires cplusplus
+  header "Support/TargetRegistry.h"
+  export *
 }
 
 module LLVM_TableGen { requires cplusplus umbrella "TableGen" module * { export * } }
@@ -275,11 +291,9 @@ module LLVM_Utils {
     umbrella "Support"
     module * { export * }
 
-    // Exclude this; it's only included on Solaris.
-    exclude header "Support/Solaris.h"
-
-    // Exclude this; it's fundamentally non-modular.
+    // Exclude these; they are fundamentally non-modular.
     exclude header "Support/PluginLoader.h"
+    exclude header "Support/Solaris/sys/regset.h"
 
     // These are intended for textual inclusion.
     textual header "Support/ARMTargetParser.def"
@@ -305,4 +319,10 @@ module LLVM_Utils {
 module LLVM_Support_DataTypes_Src {
   header "llvm/Support/DataTypes.h"
   export *
+}
+
+module LLVM_WindowsManifest {
+  requires cplusplus
+  umbrella "WindowsManifest"
+  module * { export * }
 }

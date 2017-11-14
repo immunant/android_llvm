@@ -473,11 +473,7 @@ void DwarfUnit::addBlockByrefAddress(const DbgVariable &DV, DIE &Die,
   if (Location.isIndirect())
     DwarfExpr.setMemoryLocationKind();
 
-  SmallVector<uint64_t, 9> Ops;
-  if (Location.isIndirect() && Location.getOffset()) {
-    Ops.push_back(dwarf::DW_OP_plus_uconst);
-    Ops.push_back(Location.getOffset());
-  }
+  SmallVector<uint64_t, 6> Ops;
   // If we started with a pointer to the __Block_byref... struct, then
   // the first thing we need to do is dereference the pointer (DW_OP_deref).
   if (isPointer)
@@ -1585,6 +1581,26 @@ void DwarfTypeUnit::emitHeader(bool UseOffsets) {
   // In a skeleton type unit there is no type DIE so emit a zero offset.
   Asm->OutStreamer->EmitIntValue(Ty ? Ty->getOffset() : 0,
                                  sizeof(Ty->getOffset()));
+}
+
+DIE::value_iterator
+DwarfUnit::addSectionDelta(DIE &Die, dwarf::Attribute Attribute,
+                           const MCSymbol *Hi, const MCSymbol *Lo) {
+  return Die.addValue(DIEValueAllocator, Attribute,
+                      DD->getDwarfVersion() >= 4 ? dwarf::DW_FORM_sec_offset
+                                                 : dwarf::DW_FORM_data4,
+                      new (DIEValueAllocator) DIEDelta(Hi, Lo));
+}
+
+DIE::value_iterator
+DwarfUnit::addSectionLabel(DIE &Die, dwarf::Attribute Attribute,
+                           const MCSymbol *Label, const MCSymbol *Sec) {
+  if (Asm->MAI->doesDwarfUseRelocationsAcrossSections())
+    return addLabel(Die, Attribute,
+                    DD->getDwarfVersion() >= 4 ? dwarf::DW_FORM_sec_offset
+                                               : dwarf::DW_FORM_data4,
+                    Label);
+  return addSectionDelta(Die, Attribute, Label, Sec);
 }
 
 bool DwarfTypeUnit::isDwoUnit() const {

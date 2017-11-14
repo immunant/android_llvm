@@ -13,6 +13,7 @@
 #include "llvm/Config/config.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Program.h"
 #include "llvm/Support/StringSaver.h"
 #include "gtest/gtest.h"
 #include <fstream>
@@ -546,6 +547,11 @@ TEST(CommandLineTest, GetRegisteredSubcommands) {
   }
 }
 
+TEST(CommandLineTest, ArgumentLimit) {
+  std::string args(32 * 4096, 'a');
+  EXPECT_FALSE(llvm::sys::commandLineFitsWithinSystemLimits("cl", args.data()));
+}
+
 TEST(CommandLineTest, ResponseFiles) {
   llvm::SmallString<128> TestDir;
   std::error_code EC =
@@ -605,6 +611,41 @@ TEST(CommandLineTest, ResponseFiles) {
   llvm::sys::fs::remove(IncDir);
   llvm::sys::fs::remove(IncludedFileName);
   llvm::sys::fs::remove(TestDir);
+}
+
+TEST(CommandLineTest, SetDefautValue) {
+  cl::ResetCommandLineParser();
+
+  StackOption<std::string> Opt1("opt1", cl::init("true"));
+  StackOption<bool> Opt2("opt2", cl::init(true));
+  cl::alias Alias("alias", llvm::cl::aliasopt(Opt2));
+  StackOption<int> Opt3("opt3", cl::init(3));
+
+  const char *args[] = {"prog", "-opt1=false", "-opt2", "-opt3"};
+
+  EXPECT_TRUE(
+    cl::ParseCommandLineOptions(2, args, StringRef(), &llvm::nulls()));
+
+  EXPECT_TRUE(Opt1 == "false");
+  EXPECT_TRUE(Opt2);
+  EXPECT_TRUE(Opt3 == 3);
+
+  Opt2 = false;
+  Opt3 = 1;
+
+  cl::ResetAllOptionOccurrences();
+
+  for (auto &OM : cl::getRegisteredOptions(*cl::TopLevelSubCommand)) {
+    cl::Option *O = OM.second;
+    if (O->ArgStr == "opt2") {
+      continue;
+    }
+    O->setDefault();
+  }
+
+  EXPECT_TRUE(Opt1 == "true");
+  EXPECT_TRUE(Opt2);
+  EXPECT_TRUE(Opt3 == 3);
 }
 
 }  // anonymous namespace

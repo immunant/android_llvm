@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "RISCV.h"
 #include "RISCVTargetMachine.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/Passes.h"
@@ -43,18 +44,46 @@ static Reloc::Model getEffectiveRelocModel(const Triple &TT,
   return *RM;
 }
 
+static CodeModel::Model getEffectiveCodeModel(Optional<CodeModel::Model> CM) {
+  if (CM)
+    return *CM;
+  return CodeModel::Small;
+}
+
 RISCVTargetMachine::RISCVTargetMachine(const Target &T, const Triple &TT,
                                        StringRef CPU, StringRef FS,
                                        const TargetOptions &Options,
                                        Optional<Reloc::Model> RM,
-                                       CodeModel::Model CM,
-                                       CodeGenOpt::Level OL)
+                                       Optional<CodeModel::Model> CM,
+                                       CodeGenOpt::Level OL, bool JIT)
     : LLVMTargetMachine(T, computeDataLayout(TT), TT, CPU, FS, Options,
-                        getEffectiveRelocModel(TT, RM), CM, OL),
-      TLOF(make_unique<TargetLoweringObjectFileELF>()) {
+                        getEffectiveRelocModel(TT, RM),
+                        getEffectiveCodeModel(CM), OL),
+      TLOF(make_unique<TargetLoweringObjectFileELF>()),
+      Subtarget(TT, CPU, FS, *this) {
   initAsmInfo();
 }
 
+namespace {
+class RISCVPassConfig : public TargetPassConfig {
+public:
+  RISCVPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
+      : TargetPassConfig(TM, PM) {}
+
+  RISCVTargetMachine &getRISCVTargetMachine() const {
+    return getTM<RISCVTargetMachine>();
+  }
+
+  bool addInstSelector() override;
+};
+}
+
 TargetPassConfig *RISCVTargetMachine::createPassConfig(PassManagerBase &PM) {
-  return new TargetPassConfig(*this, PM);
+  return new RISCVPassConfig(*this, PM);
+}
+
+bool RISCVPassConfig::addInstSelector() {
+  addPass(createRISCVISelDag(getRISCVTargetMachine()));
+
+  return false;
 }

@@ -19,6 +19,7 @@
 #include "llvm/CodeGen/LowLevelType.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
 
@@ -59,8 +60,43 @@ class MachineIRBuilder {
   }
 
   void validateTruncExt(unsigned Dst, unsigned Src, bool IsExtend);
+  MachineInstrBuilder buildBinaryOp(unsigned Opcode, unsigned Res, unsigned Op0, unsigned Op1);
+
+  unsigned getDestFromArg(unsigned Reg) { return Reg; }
+  unsigned getDestFromArg(LLT Ty) {
+    return getMF().getRegInfo().createGenericVirtualRegister(Ty);
+  }
+  unsigned getDestFromArg(const TargetRegisterClass *RC) {
+    return getMF().getRegInfo().createVirtualRegister(RC);
+  }
+
+  void addUseFromArg(MachineInstrBuilder &MIB, unsigned Reg) {
+    MIB.addUse(Reg);
+  }
+
+  void addUseFromArg(MachineInstrBuilder &MIB, const MachineInstrBuilder &UseMIB) {
+    MIB.addUse(UseMIB->getOperand(0).getReg());
+  }
+
+  void addUsesFromArgs(MachineInstrBuilder &MIB) { }
+  template<typename UseArgTy, typename ... UseArgsTy>
+  void addUsesFromArgs(MachineInstrBuilder &MIB, UseArgTy &&Arg1, UseArgsTy &&... Args) {
+    addUseFromArg(MIB, Arg1);
+    addUsesFromArgs(MIB, std::forward<UseArgsTy>(Args)...);
+  }
+  unsigned getRegFromArg(unsigned Reg) { return Reg; }
+  unsigned getRegFromArg(const MachineInstrBuilder &MIB) {
+    return MIB->getOperand(0).getReg();
+  }
 
 public:
+  /// Some constructors for easy use.
+  MachineIRBuilder() = default;
+  MachineIRBuilder(MachineFunction &MF) { setMF(MF); }
+  MachineIRBuilder(MachineInstr &MI) : MachineIRBuilder(*MI.getMF()) {
+    setInstr(MI);
+  }
+
   /// Getter for the function we currently build.
   MachineFunction &getMF() {
     assert(MF && "MachineFunction is not set");
@@ -120,6 +156,20 @@ public:
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildInstr(unsigned Opcode);
 
+  /// DAG like Generic method for building arbitrary instructions as above.
+  /// \Opc opcode for the instruction.
+  /// \Ty Either LLT/TargetRegisterClass/unsigned types for Dst
+  /// \Args Variadic list of uses of types(unsigned/MachineInstrBuilder)
+  /// Uses of type MachineInstrBuilder will perform
+  /// getOperand(0).getReg() to convert to register.
+  template <typename DstTy, typename... UseArgsTy>
+  MachineInstrBuilder buildInstr(unsigned Opc, DstTy &&Ty,
+                                 UseArgsTy &&... Args) {
+    auto MIB = buildInstr(Opc).addDef(getDestFromArg(Ty));
+    addUsesFromArgs(MIB, std::forward<UseArgsTy>(Args)...);
+    return MIB;
+  }
+
   /// Build but don't insert <empty> = \p Opcode <empty>.
   ///
   /// \pre setMF, setBasicBlock or setMI  must have been called.
@@ -136,11 +186,12 @@ public:
                                           const MDNode *Expr);
 
   /// Build and insert a DBG_VALUE instruction expressing the fact that the
-  /// associated \p Variable lives in memory at \p Reg + \p Offset (suitably
-  /// modified by \p Expr).
-  MachineInstrBuilder buildIndirectDbgValue(unsigned Reg, unsigned Offset,
+  /// associated \p Variable lives in memory at \p Reg (suitably modified by \p
+  /// Expr).
+  MachineInstrBuilder buildIndirectDbgValue(unsigned Reg,
                                             const MDNode *Variable,
                                             const MDNode *Expr);
+
   /// Build and insert a DBG_VALUE instruction expressing the fact that the
   /// associated \p Variable lives in the stack slot specified by \p FI
   /// (suitably modified by \p Expr).
@@ -149,7 +200,7 @@ public:
 
   /// Build and insert a DBG_VALUE instructions specifying that \p Variable is
   /// given by \p C (suitably modified by \p Expr).
-  MachineInstrBuilder buildConstDbgValue(const Constant &C, unsigned Offset,
+  MachineInstrBuilder buildConstDbgValue(const Constant &C,
                                          const MDNode *Variable,
                                          const MDNode *Expr);
 
@@ -188,6 +239,11 @@ public:
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildAdd(unsigned Res, unsigned Op0,
                                unsigned Op1);
+  template <typename DstTy, typename... UseArgsTy>
+  MachineInstrBuilder buildAdd(DstTy &&Ty, UseArgsTy &&... UseArgs) {
+    unsigned Res = getDestFromArg(Ty);
+    return buildAdd(Res, (getRegFromArg(UseArgs))...);
+  }
 
   /// Build and insert \p Res<def> = G_SUB \p Op0, \p Op1
   ///
@@ -292,8 +348,24 @@ public:
   ///      with the same (scalar or vector) type).
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.
+  template <typename DstTy, typename... UseArgsTy>
+  MachineInstrBuilder buildAnd(DstTy &&Dst, UseArgsTy &&... UseArgs) {
+    return buildAnd(getDestFromArg(Dst), getRegFromArg(UseArgs)...);
+  }
   MachineInstrBuilder buildAnd(unsigned Res, unsigned Op0,
                                unsigned Op1);
+
+  /// Build and insert \p Res<def> = G_OR \p Op0, \p Op1
+  ///
+  /// G_OR sets \p Res to the bitwise or of integer parameters \p Op0 and \p
+  /// Op1.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res, \p Op0 and \p Op1 must be generic virtual registers
+  ///      with the same (scalar or vector) type).
+  ///
+  /// \return a MachineInstrBuilder for the newly created instruction.
+  MachineInstrBuilder buildOr(unsigned Res, unsigned Op0, unsigned Op1);
 
   /// Build and insert \p Res<def> = G_ANYEXT \p Op0
   ///
@@ -308,7 +380,12 @@ public:
   /// \pre \p Op must be smaller than \p Res
   ///
   /// \return The newly created instruction.
+
   MachineInstrBuilder buildAnyExt(unsigned Res, unsigned Op);
+  template <typename DstType, typename ArgType>
+  MachineInstrBuilder buildAnyExt(DstType &&Res, ArgType &&Arg) {
+    return buildAnyExt(getDestFromArg(Res), getRegFromArg(Arg));
+  }
 
   /// Build and insert \p Res<def> = G_SEXT \p Op
   ///
@@ -357,6 +434,32 @@ public:
   ///
   /// \return The newly created instruction.
   MachineInstrBuilder buildZExtOrTrunc(unsigned Res, unsigned Op);
+
+  // Build and insert \p Res<def> = G_ANYEXT \p Op, \p Res = G_TRUNC \p Op, or
+  /// \p Res = COPY \p Op depending on the differing sizes of \p Res and \p Op.
+  ///  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res must be a generic virtual register with scalar or vector type.
+  /// \pre \p Op must be a generic virtual register with scalar or vector type.
+  ///
+  /// \return The newly created instruction.
+  template <typename DstTy, typename UseArgTy>
+  MachineInstrBuilder buildAnyExtOrTrunc(DstTy &&Dst, UseArgTy &&Use) {
+    return buildAnyExtOrTrunc(getDestFromArg(Dst), getRegFromArg(Use));
+  }
+  MachineInstrBuilder buildAnyExtOrTrunc(unsigned Res, unsigned Op);
+
+  /// Build and insert \p Res<def> = \p ExtOpc, \p Res = G_TRUNC \p
+  /// Op, or \p Res = COPY \p Op depending on the differing sizes of \p Res and
+  /// \p Op.
+  ///  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res must be a generic virtual register with scalar or vector type.
+  /// \pre \p Op must be a generic virtual register with scalar or vector type.
+  ///
+  /// \return The newly created instruction.
+  MachineInstrBuilder buildExtOrTrunc(unsigned ExtOpc, unsigned Res,
+                                      unsigned Op);
 
   /// Build and insert an appropriate cast between two registers of equal size.
   MachineInstrBuilder buildCast(unsigned Dst, unsigned Src);
@@ -416,6 +519,10 @@ public:
   /// \return The newly created instruction.
   MachineInstrBuilder buildConstant(unsigned Res, int64_t Val);
 
+  template <typename DstType>
+  MachineInstrBuilder buildConstant(DstType &&Res, int64_t Val) {
+    return buildConstant(getDestFromArg(Res), Val);
+  }
   /// Build and insert \p Res = G_FCONSTANT \p Val
   ///
   /// G_FCONSTANT is a floating-point constant with the specified size and
@@ -435,6 +542,10 @@ public:
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildCopy(unsigned Res, unsigned Op);
+  template <typename DstType, typename SrcType>
+  MachineInstrBuilder buildCopy(DstType &&Res, SrcType &&Src) {
+    return buildCopy(getDestFromArg(Res), getRegFromArg(Src));
+  }
 
   /// Build and insert `Res<def> = G_LOAD Addr, MMO`.
   ///
@@ -471,10 +582,12 @@ public:
   /// Build and insert \p Res = IMPLICIT_DEF.
   MachineInstrBuilder buildUndef(unsigned Dst);
 
-  /// Build and insert \p Res<def> = G_SEQUENCE \p Op0, \p Idx0...
+  /// Build and insert instructions to put \p Ops together at the specified p
+  /// Indices to form a larger register.
   ///
-  /// G_SEQUENCE inserts each element of Ops into an IMPLICIT_DEF register,
-  /// where each entry starts at the bit-index specified by \p Indices.
+  /// If the types of the input registers are uniform and cover the entirity of
+  /// \p Res then a G_MERGE_VALUES will be produced. Otherwise an IMPLICIT_DEF
+  /// followed by a sequence of G_INSERT instructions.
   ///
   /// \pre setBasicBlock or setMI must have been called.
   /// \pre The final element of the sequence must not extend past the end of the
@@ -482,11 +595,8 @@ public:
   /// \pre The bits defined by each Op (derived from index and scalar size) must
   ///      not overlap.
   /// \pre \p Indices must be in ascending order of bit position.
-  ///
-  /// \return a MachineInstrBuilder for the newly created instruction.
-  MachineInstrBuilder buildSequence(unsigned Res,
-                                    ArrayRef<unsigned> Ops,
-                                    ArrayRef<uint64_t> Indices);
+  void buildSequence(unsigned Res, ArrayRef<unsigned> Ops,
+                     ArrayRef<uint64_t> Indices);
 
   /// Build and insert \p Res<def> = G_MERGE_VALUES \p Op0, ...
   ///
@@ -512,24 +622,6 @@ public:
   ///
   /// \return a MachineInstrBuilder for the newly created instruction.
   MachineInstrBuilder buildUnmerge(ArrayRef<unsigned> Res, unsigned Op);
-
-  void addUsesWithIndices(MachineInstrBuilder MIB) {}
-
-  template <typename... ArgTys>
-  void addUsesWithIndices(MachineInstrBuilder MIB, unsigned Reg,
-                          unsigned BitIndex, ArgTys... Args) {
-    MIB.addUse(Reg).addImm(BitIndex);
-    addUsesWithIndices(MIB, Args...);
-  }
-
-  template <typename... ArgTys>
-  MachineInstrBuilder buildSequence(unsigned Res, unsigned Op,
-                                    unsigned Index, ArgTys... Args) {
-    MachineInstrBuilder MIB =
-        buildInstr(TargetOpcode::G_SEQUENCE).addDef(Res);
-    addUsesWithIndices(MIB, Op, Index, Args...);
-    return MIB;
-  }
 
   MachineInstrBuilder buildInsert(unsigned Res, unsigned Src,
                                   unsigned Op, unsigned Index);
@@ -571,6 +663,10 @@ public:
   ///
   /// \return The newly created instruction.
   MachineInstrBuilder buildTrunc(unsigned Res, unsigned Op);
+  template <typename DstType, typename SrcType>
+  MachineInstrBuilder buildTrunc(DstType &&Res, SrcType &&Src) {
+    return buildTrunc(getDestFromArg(Res), getRegFromArg(Src));
+  }
 
   /// Build and insert a \p Res = G_ICMP \p Pred, \p Op0, \p Op1
   ///

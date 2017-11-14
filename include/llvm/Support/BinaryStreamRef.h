@@ -31,12 +31,11 @@ protected:
   BinaryStreamRefBase(StreamType &BorrowedImpl, uint32_t Offset,
                       uint32_t Length)
       : BorrowedImpl(&BorrowedImpl), ViewOffset(Offset), Length(Length) {}
-  BinaryStreamRefBase(const BinaryStreamRefBase &Other) {
-    SharedImpl = Other.SharedImpl;
-    BorrowedImpl = Other.BorrowedImpl;
-    ViewOffset = Other.ViewOffset;
-    Length = Other.Length;
-  }
+  BinaryStreamRefBase(const BinaryStreamRefBase &Other) = default;
+  BinaryStreamRefBase &operator=(const BinaryStreamRefBase &Other) = default;
+
+  BinaryStreamRefBase &operator=(BinaryStreamRefBase &&Other) = default;
+  BinaryStreamRefBase(BinaryStreamRefBase &&Other) = default;
 
 public:
   llvm::support::endianness getEndian() const {
@@ -142,7 +141,10 @@ public:
                            llvm::support::endianness Endian);
   explicit BinaryStreamRef(StringRef Data, llvm::support::endianness Endian);
 
-  BinaryStreamRef(const BinaryStreamRef &Other);
+  BinaryStreamRef(const BinaryStreamRef &Other) = default;
+  BinaryStreamRef &operator=(const BinaryStreamRef &Other) = default;
+  BinaryStreamRef(BinaryStreamRef &&Other) = default;
+  BinaryStreamRef &operator=(BinaryStreamRef &&Other) = default;
 
   // Use BinaryStreamRef.slice() instead.
   BinaryStreamRef(BinaryStreamRef &S, uint32_t Offset,
@@ -166,6 +168,28 @@ public:
                                    ArrayRef<uint8_t> &Buffer) const;
 };
 
+struct BinarySubstreamRef {
+  uint32_t Offset;            // Offset in the parent stream
+  BinaryStreamRef StreamData; // Stream Data
+
+  BinarySubstreamRef slice(uint32_t Off, uint32_t Size) const {
+    BinaryStreamRef SubSub = StreamData.slice(Off, Size);
+    return {Off + Offset, SubSub};
+  }
+  BinarySubstreamRef drop_front(uint32_t N) const {
+    return slice(N, size() - N);
+  }
+  BinarySubstreamRef keep_front(uint32_t N) const { return slice(0, N); }
+
+  std::pair<BinarySubstreamRef, BinarySubstreamRef>
+  split(uint32_t Offset) const {
+    return std::make_pair(keep_front(Offset), drop_front(Offset));
+  }
+
+  uint32_t size() const { return StreamData.getLength(); }
+  bool empty() const { return size() == 0; }
+};
+
 class WritableBinaryStreamRef
     : public BinaryStreamRefBase<WritableBinaryStreamRef,
                                  WritableBinaryStream> {
@@ -181,7 +205,12 @@ public:
                           uint32_t Length);
   explicit WritableBinaryStreamRef(MutableArrayRef<uint8_t> Data,
                                    llvm::support::endianness Endian);
-  WritableBinaryStreamRef(const WritableBinaryStreamRef &Other);
+  WritableBinaryStreamRef(const WritableBinaryStreamRef &Other) = default;
+  WritableBinaryStreamRef &
+  operator=(const WritableBinaryStreamRef &Other) = default;
+
+  WritableBinaryStreamRef(WritableBinaryStreamRef &&Other) = default;
+  WritableBinaryStreamRef &operator=(WritableBinaryStreamRef &&Other) = default;
 
   // Use WritableBinaryStreamRef.slice() instead.
   WritableBinaryStreamRef(WritableBinaryStreamRef &S, uint32_t Offset,

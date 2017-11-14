@@ -26,7 +26,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/CFG.h"
-#include "llvm/Analysis/OptimizationDiagnosticInfo.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/CodeGen/FastISel.h"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
@@ -414,7 +414,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
 
   SplitCriticalSideEffectEdges(const_cast<Function &>(Fn), DT, LI);
 
-  CurDAG->init(*MF, *ORE);
+  CurDAG->init(*MF, *ORE, this);
   FuncInfo->set(Fn, *MF, CurDAG);
 
   // Now get the optional analyzes if we want to.
@@ -494,10 +494,9 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
 
   DenseMap<unsigned, unsigned> LiveInMap;
   if (!FuncInfo->ArgDbgValues.empty())
-    for (MachineRegisterInfo::livein_iterator LI = RegInfo->livein_begin(),
-           E = RegInfo->livein_end(); LI != E; ++LI)
-      if (LI->second)
-        LiveInMap.insert(std::make_pair(LI->first, LI->second));
+    for (std::pair<unsigned, unsigned> LI : RegInfo->liveins())
+      if (LI.second)
+        LiveInMap.insert(LI);
 
   // Insert DBG_VALUE instructions for function arguments to the entry block.
   for (unsigned i = 0, e = FuncInfo->ArgDbgValues.size(); i != e; ++i) {
@@ -529,12 +528,14 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
       const MDNode *Expr = MI->getDebugExpression();
       DebugLoc DL = MI->getDebugLoc();
       bool IsIndirect = MI->isIndirectDebugValue();
-      unsigned Offset = IsIndirect ? MI->getOperand(1).getImm() : 0;
+      if (IsIndirect)
+        assert(MI->getOperand(1).getImm() == 0 &&
+               "DBG_VALUE with nonzero offset");
       assert(cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(DL) &&
              "Expected inlined-at fields to agree");
       // Def is never a terminator here, so it is ok to increment InsertPos.
       BuildMI(*EntryMBB, ++InsertPos, DL, TII->get(TargetOpcode::DBG_VALUE),
-              IsIndirect, LDI->second, Offset, Variable, Expr);
+              IsIndirect, LDI->second, Variable, Expr);
 
       // If this vreg is directly copied into an exported register then
       // that COPY instructions also need DBG_VALUE, if it is the only
@@ -556,7 +557,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
         // declared, rather than whatever is attached to CopyUseMI.
         MachineInstr *NewMI =
             BuildMI(*MF, DL, TII->get(TargetOpcode::DBG_VALUE), IsIndirect,
-                    CopyUseMI->getOperand(0).getReg(), Offset, Variable, Expr);
+                    CopyUseMI->getOperand(0).getReg(), Variable, Expr);
         MachineBasicBlock::iterator Pos = CopyUseMI;
         EntryMBB->insertAfter(Pos, NewMI);
       }
@@ -644,6 +645,9 @@ static void reportFastISelFailure(MachineFunction &MF,
 void SelectionDAGISel::SelectBasicBlock(BasicBlock::const_iterator Begin,
                                         BasicBlock::const_iterator End,
                                         bool &HadTailCall) {
+  // Allow creating illegal types during DAG building for the basic block.
+  CurDAG->NewNodesMustHaveLegalTypes = false;
+
   // Lower the instructions. If a call is emitted as a tail call, cease emitting
   // nodes for this block.
   for (BasicBlock::const_iterator I = Begin; I != End && !SDB->HasTailCall; ++I) {
@@ -1177,12 +1181,7 @@ static void propagateSwiftErrorVRegs(FunctionLoweringInfo *FuncInfo) {
 
   // For each machine basic block in reverse post order.
   ReversePostOrderTraversal<MachineFunction *> RPOT(FuncInfo->MF);
-  for (ReversePostOrderTraversal<MachineFunction *>::rpo_iterator
-           It = RPOT.begin(),
-           E = RPOT.end();
-       It != E; ++It) {
-    MachineBasicBlock *MBB = *It;
-
+  for (MachineBasicBlock *MBB : RPOT) {
     // For each swifterror value in the function.
     for(const auto *SwiftErrorVal : FuncInfo->SwiftErrorVals) {
       auto Key = std::make_pair(MBB, SwiftErrorVal);
@@ -1253,6 +1252,8 @@ static void propagateSwiftErrorVRegs(FunctionLoweringInfo *FuncInfo) {
       // If we don't need a phi create a copy to the upward exposed vreg.
       if (!needPHI) {
         assert(UpwardsUse);
+        assert(!VRegs.empty() &&
+               "No predecessors?  Is the Calling Convention correct?");
         unsigned DestReg = UUseVReg;
         BuildMI(*MBB, MBB->getFirstNonPHI(), DLoc, TII->get(TargetOpcode::COPY),
                 DestReg)
@@ -1282,10 +1283,10 @@ static void propagateSwiftErrorVRegs(FunctionLoweringInfo *FuncInfo) {
   }
 }
 
-void preassignSwiftErrorRegs(const TargetLowering *TLI,
-                             FunctionLoweringInfo *FuncInfo,
-                             BasicBlock::const_iterator Begin,
-                             BasicBlock::const_iterator End) {
+static void preassignSwiftErrorRegs(const TargetLowering *TLI,
+                                    FunctionLoweringInfo *FuncInfo,
+                                    BasicBlock::const_iterator Begin,
+                                    BasicBlock::const_iterator End) {
   if (!TLI->supportSwiftError() || FuncInfo->SwiftErrorVals.empty())
     return;
 
@@ -1483,7 +1484,6 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
 
         // Try to select the instruction with FastISel.
         if (FastIS->selectInstruction(Inst)) {
-          FastISelFailed = true;
           --NumFastIselRemaining;
           ++NumFastIselSuccess;
           // If fast isel succeeded, skip over all the folded instructions, and
@@ -1506,8 +1506,14 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
           continue;
         }
 
+        FastISelFailed = true;
+
         // Then handle certain instructions as single-LLVM-Instruction blocks.
-        if (isa<CallInst>(Inst)) {
+        // We cannot separate out GCrelocates to their own blocks since we need
+        // to keep track of gc-relocates for a particular gc-statepoint. This is
+        // done by SelectionDAGBuilder::LowerAsSTATEPOINT, called before
+        // visitGCRelocate.
+        if (isa<CallInst>(Inst) && !isStatepoint(Inst) && !isGCRelocate(Inst)) {
           OptimizationRemarkMissed R("sdagisel", "FastISelFailure",
                                      Inst->getDebugLoc(), LLVMBB);
 
@@ -2901,6 +2907,7 @@ void SelectionDAGISel::SelectCodeCommon(SDNode *NodeToMatch,
   case ISD::CopyFromReg:
   case ISD::CopyToReg:
   case ISD::EH_LABEL:
+  case ISD::ANNOTATION_LABEL:
   case ISD::LIFETIME_START:
   case ISD::LIFETIME_END:
     NodeToMatch->setNodeId(-1); // Mark selected.

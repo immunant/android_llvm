@@ -40,6 +40,10 @@
 
 using namespace llvm;
 
+
+static cl::opt<bool>
+    EnableBranchCoalescing("enable-ppc-branch-coalesce", cl::Hidden,
+                           cl::desc("enable coalescing of duplicate branches for PPC"));
 static cl::
 opt<bool> DisableCTRLoops("disable-ppc-ctrloops", cl::Hidden,
                         cl::desc("Disable CTR loops for PPC"));
@@ -93,6 +97,7 @@ extern "C" void LLVMInitializePowerPCTarget() {
   PassRegistry &PR = *PassRegistry::getPassRegistry();
   initializePPCBoolRetToIntPass(PR);
   initializePPCExpandISELPass(PR);
+  initializePPCTLSDynamicCallPass(PR);
 }
 
 /// Return the datalayout string of a subtarget.
@@ -207,6 +212,17 @@ static Reloc::Model getEffectiveRelocModel(const Triple &TT,
   return Reloc::Static;
 }
 
+static CodeModel::Model getEffectiveCodeModel(const Triple &TT,
+                                              Optional<CodeModel::Model> CM,
+                                              bool JIT) {
+  if (CM)
+    return *CM;
+  if (!TT.isOSDarwin() && !JIT &&
+      (TT.getArch() == Triple::ppc64 || TT.getArch() == Triple::ppc64le))
+    return CodeModel::Medium;
+  return CodeModel::Small;
+}
+
 // The FeatureString here is a little subtle. We are modifying the feature
 // string with what are (currently) non-function specific overrides as it goes
 // into the LLVMTargetMachine constructor and then using the stored value in the
@@ -215,10 +231,12 @@ PPCTargetMachine::PPCTargetMachine(const Target &T, const Triple &TT,
                                    StringRef CPU, StringRef FS,
                                    const TargetOptions &Options,
                                    Optional<Reloc::Model> RM,
-                                   CodeModel::Model CM, CodeGenOpt::Level OL)
+                                   Optional<CodeModel::Model> CM,
+                                   CodeGenOpt::Level OL, bool JIT)
     : LLVMTargetMachine(T, getDataLayoutString(TT), TT, CPU,
                         computeFSAdditions(FS, OL, TT), Options,
-                        getEffectiveRelocModel(TT, RM), CM, OL),
+                        getEffectiveRelocModel(TT, RM),
+                        getEffectiveCodeModel(TT, CM, JIT), OL),
       TLOF(createTLOF(getTargetTriple())),
       TargetABI(computeTargetABI(TT, Options)) {
   initAsmInfo();
@@ -336,7 +354,7 @@ bool PPCPassConfig::addPreISel() {
     addPass(createPPCLoopPreIncPrepPass(getPPCTargetMachine()));
 
   if (!DisableCTRLoops && getOptLevel() != CodeGenOpt::None)
-    addPass(createPPCCTRLoops(getPPCTargetMachine()));
+    addPass(createPPCCTRLoops());
 
   return false;
 }
@@ -352,7 +370,7 @@ bool PPCPassConfig::addILPOpts() {
 
 bool PPCPassConfig::addInstSelector() {
   // Install an instruction selector.
-  addPass(createPPCISelDag(getPPCTargetMachine()));
+  addPass(createPPCISelDag(getPPCTargetMachine(), getOptLevel()));
 
 #ifndef NDEBUG
   if (!DisableCTRLoops && getOptLevel() != CodeGenOpt::None)
@@ -364,6 +382,10 @@ bool PPCPassConfig::addInstSelector() {
 }
 
 void PPCPassConfig::addMachineSSAOptimization() {
+  // PPCBranchCoalescingPass need to be done before machine sinking
+  // since it merges empty blocks.
+  if (EnableBranchCoalescing && getOptLevel() != CodeGenOpt::None)
+    addPass(createPPCBranchCoalescingPass());
   TargetPassConfig::addMachineSSAOptimization();
   // For little endian, remove where possible the vector swap instructions
   // introduced at code generation to normalize vector element order.
@@ -388,7 +410,7 @@ void PPCPassConfig::addPreRegAlloc() {
   // FIXME: We probably don't need to run these for -fPIE.
   if (getPPCTargetMachine().isPositionIndependent()) {
     // FIXME: LiveVariables should not be necessary here!
-    // PPCTLSDYnamicCallPass uses LiveIntervals which previously dependet on
+    // PPCTLSDynamicCallPass uses LiveIntervals which previously dependent on
     // LiveVariables. This (unnecessary) dependency has been removed now,
     // however a stage-2 clang build fails without LiveVariables computed here.
     addPass(&LiveVariablesID, false);

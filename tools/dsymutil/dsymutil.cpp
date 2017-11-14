@@ -68,7 +68,10 @@ static opt<bool>
     NoOutput("no-output",
              desc("Do the link in memory, but do not emit the result file."),
              init(false), cat(DsymCategory));
-
+static opt<bool>
+    NoTimestamp("no-swiftmodule-timestamp",
+                desc("Don't check timestamp for swiftmodule files."),
+                init(false), cat(DsymCategory));
 static list<std::string> ArchFlags(
     "arch",
     desc("Link DWARF debug information only for specified CPU architecture\n"
@@ -253,8 +256,10 @@ int main(int argc, char **argv) {
       "for the executable <input file> by using debug symbols information\n"
       "contained in its symbol table.\n");
 
-  if (Help)
+  if (Help) {
     PrintHelpMessage();
+    return 0;
+  }
 
   if (Version) {
     llvm::cl::PrintVersionMessage();
@@ -264,6 +269,7 @@ int main(int argc, char **argv) {
   Options.Verbose = Verbose;
   Options.NoOutput = NoOutput;
   Options.NoODR = NoODR;
+  Options.NoTimestamp = NoTimestamp;
   Options.PrependPath = OsoPrependPath;
 
   llvm::InitializeAllTargetInfos();

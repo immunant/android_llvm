@@ -20,7 +20,7 @@ if(POLICY CMP0057)
 endif()
 
 if(NOT DEFINED LLVM_VERSION_MAJOR)
-  set(LLVM_VERSION_MAJOR 5)
+  set(LLVM_VERSION_MAJOR 6)
 endif()
 if(NOT DEFINED LLVM_VERSION_MINOR)
   set(LLVM_VERSION_MINOR 0)
@@ -94,7 +94,7 @@ if(CMAKE_HOST_APPLE AND APPLE)
         set(LIBTOOL_NO_WARNING_FLAG "-no_warning_for_no_symbols")
       endif()
     endif()
-    
+
     foreach(lang ${languages})
       set(CMAKE_${lang}_CREATE_STATIC_LIBRARY
         "${CMAKE_LIBTOOL} -static ${LIBTOOL_NO_WARNING_FLAG} -o <TARGET> \
@@ -176,11 +176,6 @@ if(LLVM_DEPENDENCY_DEBUGGING)
   endif()
 endif()
 
-option(LLVM_BUILD_GLOBAL_ISEL "Experimental: Build GlobalISel" ON)
-if(LLVM_BUILD_GLOBAL_ISEL)
-  add_definitions(-DLLVM_BUILD_GLOBAL_ISEL)
-endif()
-
 option(LLVM_ENABLE_DAGISEL_COV "Debug: Prints tablegen patterns that were used for selecting" OFF)
 
 # Add path for custom modules
@@ -206,11 +201,7 @@ endif()
 include(VersionFromVCS)
 
 option(LLVM_APPEND_VC_REV
-  "Append the version control system revision id to LLVM version" OFF)
-
-if( LLVM_APPEND_VC_REV )
-  add_version_info_from_vcs(PACKAGE_VERSION)
-endif()
+  "Embed the version control system revision id in LLVM" ON)
 
 set(PACKAGE_NAME LLVM)
 set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
@@ -246,11 +237,11 @@ endif()
 include(CPack)
 
 # Sanity check our source directory to make sure that we are not trying to
-# generate an in-tree build (unless on MSVC_IDE, where it is ok), and to make
+# generate an in-source build (unless on MSVC_IDE, where it is ok), and to make
 # sure that we don't have any stray generated files lying around in the tree
 # (which would end up getting picked up by header search, instead of the correct
 # versions).
-if( CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE )
+if( CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR AND NOT MSVC_IDE )
   message(FATAL_ERROR "In-source builds are not allowed.
 CMake would overwrite the makefiles distributed with LLVM.
 Please create a directory and run cmake from there, passing the path
@@ -288,6 +279,10 @@ set(LLVM_LIBDIR_SUFFIX "" CACHE STRING "Define suffix of library directory name 
 set(LLVM_TOOLS_INSTALL_DIR "bin" CACHE STRING "Path for binary subdirectory (defaults to 'bin')")
 mark_as_advanced(LLVM_TOOLS_INSTALL_DIR)
 
+set(LLVM_UTILS_INSTALL_DIR "bin" CACHE STRING
+    "Path to install LLVM utilities (enabled by LLVM_INSTALL_UTILS=ON) (defaults to LLVM_TOOLS_INSTALL_DIR)")
+mark_as_advanced(LLVM_TOOLS_INSTALL_DIR)
+
 # They are used as destination of target generators.
 set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
 set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX})
@@ -310,6 +305,7 @@ set(LLVM_CMAKE_PATH ${LLVM_MAIN_SRC_DIR}/cmake/modules)
 set(LLVM_EXAMPLES_BINARY_DIR ${LLVM_BINARY_DIR}/examples)
 set(LLVM_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
 
+# List of all targets to be built by default:
 set(LLVM_ALL_TARGETS
   AArch64
   AMDGPU
@@ -321,7 +317,6 @@ set(LLVM_ALL_TARGETS
   MSP430
   NVPTX
   PowerPC
-  RISCV
   Sparc
   SystemZ
   X86
@@ -359,6 +354,8 @@ set(LLVM_TARGET_ARCH "host"
 
 option(LLVM_ENABLE_TERMINFO "Use terminfo database if available." ON)
 
+option(LLVM_ENABLE_LIBXML2 "Use libxml2 if available." ON)
+
 option(LLVM_ENABLE_LIBEDIT "Use libedit if available." ON)
 
 option(LLVM_ENABLE_THREADS "Use threads if available." ON)
@@ -391,10 +388,16 @@ option(LLVM_ENABLE_LLD "Use lld as C and C++ linker." OFF)
 option(LLVM_ENABLE_PEDANTIC "Compile with pedantic enabled." ON)
 option(LLVM_ENABLE_WERROR "Fail and stop if a warning is triggered." OFF)
 
+option(LLVM_ENABLE_DUMP "Enable dump functions in release builds" OFF)
+
 if( NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" )
   option(LLVM_ENABLE_ASSERTIONS "Enable assertions" OFF)
 else()
   option(LLVM_ENABLE_ASSERTIONS "Enable assertions" ON)
+endif()
+
+if( LLVM_ENABLE_ASSERTIONS )
+  set(LLVM_ENABLE_DUMP ON)
 endif()
 
 option(LLVM_ENABLE_EXPENSIVE_CHECKS "Enable expensive checks" OFF)
@@ -432,6 +435,8 @@ endif( LLVM_USE_OPROFILE )
 
 set(LLVM_USE_SANITIZER "" CACHE STRING
   "Define the sanitizer used to build binaries and tests.")
+set(LLVM_LIB_FUZZING_ENGINE "" CACHE PATH
+  "Path to fuzzing library for linking with fuzz targets")
 
 option(LLVM_USE_SPLIT_DWARF
   "Use -gsplit-dwarf when compiling llvm." OFF)
@@ -551,7 +556,8 @@ else()
   set(LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION FALSE CACHE INTERNAL "For Visual Studio 2013, manually copy natvis files to Documents\\Visual Studio 2013\\Visualizers" FORCE)
 endif()
 
-if (LLVM_BUILD_INSTRUMENTED OR LLVM_BUILD_INSTRUMENTED_COVERAGE)
+if (LLVM_BUILD_INSTRUMENTED OR LLVM_BUILD_INSTRUMENTED_COVERAGE OR
+    LLVM_ENABLE_IR_PGO)
   if(NOT LLVM_PROFILE_MERGE_POOL_SIZE)
     # A pool size of 1-2 is probably sufficient on a SSD. 3-4 should be fine
     # for spining disks. Anything higher may only help on slower mediums.
@@ -559,10 +565,9 @@ if (LLVM_BUILD_INSTRUMENTED OR LLVM_BUILD_INSTRUMENTED_COVERAGE)
   endif()
   if(NOT LLVM_PROFILE_FILE_PATTERN)
     if(NOT LLVM_PROFILE_DATA_DIR)
-      file(TO_NATIVE_PATH "${LLVM_BINARY_DIR}/profiles/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
-    else()
-      file(TO_NATIVE_PATH "${LLVM_PROFILE_DATA_DIR}/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
+      file(TO_NATIVE_PATH "${LLVM_BINARY_DIR}/profiles" LLVM_PROFILE_DATA_DIR)
     endif()
+		file(TO_NATIVE_PATH "${LLVM_PROFILE_DATA_DIR}/%${LLVM_PROFILE_MERGE_POOL_SIZE}m.profraw" LLVM_PROFILE_FILE_PATTERN)
   endif()
 endif()
 
@@ -792,19 +797,20 @@ if(LLVM_USE_HOST_TOOLS)
   include(CrossCompile)
 endif(LLVM_USE_HOST_TOOLS)
 if(LLVM_TARGET_IS_CROSSCOMPILE_HOST)
-# Dummy use to avoid CMake Wraning: Manually-specified variables were not used
+# Dummy use to avoid CMake Warning: Manually-specified variables were not used
 # (this is a variable that CrossCompile sets on recursive invocations)
 endif()
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "(FreeBSD|DragonFly)")
   # On FreeBSD, /usr/local/* is not used by default. In order to build LLVM
   # with libxml2, iconv.h, etc., we must add /usr/local paths.
-  include_directories("/usr/local/include")
+  include_directories(SYSTEM "/usr/local/include")
   link_directories("/usr/local/lib")
 endif(${CMAKE_SYSTEM_NAME} MATCHES "(FreeBSD|DragonFly)")
 
 if( ${CMAKE_SYSTEM_NAME} MATCHES SunOS )
-   SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -include llvm/Support/Solaris.h")
+   # special hack for Solaris to handle crazy system sys/regset.h
+   include_directories("${LLVM_MAIN_INCLUDE_DIR}/llvm/Support/Solaris")
 endif( ${CMAKE_SYSTEM_NAME} MATCHES SunOS )
 
 # Make sure we don't get -rdynamic in every binary. For those that need it,
@@ -838,15 +844,6 @@ add_subdirectory(lib/TableGen)
 
 add_subdirectory(utils/TableGen)
 
-# Force target to be built as soon as possible. Clang modules builds depend
-# header-wise on it as they ship all headers from the umbrella folders. Building
-# an entire module might include header, which depends on intrinsics_gen. This
-# should be right after LLVMSupport and LLVMTableGen otherwise we introduce a
-# circular dependence.
-if (LLVM_ENABLE_MODULES)
-  list(APPEND LLVM_COMMON_DEPENDS intrinsics_gen)
-endif(LLVM_ENABLE_MODULES)
-
 add_subdirectory(include/llvm)
 
 add_subdirectory(lib)
@@ -856,7 +853,6 @@ if( LLVM_INCLUDE_UTILS )
   add_subdirectory(utils/PerfectShuffle)
   add_subdirectory(utils/count)
   add_subdirectory(utils/not)
-  add_subdirectory(utils/llvm-lit)
   add_subdirectory(utils/yaml-bench)
 else()
   if ( LLVM_INCLUDE_TESTS )
@@ -899,6 +895,7 @@ if( LLVM_INCLUDE_TESTS )
       NO_INSTALL
       ALWAYS_CLEAN)
   endif()
+  add_subdirectory(utils/lit)
   add_subdirectory(test)
   add_subdirectory(unittests)
   if( LLVM_INCLUDE_UTILS )
@@ -941,6 +938,11 @@ if (LLVM_INCLUDE_DOCS)
 endif()
 
 add_subdirectory(cmake/modules)
+
+# Do this last so that all lit targets have already been created.
+if (LLVM_INCLUDE_UTILS)
+  add_subdirectory(utils/llvm-lit)
+endif()
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   install(DIRECTORY include/llvm include/llvm-c
@@ -1010,3 +1012,4 @@ endif()
 if (MSVC)
   include(InstallRequiredSystemLibraries)
 endif()
+

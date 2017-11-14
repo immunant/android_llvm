@@ -196,6 +196,9 @@ void EmitOptParser(RecordKeeper &Records, raw_ostream &OS) {
       OS << ", nullptr";
 
     // The option meta-variable name (unused).
+    OS << ", nullptr";
+
+    // The option Values (unused for groups).
     OS << ", nullptr)\n";
   }
   OS << "\n";
@@ -285,8 +288,41 @@ void EmitOptParser(RecordKeeper &Records, raw_ostream &OS) {
     else
       OS << "nullptr";
 
+    // The option Values. Used for shell autocompletion.
+    OS << ", ";
+    if (!isa<UnsetInit>(R.getValueInit("Values")))
+      write_cstring(OS, R.getValueAsString("Values"));
+    else
+      OS << "nullptr";
+
     OS << ")\n";
   }
   OS << "#endif // OPTION\n";
+
+  OS << "\n";
+  OS << "#ifdef OPTTABLE_ARG_INIT\n";
+  OS << "//////////\n";
+  OS << "// Option Values\n\n";
+  for (unsigned I = 0, E = Opts.size(); I != E; ++I) {
+    const Record &R = *Opts[I];
+    if (isa<UnsetInit>(R.getValueInit("ValuesCode")))
+      continue;
+    OS << "{\n";
+    OS << "bool ValuesWereAdded;\n";
+    OS << R.getValueAsString("ValuesCode");
+    OS << "\n";
+    for (const std::string &Pref : R.getValueAsListOfStrings("Prefixes")) {
+      OS << "ValuesWereAdded = Opt.addValues(";
+      std::string S = (Pref + R.getValueAsString("Name")).str();
+      write_cstring(OS, S);
+      OS << ", Values);\n";
+      OS << "(void)ValuesWereAdded;\n";
+      OS << "assert(ValuesWereAdded && \"Couldn't add values to "
+            "OptTable!\");\n";
+    }
+    OS << "}\n";
+  }
+  OS << "\n";
+  OS << "#endif // OPTTABLE_ARG_INIT\n";
 }
 } // end namespace llvm

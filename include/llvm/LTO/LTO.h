@@ -71,7 +71,7 @@ std::string getThinLTOOutputFile(const std::string &Path,
                                  const std::string &NewPrefix);
 
 /// Setup optimization remarks.
-Expected<std::unique_ptr<tool_output_file>>
+Expected<std::unique_ptr<ToolOutputFile>>
 setupOptimizationRemarks(LLVMContext &Context, StringRef LTORemarksFilename,
                          bool LTOPassRemarksWithHotness, int Count = -1);
 
@@ -126,6 +126,7 @@ public:
     using irsymtab::Symbol::getCommonSize;
     using irsymtab::Symbol::getCommonAlignment;
     using irsymtab::Symbol::getCOFFWeakExternalFallback;
+    using irsymtab::Symbol::getSectionName;
     using irsymtab::Symbol::isExecutable;
   };
 

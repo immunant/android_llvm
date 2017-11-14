@@ -13,6 +13,7 @@
 #include "AMDGPUSubtarget.h"
 #include "SIInstrInfo.h"
 #include "SIMachineFunctionInfo.h"
+#include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -136,6 +137,7 @@ static bool isInlineConstantIfFolded(const SIInstrInfo *TII,
         = TII->get(IsF32 ? AMDGPU::V_MAD_F32 : AMDGPU::V_MAD_F16);
       return TII->isInlineConstant(OpToFold, MadDesc.OpInfo[OpNo].OperandType);
     }
+    return false;
   }
   default:
     return false;
@@ -166,6 +168,8 @@ static bool updateOperand(FoldCandidate &Fold,
   if (TargetRegisterInfo::isVirtualRegister(Old.getReg()) &&
       TargetRegisterInfo::isVirtualRegister(New->getReg())) {
     Old.substVirtReg(New->getReg(), New->getSubReg(), TRI);
+
+    Old.setIsUndef(New->isUndef());
     return true;
   }
 
@@ -470,7 +474,7 @@ static MachineOperand *getImmOrMaterializedImm(MachineRegisterInfo &MRI,
       return &Op;
 
     MachineInstr *Def = MRI.getVRegDef(Op.getReg());
-    if (Def->isMoveImmediate()) {
+    if (Def && Def->isMoveImmediate()) {
       MachineOperand &ImmSrc = Def->getOperand(1);
       if (ImmSrc.isImm())
         return &ImmSrc;
@@ -624,7 +628,7 @@ void SIFoldOperands::foldInstOperand(MachineInstr &MI,
     MachineOperand *NonInlineUse = nullptr;
     int NonInlineUseOpNo = -1;
 
-    MachineRegisterInfo::use_iterator NextUse, NextInstUse;
+    MachineRegisterInfo::use_iterator NextUse;
     for (MachineRegisterInfo::use_iterator
            Use = MRI->use_begin(Dst.getReg()), E = MRI->use_end();
          Use != E; Use = NextUse) {
@@ -649,6 +653,7 @@ void SIFoldOperands::foldInstOperand(MachineInstr &MI,
         // again. The same constant folded instruction could also have a second
         // use operand.
         NextUse = MRI->use_begin(Dst.getReg());
+        FoldList.clear();
         continue;
       }
 
@@ -718,12 +723,15 @@ void SIFoldOperands::foldInstOperand(MachineInstr &MI,
   }
 }
 
+// Clamp patterns are canonically selected to v_max_* instructions, so only
+// handle them.
 const MachineOperand *SIFoldOperands::isClamp(const MachineInstr &MI) const {
   unsigned Op = MI.getOpcode();
   switch (Op) {
   case AMDGPU::V_MAX_F32_e64:
   case AMDGPU::V_MAX_F16_e64:
-  case AMDGPU::V_MAX_F64: {
+  case AMDGPU::V_MAX_F64:
+  case AMDGPU::V_PK_MAX_F16: {
     if (!TII->getNamedOperand(MI, AMDGPU::OpName::clamp)->getImm())
       return nullptr;
 
@@ -731,14 +739,24 @@ const MachineOperand *SIFoldOperands::isClamp(const MachineInstr &MI) const {
     const MachineOperand *Src0 = TII->getNamedOperand(MI, AMDGPU::OpName::src0);
     const MachineOperand *Src1 = TII->getNamedOperand(MI, AMDGPU::OpName::src1);
     if (!Src0->isReg() || !Src1->isReg() ||
+        Src0->getReg() != Src1->getReg() ||
         Src0->getSubReg() != Src1->getSubReg() ||
         Src0->getSubReg() != AMDGPU::NoSubRegister)
       return nullptr;
 
     // Can't fold up if we have modifiers.
-    if (TII->hasModifiersSet(MI, AMDGPU::OpName::src0_modifiers) ||
-        TII->hasModifiersSet(MI, AMDGPU::OpName::src1_modifiers) ||
-        TII->hasModifiersSet(MI, AMDGPU::OpName::omod))
+    if (TII->hasModifiersSet(MI, AMDGPU::OpName::omod))
+      return nullptr;
+
+    unsigned Src0Mods
+      = TII->getNamedOperand(MI, AMDGPU::OpName::src0_modifiers)->getImm();
+    unsigned Src1Mods
+      = TII->getNamedOperand(MI, AMDGPU::OpName::src1_modifiers)->getImm();
+
+    // Having a 0 op_sel_hi would require swizzling the output in the source
+    // instruction, which we can't do.
+    unsigned UnsetMods = (Op == AMDGPU::V_PK_MAX_F16) ? SISrcMods::OP_SEL_1 : 0;
+    if (Src0Mods != UnsetMods && Src1Mods != UnsetMods)
       return nullptr;
     return Src0;
   }
@@ -760,14 +778,18 @@ static bool hasOneNonDBGUseInst(const MachineRegisterInfo &MRI, unsigned Reg) {
   return true;
 }
 
+// FIXME: Clamp for v_mad_mixhi_f16 handled during isel.
 bool SIFoldOperands::tryFoldClamp(MachineInstr &MI) {
   const MachineOperand *ClampSrc = isClamp(MI);
   if (!ClampSrc || !hasOneNonDBGUseInst(*MRI, ClampSrc->getReg()))
     return false;
 
   MachineInstr *Def = MRI->getVRegDef(ClampSrc->getReg());
-  if (!TII->hasFPClamp(*Def))
+
+  // The type of clamp must be compatible.
+  if (TII->getClampMask(*Def) != TII->getClampMask(MI))
     return false;
+
   MachineOperand *DefClamp = TII->getNamedOperand(*Def, AMDGPU::OpName::clamp);
   if (!DefClamp)
     return false;
@@ -921,12 +943,9 @@ bool SIFoldOperands::runOnMachineFunction(MachineFunction &MF) {
   // level.
   bool IsIEEEMode = ST->enableIEEEBit(MF) || !MFI->hasNoSignedZerosFPMath();
 
-  for (MachineFunction::iterator BI = MF.begin(), BE = MF.end();
-       BI != BE; ++BI) {
-
-    MachineBasicBlock &MBB = *BI;
+  for (MachineBasicBlock *MBB : depth_first(&MF)) {
     MachineBasicBlock::iterator I, Next;
-    for (I = MBB.begin(); I != MBB.end(); I = Next) {
+    for (I = MBB->begin(); I != MBB->end(); I = Next) {
       Next = std::next(I);
       MachineInstr &MI = *I;
 

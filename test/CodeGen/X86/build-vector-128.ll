@@ -16,7 +16,7 @@ define <2 x double> @test_buildvector_v2f64(double %a0, double %a1) {
 ;
 ; SSE-64-LABEL: test_buildvector_v2f64:
 ; SSE-64:       # BB#0:
-; SSE-64-NEXT:    unpcklpd {{.*#+}} xmm0 = xmm0[0],xmm1[0]
+; SSE-64-NEXT:    movlhps {{.*#+}} xmm0 = xmm0[0],xmm1[0]
 ; SSE-64-NEXT:    retq
 ;
 ; AVX-32-LABEL: test_buildvector_v2f64:
@@ -26,7 +26,7 @@ define <2 x double> @test_buildvector_v2f64(double %a0, double %a1) {
 ;
 ; AVX-64-LABEL: test_buildvector_v2f64:
 ; AVX-64:       # BB#0:
-; AVX-64-NEXT:    vunpcklpd {{.*#+}} xmm0 = xmm0[0],xmm1[0]
+; AVX-64-NEXT:    vmovlhps {{.*#+}} xmm0 = xmm0[0],xmm1[0]
 ; AVX-64-NEXT:    retq
   %ins0 = insertelement <2 x double> undef, double %a0, i32 0
   %ins1 = insertelement <2 x double> %ins0, double %a1, i32 1
@@ -43,7 +43,7 @@ define <4 x float> @test_buildvector_v4f32(float %a0, float %a1, float %a2, floa
 ; SSE2-64:       # BB#0:
 ; SSE2-64-NEXT:    unpcklps {{.*#+}} xmm2 = xmm2[0],xmm3[0],xmm2[1],xmm3[1]
 ; SSE2-64-NEXT:    unpcklps {{.*#+}} xmm0 = xmm0[0],xmm1[0],xmm0[1],xmm1[1]
-; SSE2-64-NEXT:    unpcklpd {{.*#+}} xmm0 = xmm0[0],xmm2[0]
+; SSE2-64-NEXT:    movlhps {{.*#+}} xmm0 = xmm0[0],xmm2[0]
 ; SSE2-64-NEXT:    retq
 ;
 ; SSE41-64-LABEL: test_buildvector_v4f32:
@@ -72,12 +72,10 @@ define <4 x float> @test_buildvector_v4f32(float %a0, float %a1, float %a2, floa
 }
 
 define <2 x i64> @test_buildvector_v2i64(i64 %a0, i64 %a1) {
-; SSE2-32-LABEL: test_buildvector_v2i64:
-; SSE2-32:       # BB#0:
-; SSE2-32-NEXT:    movq {{.*#+}} xmm1 = mem[0],zero
-; SSE2-32-NEXT:    movq {{.*#+}} xmm0 = mem[0],zero
-; SSE2-32-NEXT:    punpcklqdq {{.*#+}} xmm0 = xmm0[0],xmm1[0]
-; SSE2-32-NEXT:    retl
+; SSE-32-LABEL: test_buildvector_v2i64:
+; SSE-32:       # BB#0:
+; SSE-32-NEXT:    movups {{[0-9]+}}(%esp), %xmm0
+; SSE-32-NEXT:    retl
 ;
 ; SSE-64-LABEL: test_buildvector_v2i64:
 ; SSE-64:       # BB#0:
@@ -86,20 +84,9 @@ define <2 x i64> @test_buildvector_v2i64(i64 %a0, i64 %a1) {
 ; SSE-64-NEXT:    punpcklqdq {{.*#+}} xmm0 = xmm0[0],xmm1[0]
 ; SSE-64-NEXT:    retq
 ;
-; SSE41-32-LABEL: test_buildvector_v2i64:
-; SSE41-32:       # BB#0:
-; SSE41-32-NEXT:    movd {{.*#+}} xmm0 = mem[0],zero,zero,zero
-; SSE41-32-NEXT:    pinsrd $1, {{[0-9]+}}(%esp), %xmm0
-; SSE41-32-NEXT:    pinsrd $2, {{[0-9]+}}(%esp), %xmm0
-; SSE41-32-NEXT:    pinsrd $3, {{[0-9]+}}(%esp), %xmm0
-; SSE41-32-NEXT:    retl
-;
 ; AVX-32-LABEL: test_buildvector_v2i64:
 ; AVX-32:       # BB#0:
-; AVX-32-NEXT:    vmovd {{.*#+}} xmm0 = mem[0],zero,zero,zero
-; AVX-32-NEXT:    vpinsrd $1, {{[0-9]+}}(%esp), %xmm0, %xmm0
-; AVX-32-NEXT:    vpinsrd $2, {{[0-9]+}}(%esp), %xmm0, %xmm0
-; AVX-32-NEXT:    vpinsrd $3, {{[0-9]+}}(%esp), %xmm0, %xmm0
+; AVX-32-NEXT:    vmovups {{[0-9]+}}(%esp), %xmm0
 ; AVX-32-NEXT:    retl
 ;
 ; AVX-64-LABEL: test_buildvector_v2i64:

@@ -179,6 +179,7 @@ namespace {
       (void) llvm::createPostOrderFunctionAttrsLegacyPass();
       (void) llvm::createReversePostOrderFunctionAttrsPass();
       (void) llvm::createMergeFunctionsPass();
+      (void) llvm::createMergeICmpsPass();
       std::string buf;
       llvm::raw_string_ostream os(buf);
       (void) llvm::createPrintModulePass(os);
@@ -195,7 +196,6 @@ namespace {
       (void) llvm::createLoopVectorizePass();
       (void) llvm::createSLPVectorizerPass();
       (void) llvm::createLoadStoreVectorizerPass();
-      (void) llvm::createBBVectorizePass();
       (void) llvm::createPartiallyInlineLibCallsPass();
       (void) llvm::createScalarizerPass();
       (void) llvm::createSeparateConstOffsetFromGEPPass();

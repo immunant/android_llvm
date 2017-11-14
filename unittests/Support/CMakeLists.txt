@@ -21,6 +21,7 @@ add_llvm_unittest(SupportTests
   DebugTest.cpp
   EndianStreamTest.cpp
   EndianTest.cpp
+  ErrnoTest.cpp
   ErrorOrTest.cpp
   ErrorTest.cpp
   FileOutputBufferTest.cpp
@@ -41,6 +42,7 @@ add_llvm_unittest(SupportTests
   ProcessTest.cpp
   ProgramTest.cpp
   RegexTest.cpp
+  ReverseIterationTest.cpp
   ReplaceFileTest.cpp
   ScaledNumberTest.cpp
   SourceMgrTest.cpp
