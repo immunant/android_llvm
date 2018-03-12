@@ -244,12 +244,12 @@ static bool instructionClobbersQuery(MemoryDef *MD,
 
   if (const IntrinsicInst *II = dyn_cast<IntrinsicInst>(DefInst)) {
     // These intrinsics will show up as affecting memory, but they are just
-    // markers, mostly.
+    // markers.
     switch (II->getIntrinsicID()) {
     case Intrinsic::lifetime_start:
       if (UseCS)
         return false;
-      return !AA.isNoAlias(MemoryLocation(II->getArgOperand(1)), UseLoc);
+      return AA.isMustAlias(MemoryLocation(II->getArgOperand(1)), UseLoc);
     case Intrinsic::lifetime_end:
     case Intrinsic::invariant_start:
     case Intrinsic::invariant_end:

@@ -971,9 +971,7 @@ getStrictFPOpcodeAction(const TargetLowering &TLI, unsigned Opcode, EVT VT) {
 void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
   DEBUG(dbgs() << "\nLegalizing: "; Node->dump(&DAG));
 
-  // Allow illegal target nodes and illegal registers.
-  if (Node->getOpcode() == ISD::TargetConstant ||
-      Node->getOpcode() == ISD::Register)
+  if (Node->getOpcode() == ISD::TargetConstant) // Allow illegal target nodes.
     return;
 
 #ifndef NDEBUG
@@ -987,8 +985,7 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     assert((TLI.getTypeAction(*DAG.getContext(), Op.getValueType()) ==
               TargetLowering::TypeLegal ||
             TLI.isTypeLegal(Op.getValueType()) ||
-            Op.getOpcode() == ISD::TargetConstant ||
-            Op.getOpcode() == ISD::Register) &&
+            Op.getOpcode() == ISD::TargetConstant) &&
             "Unexpected illegal type!");
 #endif
 

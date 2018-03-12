@@ -199,63 +199,39 @@ ConstantRange::makeGuaranteedNoWrapRegion(Instruction::BinaryOps BinOp,
          "NoWrapKind invalid!");
 
   unsigned BitWidth = Other.getBitWidth();
-  ConstantRange Result(BitWidth);
-
-  switch (BinOp) {
-  default:
+  if (BinOp != Instruction::Add)
     // Conservative answer: empty set
     return ConstantRange(BitWidth, false);
 
-  case Instruction::Add:
-    if (auto *C = Other.getSingleElement())
-      if (C->isNullValue())
-        // Full set: nothing signed / unsigned wraps when added to 0.
-        return ConstantRange(BitWidth);
-    if (NoWrapKind & OBO::NoUnsignedWrap)
-      Result =
-          SubsetIntersect(Result, ConstantRange(APInt::getNullValue(BitWidth),
-                                                -Other.getUnsignedMax()));
-    if (NoWrapKind & OBO::NoSignedWrap) {
-      const APInt &SignedMin = Other.getSignedMin();
-      const APInt &SignedMax = Other.getSignedMax();
-      if (SignedMax.isStrictlyPositive())
-        Result = SubsetIntersect(
-            Result,
-            ConstantRange(APInt::getSignedMinValue(BitWidth),
-                          APInt::getSignedMinValue(BitWidth) - SignedMax));
-      if (SignedMin.isNegative())
-        Result = SubsetIntersect(
-            Result,
-            ConstantRange(APInt::getSignedMinValue(BitWidth) - SignedMin,
-                          APInt::getSignedMinValue(BitWidth)));
-    }
-    return Result;
+  if (auto *C = Other.getSingleElement())
+    if (C->isNullValue())
+      // Full set: nothing signed / unsigned wraps when added to 0.
+      return ConstantRange(BitWidth);
 
-  case Instruction::Sub:
-    if (auto *C = Other.getSingleElement())
-      if (C->isNullValue())
-        // Full set: nothing signed / unsigned wraps when subtracting 0.
-        return ConstantRange(BitWidth);
-    if (NoWrapKind & OBO::NoUnsignedWrap)
-      Result =
-          SubsetIntersect(Result, ConstantRange(Other.getUnsignedMax(),
-                                                APInt::getMinValue(BitWidth)));
-    if (NoWrapKind & OBO::NoSignedWrap) {
-      const APInt &SignedMin = Other.getSignedMin();
-      const APInt &SignedMax = Other.getSignedMax();
-      if (SignedMax.isStrictlyPositive())
-        Result = SubsetIntersect(
-            Result,
-            ConstantRange(APInt::getSignedMinValue(BitWidth) + SignedMax,
-                          APInt::getSignedMinValue(BitWidth)));
-      if (SignedMin.isNegative())
-        Result = SubsetIntersect(
-            Result,
-            ConstantRange(APInt::getSignedMinValue(BitWidth),
-                          APInt::getSignedMinValue(BitWidth) + SignedMin));
-    }
-    return Result;
+  ConstantRange Result(BitWidth);
+
+  if (NoWrapKind & OBO::NoUnsignedWrap)
+    Result =
+        SubsetIntersect(Result, ConstantRange(APInt::getNullValue(BitWidth),
+                                              -Other.getUnsignedMax()));
+
+  if (NoWrapKind & OBO::NoSignedWrap) {
+    const APInt &SignedMin = Other.getSignedMin();
+    const APInt &SignedMax = Other.getSignedMax();
+
+    if (SignedMax.isStrictlyPositive())
+      Result = SubsetIntersect(
+          Result,
+          ConstantRange(APInt::getSignedMinValue(BitWidth),
+                        APInt::getSignedMinValue(BitWidth) - SignedMax));
+
+    if (SignedMin.isNegative())
+      Result = SubsetIntersect(
+          Result, ConstantRange(APInt::getSignedMinValue(BitWidth) - SignedMin,
+                                APInt::getSignedMinValue(BitWidth)));
   }
+
+  return Result;
 }
 
 bool ConstantRange::isFullSet() const {

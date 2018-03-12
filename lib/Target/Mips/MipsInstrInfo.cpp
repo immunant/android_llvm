@@ -157,23 +157,24 @@ unsigned MipsInstrInfo::removeBranch(MachineBasicBlock &MBB,
   assert(!BytesRemoved && "code size not handled");
 
   MachineBasicBlock::reverse_iterator I = MBB.rbegin(), REnd = MBB.rend();
-  unsigned removed = 0;
+  unsigned removed;
+
+  // Skip all the debug instructions.
+  while (I != REnd && I->isDebugValue())
+    ++I;
+
+  if (I == REnd)
+    return 0;
+
+  MachineBasicBlock::iterator FirstBr = ++I.getReverse();
 
   // Up to 2 branches are removed.
   // Note that indirect branches are not removed.
-  while (I != REnd && removed < 2) {
-    // Skip past debug instructions.
-    if (I->isDebugValue()) {
-      ++I;
-      continue;
-    }
+  for (removed = 0; I != REnd && removed < 2; ++I, ++removed)
     if (!getAnalyzableBrOpc(I->getOpcode()))
       break;
-    // Remove the branch.
-    I->eraseFromParent();
-    I = MBB.rbegin();
-    ++removed;
-  }
+
+  MBB.erase((--I).getReverse(), FirstBr);
 
   return removed;
 }
