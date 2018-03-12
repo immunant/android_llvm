@@ -22,6 +22,32 @@ def HasSIMD128 : Predicate<"Subtarget->hasSIMD128()">,
                            AssemblerPredicate<"FeatureSIMD128", "simd128">;
 def HasAtomics : Predicate<"Subtarget->hasAtomics()">,
                            AssemblerPredicate<"FeatureAtomics", "atomics">;
+def HasNontrappingFPToInt :
+    Predicate<"Subtarget->hasNontrappingFPToInt()">,
+              AssemblerPredicate<"FeatureNontrappingFPToInt",
+                                 "nontrapping-fptoint">;
+def NotHasNontrappingFPToInt :
+    Predicate<"!Subtarget->hasNontrappingFPToInt()">,
+              AssemblerPredicate<"!FeatureNontrappingFPToInt",
+                                 "nontrapping-fptoint">;
+def HasSignExt :
+    Predicate<"Subtarget->hasSignExt()">,
+              AssemblerPredicate<"FeatureSignExt",
+                                 "sign-ext">;
+def NotHasSignExt :
+    Predicate<"!Subtarget->hasSignExt()">,
+              AssemblerPredicate<"!FeatureSignExt",
+                                 "sign-ext">;
+
+def HasExceptionHandling :
+    Predicate<"Subtarget->hasExceptionHandling()">,
+              AssemblerPredicate<"FeatureExceptionHandling",
+                                 "exception-handling">;
+
+def NotHasExceptionHandling :
+    Predicate<"!Subtarget->hasExceptionHandling()">,
+              AssemblerPredicate<"!FeatureExceptionHandling",
+                                 "exception-handling">;
 
 //===----------------------------------------------------------------------===//
 // WebAssembly-specific DAG Node Types.

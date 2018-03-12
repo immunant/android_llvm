@@ -6,6 +6,38 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// This pass merges loads/stores to/from sequential memory addresses into vector
+// loads/stores.  Although there's nothing GPU-specific in here, this pass is
+// motivated by the microarchitectural quirks of nVidia and AMD GPUs.
+//
+// (For simplicity below we talk about loads only, but everything also applies
+// to stores.)
+//
+// This pass is intended to be run late in the pipeline, after other
+// vectorization opportunities have been exploited.  So the assumption here is
+// that immediately following our new vector load we'll need to extract out the
+// individual elements of the load, so we can operate on them individually.
+//
+// On CPUs this transformation is usually not beneficial, because extracting the
+// elements of a vector register is expensive on most architectures.  It's
+// usually better just to load each element individually into its own scalar
+// register.
+//
+// However, nVidia and AMD GPUs don't have proper vector registers.  Instead, a
+// "vector load" loads directly into a series of scalar registers.  In effect,
+// extracting the elements of the vector is free.  It's therefore always
+// beneficial to vectorize a sequence of loads on these architectures.
+//
+// Vectorizing (perhaps a better name might be "coalescing") loads can have
+// large performance impacts on GPU kernels, and opportunities for vectorizing
+// are common in GPU code.  This pass tries very hard to find such
+// opportunities; its runtime is quadratic in the number of loads in a BB.
+//
+// Some CPU architectures, such as ARM, have instructions that load into
+// multiple scalar registers, similar to a GPU vectorized load.  In theory ARM
+// could use this pass (with some modifications), but currently it implements
+// its own pass to do something similar to what we do here.
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -34,6 +66,7 @@
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/User.h"
@@ -290,7 +323,8 @@ bool Vectorizer::isConsecutiveAccess(Value *A, Value *B) {
 
   APInt Size(PtrBitWidth, DL.getTypeStoreSize(PtrATy));
 
-  APInt OffsetA(PtrBitWidth, 0), OffsetB(PtrBitWidth, 0);
+  unsigned IdxWidth = DL.getIndexSizeInBits(ASA);
+  APInt OffsetA(IdxWidth, 0), OffsetB(IdxWidth, 0);
   PtrA = PtrA->stripAndAccumulateInBoundsConstantOffsets(DL, OffsetA);
   PtrB = PtrB->stripAndAccumulateInBoundsConstantOffsets(DL, OffsetB);
 
@@ -500,6 +534,10 @@ Vectorizer::getVectorizablePrefix(ArrayRef<Instruction *> Chain) {
         MemoryInstrs.push_back(&I);
       else
         ChainInstrs.push_back(&I);
+    } else if (isa<IntrinsicInst>(&I) &&
+               cast<IntrinsicInst>(&I)->getIntrinsicID() ==
+                   Intrinsic::sideeffect) {
+      // Ignore llvm.sideeffect calls.
     } else if (IsLoadChain && (I.mayWriteToMemory() || I.mayThrow())) {
       DEBUG(dbgs() << "LSV: Found may-write/throw operation: " << I << '\n');
       break;
@@ -613,7 +651,14 @@ Vectorizer::collectInstructions(BasicBlock *BB) {
       // Skip weird non-byte sizes. They probably aren't worth the effort of
       // handling correctly.
       unsigned TySize = DL.getTypeSizeInBits(Ty);
-      if (TySize < 8)
+      if ((TySize % 8) != 0)
+        continue;
+
+      // Skip vectors of pointers. The vectorizeLoadChain/vectorizeStoreChain
+      // functions are currently using an integer type for the vectorized
+      // load/store, and does not support casting between the integer type and a
+      // vector of pointers (e.g. i64 to <2 x i16*>)
+      if (Ty->isVectorTy() && Ty->isPtrOrPtrVectorTy())
         continue;
 
       Value *Ptr = LI->getPointerOperand();
@@ -646,15 +691,24 @@ Vectorizer::collectInstructions(BasicBlock *BB) {
       if (!VectorType::isValidElementType(Ty->getScalarType()))
         continue;
 
+      // Skip vectors of pointers. The vectorizeLoadChain/vectorizeStoreChain
+      // functions are currently using an integer type for the vectorized
+      // load/store, and does not support casting between the integer type and a
+      // vector of pointers (e.g. i64 to <2 x i16*>)
+      if (Ty->isVectorTy() && Ty->isPtrOrPtrVectorTy())
+        continue;
+
       // Skip weird non-byte sizes. They probably aren't worth the effort of
       // handling correctly.
       unsigned TySize = DL.getTypeSizeInBits(Ty);
-      if (TySize < 8)
+      if ((TySize % 8) != 0)
         continue;
 
       Value *Ptr = SI->getPointerOperand();
       unsigned AS = Ptr->getType()->getPointerAddressSpace();
       unsigned VecRegSize = TTI.getLoadStoreVecRegBitWidth(AS);
+
+      // No point in looking at these if they're too big to vectorize.
       if (TySize > VecRegSize / 2)
         continue;
 
@@ -699,8 +753,8 @@ bool Vectorizer::vectorizeInstructions(ArrayRef<Instruction *> Instrs) {
   SmallVector<int, 16> Heads, Tails;
   int ConsecutiveChain[64];
 
-  // Do a quadratic search on all of the given stores and find all of the pairs
-  // of stores that follow each other.
+  // Do a quadratic search on all of the given loads/stores and find all of the
+  // pairs of loads/stores that follow each other.
   for (int i = 0, e = Instrs.size(); i < e; ++i) {
     ConsecutiveChain[i] = -1;
     for (int j = e - 1; j >= 0; --j) {
@@ -767,7 +821,7 @@ bool Vectorizer::vectorizeStoreChain(
     SmallPtrSet<Instruction *, 16> *InstructionsProcessed) {
   StoreInst *S0 = cast<StoreInst>(Chain[0]);
 
-  // If the vector has an int element, default to int for the whole load.
+  // If the vector has an int element, default to int for the whole store.
   Type *StoreTy;
   for (Instruction *I : Chain) {
     StoreTy = cast<StoreInst>(I)->getValueOperand()->getType();

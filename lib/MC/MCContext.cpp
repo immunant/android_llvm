@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/MC/MCContext.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
@@ -486,17 +487,19 @@ MCSectionCOFF *MCContext::getAssociativeCOFFSection(MCSectionCOFF *Sec,
                         "", 0, UniqueID);
 }
 
-MCSectionWasm *MCContext::getWasmSection(const Twine &Section, unsigned Type,
+MCSectionWasm *MCContext::getWasmSection(const Twine &Section, SectionKind K,
                                          const Twine &Group, unsigned UniqueID,
                                          const char *BeginSymName) {
   MCSymbolWasm *GroupSym = nullptr;
-  if (!Group.isTriviallyEmpty() && !Group.str().empty())
+  if (!Group.isTriviallyEmpty() && !Group.str().empty()) {
     GroupSym = cast<MCSymbolWasm>(getOrCreateSymbol(Group));
+    GroupSym->setComdat(true);
+  }
 
-  return getWasmSection(Section, Type, GroupSym, UniqueID, BeginSymName);
+  return getWasmSection(Section, K, GroupSym, UniqueID, BeginSymName);
 }
 
-MCSectionWasm *MCContext::getWasmSection(const Twine &Section, unsigned Type,
+MCSectionWasm *MCContext::getWasmSection(const Twine &Section, SectionKind Kind,
                                          const MCSymbolWasm *GroupSym,
                                          unsigned UniqueID,
                                          const char *BeginSymName) {
@@ -512,14 +515,12 @@ MCSectionWasm *MCContext::getWasmSection(const Twine &Section, unsigned Type,
 
   StringRef CachedName = Entry.first.SectionName;
 
-  SectionKind Kind = SectionKind::getText();
-
   MCSymbol *Begin = nullptr;
   if (BeginSymName)
     Begin = createTempSymbol(BeginSymName, false);
 
   MCSectionWasm *Result = new (WasmAllocator.Allocate())
-      MCSectionWasm(CachedName, Type, Kind, GroupSym, UniqueID, Begin);
+      MCSectionWasm(CachedName, Kind, GroupSym, UniqueID, Begin);
   Entry.second = Result;
   return Result;
 }
@@ -532,14 +533,18 @@ MCSubtargetInfo &MCContext::getSubtargetCopy(const MCSubtargetInfo &STI) {
 // Dwarf Management
 //===----------------------------------------------------------------------===//
 
-/// getDwarfFile - takes a file name an number to place in the dwarf file and
+/// getDwarfFile - takes a file name and number to place in the dwarf file and
 /// directory tables.  If the file number has already been allocated it is an
 /// error and zero is returned and the client reports the error, else the
 /// allocated file number is returned.  The file numbers may be in any order.
-unsigned MCContext::getDwarfFile(StringRef Directory, StringRef FileName,
-                                 unsigned FileNumber, unsigned CUID) {
+Expected<unsigned> MCContext::getDwarfFile(StringRef Directory,
+                                           StringRef FileName,
+                                           unsigned FileNumber,
+                                           MD5::MD5Result *Checksum,
+                                           Optional<StringRef> Source,
+                                           unsigned CUID) {
   MCDwarfLineTable &Table = MCDwarfLineTablesCUMap[CUID];
-  return Table.getFile(Directory, FileName, FileNumber);
+  return Table.tryGetFile(Directory, FileName, Checksum, Source, FileNumber);
 }
 
 /// isValidDwarfFileNumber - takes a dwarf file number and returns true if it

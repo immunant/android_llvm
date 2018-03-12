@@ -60,7 +60,8 @@ namespace X86Disassembler {
   ENUM_ENTRY(ATTR_EVEXL2, (0x1 << 10))  \
   ENUM_ENTRY(ATTR_EVEXK,  (0x1 << 11))  \
   ENUM_ENTRY(ATTR_EVEXKZ, (0x1 << 12))  \
-  ENUM_ENTRY(ATTR_EVEXB,  (0x1 << 13))
+  ENUM_ENTRY(ATTR_EVEXB,  (0x1 << 13))  \
+  ENUM_ENTRY(ATTR_3DNOW,  (0x1 << 14))
 
 #define ENUM_ENTRY(n, v) n = v,
 enum attributeBits {
@@ -270,7 +271,8 @@ enum attributeBits {
   ENUM_ENTRY(IC_EVEX_L2_W_KZ,        3,  "requires EVEX_KZ, L2 and W")               \
   ENUM_ENTRY(IC_EVEX_L2_W_XS_KZ,     4,  "requires EVEX_KZ, L2, W and XS prefix")    \
   ENUM_ENTRY(IC_EVEX_L2_W_XD_KZ,     4,  "requires EVEX_KZ, L2, W and XD prefix")    \
-  ENUM_ENTRY(IC_EVEX_L2_W_OPSIZE_KZ, 4,  "requires EVEX_KZ, L2, W and OpSize")
+  ENUM_ENTRY(IC_EVEX_L2_W_OPSIZE_KZ, 4,  "requires EVEX_KZ, L2, W and OpSize")       \
+  ENUM_ENTRY(IC_3DNOW,               8,  "requires AMD 3DNow prefix 0f0f")
 
 #define ENUM_ENTRY(n, r, d) n,
 enum InstructionContext {
@@ -382,6 +384,7 @@ enum ModRMDecisionType {
                                                                                \
   ENUM_ENTRY(ENCODING_Iv,     "Immediate of operand size")                     \
   ENUM_ENTRY(ENCODING_Ia,     "Immediate of address size")                     \
+  ENUM_ENTRY(ENCODING_IRC,    "Immediate for static rounding control")         \
   ENUM_ENTRY(ENCODING_Rv,     "Register code of operand size added to the "    \
                               "opcode byte")                                   \
   ENUM_ENTRY(ENCODING_DUP,    "Duplicate of another operand; ID is encoded "   \
@@ -410,6 +413,9 @@ enum OperandEncoding {
   ENUM_ENTRY(TYPE_AVX512ICC,  "1-byte immediate operand for AVX512 icmp")      \
   ENUM_ENTRY(TYPE_UIMM8,      "1-byte unsigned immediate operand")             \
   ENUM_ENTRY(TYPE_M,          "Memory operand")                                \
+  ENUM_ENTRY(TYPE_MVSIBX,     "Memory operand using XMM index")                \
+  ENUM_ENTRY(TYPE_MVSIBY,     "Memory operand using YMM index")                \
+  ENUM_ENTRY(TYPE_MVSIBZ,     "Memory operand using ZMM index")                \
   ENUM_ENTRY(TYPE_SRCIDX,     "memory at source index")                        \
   ENUM_ENTRY(TYPE_DSTIDX,     "memory at destination index")                   \
   ENUM_ENTRY(TYPE_MOFFS,      "memory offset (relative to segment base)")      \

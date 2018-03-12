@@ -566,6 +566,27 @@ const char *LLVMGetModuleIdentifier(LLVMModuleRef M, size_t *Len);
 void LLVMSetModuleIdentifier(LLVMModuleRef M, const char *Ident, size_t Len);
 
 /**
+ * Obtain the module's original source file name.
+ *
+ * @param M Module to obtain the name of
+ * @param Len Out parameter which holds the length of the returned string
+ * @return The original source file name of M
+ * @see Module::getSourceFileName()
+ */
+const char *LLVMGetSourceFileName(LLVMModuleRef M, size_t *Len);
+
+/**
+ * Set the original source file name of a module to a string Name with length
+ * Len.
+ *
+ * @param M The module to set the source file name of
+ * @param Name The string to set M's source file name to
+ * @param Len Length of Name
+ * @see Module::setSourceFileName()
+ */
+void LLVMSetSourceFileName(LLVMModuleRef M, const char *Name, size_t Len);
+
+/**
  * Obtain the data layout for a module.
  *
  * @see Module::getDataLayoutStr()
@@ -1135,6 +1156,16 @@ LLVMTypeRef LLVMLabelTypeInContext(LLVMContextRef C);
  * Create a X86 MMX type in a context.
  */
 LLVMTypeRef LLVMX86MMXTypeInContext(LLVMContextRef C);
+
+/**
+ * Create a token type in a context.
+ */
+LLVMTypeRef LLVMTokenTypeInContext(LLVMContextRef C);
+
+/**
+ * Create a metadata type in a context.
+ */
+LLVMTypeRef LLVMMetadataTypeInContext(LLVMContextRef C);
 
 /**
  * These are similar to the above functions except they operate on the
@@ -3176,7 +3207,7 @@ LLVMBool LLVMInitializeFunctionPassManager(LLVMPassManagerRef FPM);
     @see llvm::FunctionPassManager::run(Function&) */
 LLVMBool LLVMRunFunctionPassManager(LLVMPassManagerRef FPM, LLVMValueRef F);
 
-/** Finalizes all of the function passes scheduled in in the function pass
+/** Finalizes all of the function passes scheduled in the function pass
     manager. Returns 1 if any of the passes modified the module, 0 otherwise.
     @see llvm::FunctionPassManager::doFinalization */
 LLVMBool LLVMFinalizeFunctionPassManager(LLVMPassManagerRef FPM);

@@ -34,10 +34,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "InstCombineInternal.h"
-#include "llvm-c/Initialization.h"
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/None.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/StringSwitch.h"
+#include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
@@ -49,26 +53,55 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/Analysis/TargetFolder.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
+#include "llvm/IR/Constant.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/Metadata.h"
+#include "llvm/IR/Operator.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/PatternMatch.h"
+#include "llvm/IR/Type.h"
+#include "llvm/IR/Use.h"
+#include "llvm/IR/User.h"
+#include "llvm/IR/Value.h"
 #include "llvm/IR/ValueHandle.h"
+#include "llvm/Pass.h"
+#include "llvm/Support/CBindingWrapping.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugCounter.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/InstCombine/InstCombineWorklist.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
-#include <climits>
+#include <cassert>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
+
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
@@ -111,11 +144,19 @@ Value *InstCombiner::EmitGEPOffset(User *GEP) {
 /// We don't want to convert from a legal to an illegal type or from a smaller
 /// to a larger illegal type. A width of '1' is always treated as a legal type
 /// because i1 is a fundamental type in IR, and there are many specialized
-/// optimizations for i1 types.
+/// optimizations for i1 types. Widths of 8, 16 or 32 are equally treated as
+/// legal to convert to, in order to open up more combining opportunities.
+/// NOTE: this treats i8, i16 and i32 specially, due to them being so common
+/// from frontend languages.
 bool InstCombiner::shouldChangeType(unsigned FromWidth,
                                     unsigned ToWidth) const {
   bool FromLegal = FromWidth == 1 || DL.isLegalInteger(FromWidth);
   bool ToLegal = ToWidth == 1 || DL.isLegalInteger(ToWidth);
+
+  // Convert to widths of 8, 16 or 32 even if they are not legal types. Only
+  // shrink types, to prevent infinite loops.
+  if (ToWidth < FromWidth && (ToWidth == 8 || ToWidth == 16 || ToWidth == 32))
+    return true;
 
   // If this is a legal integer from type, and the result would be an illegal
   // type, don't do the transformation.
@@ -396,7 +437,7 @@ bool InstCombiner::SimplifyAssociativeOrCommutative(BinaryOperator &I) {
 
     // No further simplifications.
     return Changed;
-  } while (1);
+  } while (true);
 }
 
 /// Return whether "X LOp (Y ROp Z)" is always equal to
@@ -1048,8 +1089,9 @@ Instruction *InstCombiner::foldOpIntoPhi(Instruction &I, PHINode *PN) {
   return replaceInstUsesWith(I, NewPN);
 }
 
-Instruction *InstCombiner::foldOpWithConstantIntoOperand(BinaryOperator &I) {
-  assert(isa<Constant>(I.getOperand(1)) && "Unexpected operand type");
+Instruction *InstCombiner::foldBinOpIntoSelectOrPhi(BinaryOperator &I) {
+  if (!isa<Constant>(I.getOperand(1)))
+    return nullptr;
 
   if (auto *Sel = dyn_cast<SelectInst>(I.getOperand(0))) {
     if (Instruction *NewSel = FoldOpIntoSelect(I, Sel))
@@ -1074,7 +1116,7 @@ Type *InstCombiner::FindElementAtOffset(PointerType *PtrTy, int64_t Offset,
   // Start with the index over the outer type.  Note that the type size
   // might be zero (even if the offset isn't zero) if the indexed type
   // is something like [0 x {int, int}]
-  Type *IntPtrTy = DL.getIntPtrType(PtrTy);
+  Type *IndexTy = DL.getIndexType(PtrTy);
   int64_t FirstIdx = 0;
   if (int64_t TySize = DL.getTypeAllocSize(Ty)) {
     FirstIdx = Offset/TySize;
@@ -1089,7 +1131,7 @@ Type *InstCombiner::FindElementAtOffset(PointerType *PtrTy, int64_t Offset,
     assert((uint64_t)Offset < (uint64_t)TySize && "Out of range offset");
   }
 
-  NewIndices.push_back(ConstantInt::get(IntPtrTy, FirstIdx));
+  NewIndices.push_back(ConstantInt::get(IndexTy, FirstIdx));
 
   // Index into the types.  If we fail, set OrigBase to null.
   while (Offset) {
@@ -1111,7 +1153,7 @@ Type *InstCombiner::FindElementAtOffset(PointerType *PtrTy, int64_t Offset,
     } else if (ArrayType *AT = dyn_cast<ArrayType>(Ty)) {
       uint64_t EltSize = DL.getTypeAllocSize(AT->getElementType());
       assert(EltSize && "Cannot index into a zero-sized array");
-      NewIndices.push_back(ConstantInt::get(IntPtrTy,Offset/EltSize));
+      NewIndices.push_back(ConstantInt::get(IndexTy,Offset/EltSize));
       Offset %= EltSize;
       Ty = AT->getElementType();
     } else {
@@ -1174,7 +1216,7 @@ Value *InstCombiner::Descale(Value *Val, APInt Scale, bool &NoSignedWrap) {
   // Parent - initially null, but after drilling down notes where Op came from.
   // In the example above, Parent is (Val, 0) when Op is M1, because M1 is the
   // 0'th operand of Val.
-  std::pair<Instruction*, unsigned> Parent;
+  std::pair<Instruction *, unsigned> Parent;
 
   // Set if the transform requires a descaling at deeper levels that doesn't
   // overflow.
@@ -1184,7 +1226,6 @@ Value *InstCombiner::Descale(Value *Val, APInt Scale, bool &NoSignedWrap) {
   int32_t logScale = Scale.exactLogBase2();
 
   for (;; Op = Parent.first->getOperand(Parent.second)) { // Drill down
-
     if (ConstantInt *CI = dyn_cast<ConstantInt>(Op)) {
       // If Op is a constant divisible by Scale then descale to the quotient.
       APInt Quotient(Scale), Remainder(Scale); // Init ensures right bitwidth.
@@ -1199,7 +1240,6 @@ Value *InstCombiner::Descale(Value *Val, APInt Scale, bool &NoSignedWrap) {
     }
 
     if (BinaryOperator *BO = dyn_cast<BinaryOperator>(Op)) {
-
       if (BO->getOpcode() == Instruction::Mul) {
         // Multiplication.
         NoSignedWrap = BO->hasNoSignedWrap();
@@ -1374,7 +1414,7 @@ Value *InstCombiner::Descale(Value *Val, APInt Scale, bool &NoSignedWrap) {
     // Move up one level in the expression.
     assert(Ancestor->hasOneUse() && "Drilled down when more than one use!");
     Ancestor = Ancestor->user_back();
-  } while (1);
+  } while (true);
 }
 
 /// \brief Creates node of binary operation with the same attributes as the
@@ -1476,8 +1516,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
   // Eliminate unneeded casts for indices, and replace indices which displace
   // by multiples of a zero size type with zero.
   bool MadeChange = false;
-  Type *IntPtrTy =
-    DL.getIntPtrType(GEP.getPointerOperandType()->getScalarType());
+
+  // Index width may not be the same width as pointer width.
+  // Data layout chooses the right type based on supported integer types.
+  Type *NewScalarIndexTy =
+      DL.getIndexType(GEP.getPointerOperandType()->getScalarType());
 
   gep_type_iterator GTI = gep_type_begin(GEP);
   for (User::op_iterator I = GEP.op_begin() + 1, E = GEP.op_end(); I != E;
@@ -1486,10 +1529,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
     if (GTI.isStruct())
       continue;
 
-    // Index type should have the same width as IntPtr
     Type *IndexTy = (*I)->getType();
-    Type *NewIndexType = IndexTy->isVectorTy() ?
-      VectorType::get(IntPtrTy, IndexTy->getVectorNumElements()) : IntPtrTy;
+    Type *NewIndexType =
+        IndexTy->isVectorTy()
+            ? VectorType::get(NewScalarIndexTy, IndexTy->getVectorNumElements())
+            : NewScalarIndexTy;
 
     // If the element type has zero size then any index over it is equivalent
     // to an index of zero, so replace it with zero if it is not zero already.
@@ -1621,7 +1665,6 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
   // Combine Indices - If the source pointer to this getelementptr instruction
   // is a getelementptr instruction, combine the indices of the two
   // getelementptr instructions into a single instruction.
-  //
   if (GEPOperator *Src = dyn_cast<GEPOperator>(PtrOp)) {
     if (!shouldMergeGEPs(*cast<GEPOperator>(&GEP), *Src))
       return nullptr;
@@ -1646,7 +1689,6 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
     if (EndsWithSequential) {
       // Replace: gep (gep %P, long B), long A, ...
       // With:    T = long A+B; gep %P, T, ...
-      //
       Value *SO1 = Src->getOperand(Src->getNumOperands()-1);
       Value *GO1 = GEP.getOperand(1);
 
@@ -1694,7 +1736,7 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
   if (GEP.getNumIndices() == 1) {
     unsigned AS = GEP.getPointerAddressSpace();
     if (GEP.getOperand(1)->getType()->getScalarSizeInBits() ==
-        DL.getPointerSizeInBits(AS)) {
+        DL.getIndexSizeInBits(AS)) {
       Type *Ty = GEP.getSourceElementType();
       uint64_t TyAllocSize = DL.getTypeAllocSize(Ty);
 
@@ -1820,7 +1862,7 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
       if (SrcElTy->isArrayTy() &&
           DL.getTypeAllocSize(SrcElTy->getArrayElementType()) ==
               DL.getTypeAllocSize(ResElTy)) {
-        Type *IdxType = DL.getIntPtrType(GEP.getType());
+        Type *IdxType = DL.getIndexType(GEP.getType());
         Value *Idx[2] = { Constant::getNullValue(IdxType), GEP.getOperand(1) };
         Value *NewGEP =
             GEP.isInBounds()
@@ -1847,10 +1889,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
           unsigned BitWidth = Idx->getType()->getPrimitiveSizeInBits();
           uint64_t Scale = SrcSize / ResSize;
 
-          // Earlier transforms ensure that the index has type IntPtrType, which
-          // considerably simplifies the logic by eliminating implicit casts.
-          assert(Idx->getType() == DL.getIntPtrType(GEP.getType()) &&
-                 "Index not cast to pointer width?");
+          // Earlier transforms ensure that the index has the right type
+          // according to Data Layout, which considerably simplifies the
+          // logic by eliminating implicit casts.
+          assert(Idx->getType() == DL.getIndexType(GEP.getType()) &&
+                 "Index type does not match the Data Layout preferences");
 
           bool NSW;
           if (Value *NewIdx = Descale(Idx, APInt(BitWidth, Scale), NSW)) {
@@ -1886,19 +1929,19 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
           unsigned BitWidth = Idx->getType()->getPrimitiveSizeInBits();
           uint64_t Scale = ArrayEltSize / ResSize;
 
-          // Earlier transforms ensure that the index has type IntPtrType, which
-          // considerably simplifies the logic by eliminating implicit casts.
-          assert(Idx->getType() == DL.getIntPtrType(GEP.getType()) &&
-                 "Index not cast to pointer width?");
+          // Earlier transforms ensure that the index has the right type
+          // according to the Data Layout, which considerably simplifies
+          // the logic by eliminating implicit casts.
+          assert(Idx->getType() == DL.getIndexType(GEP.getType()) &&
+                 "Index type does not match the Data Layout preferences");
 
           bool NSW;
           if (Value *NewIdx = Descale(Idx, APInt(BitWidth, Scale), NSW)) {
             // Successfully decomposed Idx as NewIdx * Scale, form a new GEP.
             // If the multiplication NewIdx * Scale may overflow then the new
             // GEP may not be "inbounds".
-            Value *Off[2] = {
-                Constant::getNullValue(DL.getIntPtrType(GEP.getType())),
-                NewIdx};
+            Type *IndTy = DL.getIndexType(GEP.getType());
+            Value *Off[2] = {Constant::getNullValue(IndTy), NewIdx};
 
             Value *NewGEP = GEP.isInBounds() && NSW
                                 ? Builder.CreateInBoundsGEP(
@@ -1934,7 +1977,7 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
   if (BitCastInst *BCI = dyn_cast<BitCastInst>(PtrOp)) {
     Value *Operand = BCI->getOperand(0);
     PointerType *OpType = cast<PointerType>(Operand->getType());
-    unsigned OffsetBits = DL.getPointerTypeSizeInBits(GEP.getType());
+    unsigned OffsetBits = DL.getIndexTypeSizeInBits(GEP.getType());
     APInt Offset(OffsetBits, 0);
     if (!isa<BitCastInst>(Operand) &&
         GEP.accumulateConstantOffset(DL, Offset)) {
@@ -1983,16 +2026,16 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
   }
 
   if (!GEP.isInBounds()) {
-    unsigned PtrWidth =
-        DL.getPointerSizeInBits(PtrOp->getType()->getPointerAddressSpace());
-    APInt BasePtrOffset(PtrWidth, 0);
+    unsigned IdxWidth =
+        DL.getIndexSizeInBits(PtrOp->getType()->getPointerAddressSpace());
+    APInt BasePtrOffset(IdxWidth, 0);
     Value *UnderlyingPtrOp =
             PtrOp->stripAndAccumulateInBoundsConstantOffsets(DL,
                                                              BasePtrOffset);
     if (auto *AI = dyn_cast<AllocaInst>(UnderlyingPtrOp)) {
       if (GEP.accumulateConstantOffset(DL, BasePtrOffset) &&
           BasePtrOffset.isNonNegative()) {
-        APInt AllocSize(PtrWidth, DL.getTypeAllocSize(AI->getAllocatedType()));
+        APInt AllocSize(IdxWidth, DL.getTypeAllocSize(AI->getAllocatedType()));
         if (BasePtrOffset.ule(AllocSize)) {
           return GetElementPtrInst::CreateInBounds(
               PtrOp, makeArrayRef(Ops).slice(1), GEP.getName());
@@ -2225,7 +2268,6 @@ tryToMoveFreeBeforeNullTest(CallInst &FI) {
   FI.moveBefore(TI);
   return &FI;
 }
-
 
 Instruction *InstCombiner::visitFree(CallInst &FI) {
   Value *Op = FI.getArgOperand(0);
@@ -3060,7 +3102,6 @@ bool InstCombiner::run() {
 /// them to the worklist (this significantly speeds up instcombine on code where
 /// many instructions are dead or constant).  Additionally, if we find a branch
 /// whose condition is a known constant, we only visit the reachable successors.
-///
 static bool AddReachableCodeToWorklist(BasicBlock *BB, const DataLayout &DL,
                                        SmallPtrSetImpl<BasicBlock *> &Visited,
                                        InstCombineWorklist &ICWorklist,
@@ -3086,6 +3127,7 @@ static bool AddReachableCodeToWorklist(BasicBlock *BB, const DataLayout &DL,
       if (isInstructionTriviallyDead(Inst, TLI)) {
         ++NumDeadInst;
         DEBUG(dbgs() << "IC: DCE: " << *Inst << '\n');
+        salvageDebugInfo(*Inst);
         Inst->eraseFromParent();
         MadeIRChange = true;
         continue;
@@ -3209,8 +3251,6 @@ static bool combineInstructionsOverFunction(
       F.getContext(), TargetFolder(DL),
       IRBuilderCallbackInserter([&Worklist, &AC](Instruction *I) {
         Worklist.Add(I);
-
-        using namespace llvm::PatternMatch;
         if (match(I, m_Intrinsic<Intrinsic::assume>()))
           AC.registerAssumption(cast<CallInst>(I));
       }));
@@ -3223,7 +3263,7 @@ static bool combineInstructionsOverFunction(
 
   // Iterate while there is work to do.
   int Iteration = 0;
-  for (;;) {
+  while (true) {
     ++Iteration;
     DEBUG(dbgs() << "\n\nINSTCOMBINE ITERATION #" << Iteration << " on "
                  << F.getName() << "\n");
@@ -3250,8 +3290,8 @@ PreservedAnalyses InstCombinePass::run(Function &F,
 
   auto *LI = AM.getCachedResult<LoopAnalysis>(F);
 
-  // FIXME: The AliasAnalysis is not yet supported in the new pass manager
-  if (!combineInstructionsOverFunction(F, Worklist, nullptr, AC, TLI, DT, ORE,
+  auto *AA = &AM.getResult<AAManager>(F);
+  if (!combineInstructionsOverFunction(F, Worklist, AA, AC, TLI, DT, ORE,
                                        ExpensiveCombines, LI))
     // No changes, all analyses are preserved.
     return PreservedAnalyses::all();
@@ -3260,6 +3300,7 @@ PreservedAnalyses InstCombinePass::run(Function &F,
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
   PA.preserve<AAManager>();
+  PA.preserve<BasicAA>();
   PA.preserve<GlobalsAA>();
   return PA;
 }
@@ -3297,6 +3338,7 @@ bool InstructionCombiningPass::runOnFunction(Function &F) {
 }
 
 char InstructionCombiningPass::ID = 0;
+
 INITIALIZE_PASS_BEGIN(InstructionCombiningPass, "instcombine",
                       "Combine redundant instructions", false, false)
 INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)

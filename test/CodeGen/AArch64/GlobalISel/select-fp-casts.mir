@@ -44,18 +44,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %s0
+    liveins: $s0
 
     ; CHECK-LABEL: name: fptrunc_s16_s32_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr32
-    ; CHECK-NEXT: id: 1, class: fpr16
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %s0
-    ; CHECK: [[FCVTHSr:%[0-9]+]] = FCVTHSr [[COPY]]
-    ; CHECK: %h0 = COPY [[FCVTHSr]]
-    %0(s32) = COPY %s0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr32 = COPY $s0
+    ; CHECK: [[FCVTHSr:%[0-9]+]]:fpr16 = FCVTHSr [[COPY]]
+    ; CHECK: $h0 = COPY [[FCVTHSr]]
+    %0(s32) = COPY $s0
     %1(s16) = G_FPTRUNC %0
-    %h0 = COPY %1(s16)
+    $h0 = COPY %1(s16)
 ...
 
 ---
@@ -69,18 +66,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %d0
+    liveins: $d0
 
     ; CHECK-LABEL: name: fptrunc_s16_s64_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr64
-    ; CHECK-NEXT: id: 1, class: fpr16
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %d0
-    ; CHECK: [[FCVTHDr:%[0-9]+]] = FCVTHDr [[COPY]]
-    ; CHECK: %h0 = COPY [[FCVTHDr]]
-    %0(s64) = COPY %d0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr64 = COPY $d0
+    ; CHECK: [[FCVTHDr:%[0-9]+]]:fpr16 = FCVTHDr [[COPY]]
+    ; CHECK: $h0 = COPY [[FCVTHDr]]
+    %0(s64) = COPY $d0
     %1(s16) = G_FPTRUNC %0
-    %h0 = COPY %1(s16)
+    $h0 = COPY %1(s16)
 ...
 
 ---
@@ -94,18 +88,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %d0
+    liveins: $d0
 
     ; CHECK-LABEL: name: fptrunc_s32_s64_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr64
-    ; CHECK-NEXT: id: 1, class: fpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %d0
-    ; CHECK: [[FCVTSDr:%[0-9]+]] = FCVTSDr [[COPY]]
-    ; CHECK: %s0 = COPY [[FCVTSDr]]
-    %0(s64) = COPY %d0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr64 = COPY $d0
+    ; CHECK: [[FCVTSDr:%[0-9]+]]:fpr32 = FCVTSDr [[COPY]]
+    ; CHECK: $s0 = COPY [[FCVTSDr]]
+    %0(s64) = COPY $d0
     %1(s32) = G_FPTRUNC %0
-    %s0 = COPY %1(s32)
+    $s0 = COPY %1(s32)
 ...
 
 ---
@@ -119,18 +110,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %h0
+    liveins: $h0
 
     ; CHECK-LABEL: name: fpext_s32_s16_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr16
-    ; CHECK-NEXT: id: 1, class: fpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %h0
-    ; CHECK: [[FCVTSHr:%[0-9]+]] = FCVTSHr [[COPY]]
-    ; CHECK: %s0 = COPY [[FCVTSHr]]
-    %0(s16) = COPY %h0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr16 = COPY $h0
+    ; CHECK: [[FCVTSHr:%[0-9]+]]:fpr32 = FCVTSHr [[COPY]]
+    ; CHECK: $s0 = COPY [[FCVTSHr]]
+    %0(s16) = COPY $h0
     %1(s32) = G_FPEXT %0
-    %s0 = COPY %1(s32)
+    $s0 = COPY %1(s32)
 ...
 
 ---
@@ -144,18 +132,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %h0
+    liveins: $h0
 
     ; CHECK-LABEL: name: fpext_s64_s16_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr16
-    ; CHECK-NEXT: id: 1, class: fpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %h0
-    ; CHECK: [[FCVTDHr:%[0-9]+]] = FCVTDHr [[COPY]]
-    ; CHECK: %d0 = COPY [[FCVTDHr]]
-    %0(s16) = COPY %h0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr16 = COPY $h0
+    ; CHECK: [[FCVTDHr:%[0-9]+]]:fpr64 = FCVTDHr [[COPY]]
+    ; CHECK: $d0 = COPY [[FCVTDHr]]
+    %0(s16) = COPY $h0
     %1(s64) = G_FPEXT %0
-    %d0 = COPY %1(s64)
+    $d0 = COPY %1(s64)
 ...
 
 ---
@@ -169,18 +154,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %d0
+    liveins: $d0
 
     ; CHECK-LABEL: name: fpext_s64_s32_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr32
-    ; CHECK-NEXT: id: 1, class: fpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %s0
-    ; CHECK: [[FCVTDSr:%[0-9]+]] = FCVTDSr [[COPY]]
-    ; CHECK: %d0 = COPY [[FCVTDSr]]
-    %0(s32) = COPY %s0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr32 = COPY $s0
+    ; CHECK: [[FCVTDSr:%[0-9]+]]:fpr64 = FCVTDSr [[COPY]]
+    ; CHECK: $d0 = COPY [[FCVTDSr]]
+    %0(s32) = COPY $s0
     %1(s64) = G_FPEXT %0
-    %d0 = COPY %1(s64)
+    $d0 = COPY %1(s64)
 ...
 
 ---
@@ -194,18 +176,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %w0
+    liveins: $w0
 
     ; CHECK-LABEL: name: sitofp_s32_s32_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr32
-    ; CHECK-NEXT: id: 1, class: fpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %w0
-    ; CHECK: [[SCVTFUWSri:%[0-9]+]] = SCVTFUWSri [[COPY]]
-    ; CHECK: %s0 = COPY [[SCVTFUWSri]]
-    %0(s32) = COPY %w0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr32 = COPY $w0
+    ; CHECK: [[SCVTFUWSri:%[0-9]+]]:fpr32 = SCVTFUWSri [[COPY]]
+    ; CHECK: $s0 = COPY [[SCVTFUWSri]]
+    %0(s32) = COPY $w0
     %1(s32) = G_SITOFP %0
-    %s0 = COPY %1(s32)
+    $s0 = COPY %1(s32)
 ...
 
 ---
@@ -219,18 +198,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %x0
+    liveins: $x0
 
     ; CHECK-LABEL: name: sitofp_s32_s64_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr64
-    ; CHECK-NEXT: id: 1, class: fpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %x0
-    ; CHECK: [[SCVTFUXSri:%[0-9]+]] = SCVTFUXSri [[COPY]]
-    ; CHECK: %s0 = COPY [[SCVTFUXSri]]
-    %0(s64) = COPY %x0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr64 = COPY $x0
+    ; CHECK: [[SCVTFUXSri:%[0-9]+]]:fpr32 = SCVTFUXSri [[COPY]]
+    ; CHECK: $s0 = COPY [[SCVTFUXSri]]
+    %0(s64) = COPY $x0
     %1(s32) = G_SITOFP %0
-    %s0 = COPY %1(s32)
+    $s0 = COPY %1(s32)
 ...
 
 ---
@@ -244,18 +220,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %w0
+    liveins: $w0
 
     ; CHECK-LABEL: name: sitofp_s64_s32_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr32
-    ; CHECK-NEXT: id: 1, class: fpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %w0
-    ; CHECK: [[SCVTFUWDri:%[0-9]+]] = SCVTFUWDri [[COPY]]
-    ; CHECK: %d0 = COPY [[SCVTFUWDri]]
-    %0(s32) = COPY %w0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr32 = COPY $w0
+    ; CHECK: [[SCVTFUWDri:%[0-9]+]]:fpr64 = SCVTFUWDri [[COPY]]
+    ; CHECK: $d0 = COPY [[SCVTFUWDri]]
+    %0(s32) = COPY $w0
     %1(s64) = G_SITOFP %0
-    %d0 = COPY %1(s64)
+    $d0 = COPY %1(s64)
 ...
 
 ---
@@ -269,18 +242,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %x0
+    liveins: $x0
 
     ; CHECK-LABEL: name: sitofp_s64_s64_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr64
-    ; CHECK-NEXT: id: 1, class: fpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %x0
-    ; CHECK: [[SCVTFUXDri:%[0-9]+]] = SCVTFUXDri [[COPY]]
-    ; CHECK: %d0 = COPY [[SCVTFUXDri]]
-    %0(s64) = COPY %x0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr64 = COPY $x0
+    ; CHECK: [[SCVTFUXDri:%[0-9]+]]:fpr64 = SCVTFUXDri [[COPY]]
+    ; CHECK: $d0 = COPY [[SCVTFUXDri]]
+    %0(s64) = COPY $x0
     %1(s64) = G_SITOFP %0
-    %d0 = COPY %1(s64)
+    $d0 = COPY %1(s64)
 ...
 
 ---
@@ -294,18 +264,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %w0
+    liveins: $w0
 
     ; CHECK-LABEL: name: uitofp_s32_s32_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr32
-    ; CHECK-NEXT: id: 1, class: fpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %w0
-    ; CHECK: [[UCVTFUWSri:%[0-9]+]] = UCVTFUWSri [[COPY]]
-    ; CHECK: %s0 = COPY [[UCVTFUWSri]]
-    %0(s32) = COPY %w0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr32 = COPY $w0
+    ; CHECK: [[UCVTFUWSri:%[0-9]+]]:fpr32 = UCVTFUWSri [[COPY]]
+    ; CHECK: $s0 = COPY [[UCVTFUWSri]]
+    %0(s32) = COPY $w0
     %1(s32) = G_UITOFP %0
-    %s0 = COPY %1(s32)
+    $s0 = COPY %1(s32)
 ...
 
 ---
@@ -319,18 +286,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %x0
+    liveins: $x0
 
     ; CHECK-LABEL: name: uitofp_s32_s64_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr64
-    ; CHECK-NEXT: id: 1, class: fpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %x0
-    ; CHECK: [[UCVTFUXSri:%[0-9]+]] = UCVTFUXSri [[COPY]]
-    ; CHECK: %s0 = COPY [[UCVTFUXSri]]
-    %0(s64) = COPY %x0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr64 = COPY $x0
+    ; CHECK: [[UCVTFUXSri:%[0-9]+]]:fpr32 = UCVTFUXSri [[COPY]]
+    ; CHECK: $s0 = COPY [[UCVTFUXSri]]
+    %0(s64) = COPY $x0
     %1(s32) = G_UITOFP %0
-    %s0 = COPY %1(s32)
+    $s0 = COPY %1(s32)
 ...
 
 ---
@@ -344,18 +308,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %w0
+    liveins: $w0
 
     ; CHECK-LABEL: name: uitofp_s64_s32_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr32
-    ; CHECK-NEXT: id: 1, class: fpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %w0
-    ; CHECK: [[UCVTFUWDri:%[0-9]+]] = UCVTFUWDri [[COPY]]
-    ; CHECK: %d0 = COPY [[UCVTFUWDri]]
-    %0(s32) = COPY %w0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr32 = COPY $w0
+    ; CHECK: [[UCVTFUWDri:%[0-9]+]]:fpr64 = UCVTFUWDri [[COPY]]
+    ; CHECK: $d0 = COPY [[UCVTFUWDri]]
+    %0(s32) = COPY $w0
     %1(s64) = G_UITOFP %0
-    %d0 = COPY %1(s64)
+    $d0 = COPY %1(s64)
 ...
 
 ---
@@ -369,18 +330,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %x0
+    liveins: $x0
 
     ; CHECK-LABEL: name: uitofp_s64_s64_fpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: gpr64
-    ; CHECK-NEXT: id: 1, class: fpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %x0
-    ; CHECK: [[UCVTFUXDri:%[0-9]+]] = UCVTFUXDri [[COPY]]
-    ; CHECK: %d0 = COPY [[UCVTFUXDri]]
-    %0(s64) = COPY %x0
+    ; CHECK: [[COPY:%[0-9]+]]:gpr64 = COPY $x0
+    ; CHECK: [[UCVTFUXDri:%[0-9]+]]:fpr64 = UCVTFUXDri [[COPY]]
+    ; CHECK: $d0 = COPY [[UCVTFUXDri]]
+    %0(s64) = COPY $x0
     %1(s64) = G_UITOFP %0
-    %d0 = COPY %1(s64)
+    $d0 = COPY %1(s64)
 ...
 
 ---
@@ -394,18 +352,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %s0
+    liveins: $s0
 
     ; CHECK-LABEL: name: fptosi_s32_s32_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr32
-    ; CHECK-NEXT: id: 1, class: gpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %s0
-    ; CHECK: [[FCVTZSUWSr:%[0-9]+]] = FCVTZSUWSr [[COPY]]
-    ; CHECK: %w0 = COPY [[FCVTZSUWSr]]
-    %0(s32) = COPY %s0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr32 = COPY $s0
+    ; CHECK: [[FCVTZSUWSr:%[0-9]+]]:gpr32 = FCVTZSUWSr [[COPY]]
+    ; CHECK: $w0 = COPY [[FCVTZSUWSr]]
+    %0(s32) = COPY $s0
     %1(s32) = G_FPTOSI %0
-    %w0 = COPY %1(s32)
+    $w0 = COPY %1(s32)
 ...
 
 ---
@@ -419,18 +374,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %d0
+    liveins: $d0
 
     ; CHECK-LABEL: name: fptosi_s32_s64_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr64
-    ; CHECK-NEXT: id: 1, class: gpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %d0
-    ; CHECK: [[FCVTZSUWDr:%[0-9]+]] = FCVTZSUWDr [[COPY]]
-    ; CHECK: %w0 = COPY [[FCVTZSUWDr]]
-    %0(s64) = COPY %d0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr64 = COPY $d0
+    ; CHECK: [[FCVTZSUWDr:%[0-9]+]]:gpr32 = FCVTZSUWDr [[COPY]]
+    ; CHECK: $w0 = COPY [[FCVTZSUWDr]]
+    %0(s64) = COPY $d0
     %1(s32) = G_FPTOSI %0
-    %w0 = COPY %1(s32)
+    $w0 = COPY %1(s32)
 ...
 
 ---
@@ -444,18 +396,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %s0
+    liveins: $s0
 
     ; CHECK-LABEL: name: fptosi_s64_s32_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr32
-    ; CHECK-NEXT: id: 1, class: gpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %s0
-    ; CHECK: [[FCVTZSUXSr:%[0-9]+]] = FCVTZSUXSr [[COPY]]
-    ; CHECK: %x0 = COPY [[FCVTZSUXSr]]
-    %0(s32) = COPY %s0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr32 = COPY $s0
+    ; CHECK: [[FCVTZSUXSr:%[0-9]+]]:gpr64 = FCVTZSUXSr [[COPY]]
+    ; CHECK: $x0 = COPY [[FCVTZSUXSr]]
+    %0(s32) = COPY $s0
     %1(s64) = G_FPTOSI %0
-    %x0 = COPY %1(s64)
+    $x0 = COPY %1(s64)
 ...
 
 ---
@@ -469,18 +418,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %d0
+    liveins: $d0
 
     ; CHECK-LABEL: name: fptosi_s64_s64_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr64
-    ; CHECK-NEXT: id: 1, class: gpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %d0
-    ; CHECK: [[FCVTZSUXDr:%[0-9]+]] = FCVTZSUXDr [[COPY]]
-    ; CHECK: %x0 = COPY [[FCVTZSUXDr]]
-    %0(s64) = COPY %d0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr64 = COPY $d0
+    ; CHECK: [[FCVTZSUXDr:%[0-9]+]]:gpr64 = FCVTZSUXDr [[COPY]]
+    ; CHECK: $x0 = COPY [[FCVTZSUXDr]]
+    %0(s64) = COPY $d0
     %1(s64) = G_FPTOSI %0
-    %x0 = COPY %1(s64)
+    $x0 = COPY %1(s64)
 ...
 
 ---
@@ -494,18 +440,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %s0
+    liveins: $s0
 
     ; CHECK-LABEL: name: fptoui_s32_s32_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr32
-    ; CHECK-NEXT: id: 1, class: gpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %s0
-    ; CHECK: [[FCVTZUUWSr:%[0-9]+]] = FCVTZUUWSr [[COPY]]
-    ; CHECK: %w0 = COPY [[FCVTZUUWSr]]
-    %0(s32) = COPY %s0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr32 = COPY $s0
+    ; CHECK: [[FCVTZUUWSr:%[0-9]+]]:gpr32 = FCVTZUUWSr [[COPY]]
+    ; CHECK: $w0 = COPY [[FCVTZUUWSr]]
+    %0(s32) = COPY $s0
     %1(s32) = G_FPTOUI %0
-    %w0 = COPY %1(s32)
+    $w0 = COPY %1(s32)
 ...
 
 ---
@@ -519,18 +462,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %d0
+    liveins: $d0
 
     ; CHECK-LABEL: name: fptoui_s32_s64_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr64
-    ; CHECK-NEXT: id: 1, class: gpr32
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %d0
-    ; CHECK: [[FCVTZUUWDr:%[0-9]+]] = FCVTZUUWDr [[COPY]]
-    ; CHECK: %w0 = COPY [[FCVTZUUWDr]]
-    %0(s64) = COPY %d0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr64 = COPY $d0
+    ; CHECK: [[FCVTZUUWDr:%[0-9]+]]:gpr32 = FCVTZUUWDr [[COPY]]
+    ; CHECK: $w0 = COPY [[FCVTZUUWDr]]
+    %0(s64) = COPY $d0
     %1(s32) = G_FPTOUI %0
-    %w0 = COPY %1(s32)
+    $w0 = COPY %1(s32)
 ...
 
 ---
@@ -544,18 +484,15 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %s0
+    liveins: $s0
 
     ; CHECK-LABEL: name: fptoui_s64_s32_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr32
-    ; CHECK-NEXT: id: 1, class: gpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %s0
-    ; CHECK: [[FCVTZUUXSr:%[0-9]+]] = FCVTZUUXSr [[COPY]]
-    ; CHECK: %x0 = COPY [[FCVTZUUXSr]]
-    %0(s32) = COPY %s0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr32 = COPY $s0
+    ; CHECK: [[FCVTZUUXSr:%[0-9]+]]:gpr64 = FCVTZUUXSr [[COPY]]
+    ; CHECK: $x0 = COPY [[FCVTZUUXSr]]
+    %0(s32) = COPY $s0
     %1(s64) = G_FPTOUI %0
-    %x0 = COPY %1(s64)
+    $x0 = COPY %1(s64)
 ...
 
 ---
@@ -569,16 +506,13 @@ registers:
 
 body:             |
   bb.0:
-    liveins: %d0
+    liveins: $d0
 
     ; CHECK-LABEL: name: fptoui_s64_s64_gpr
-    ; CHECK: registers:
-    ; CHECK-NEXT: id: 0, class: fpr64
-    ; CHECK-NEXT: id: 1, class: gpr64
-    ; CHECK: [[COPY:%[0-9]+]] = COPY %d0
-    ; CHECK: [[FCVTZUUXDr:%[0-9]+]] = FCVTZUUXDr [[COPY]]
-    ; CHECK: %x0 = COPY [[FCVTZUUXDr]]
-    %0(s64) = COPY %d0
+    ; CHECK: [[COPY:%[0-9]+]]:fpr64 = COPY $d0
+    ; CHECK: [[FCVTZUUXDr:%[0-9]+]]:gpr64 = FCVTZUUXDr [[COPY]]
+    ; CHECK: $x0 = COPY [[FCVTZUUXDr]]
+    %0(s64) = COPY $d0
     %1(s64) = G_FPTOUI %0
-    %x0 = COPY %1(s64)
+    $x0 = COPY %1(s64)
 ...

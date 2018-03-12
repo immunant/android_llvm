@@ -220,9 +220,9 @@ class Value;
   /// pointer plus a constant offset. Return the base and offset to the caller.
   Value *GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
                                           const DataLayout &DL);
-  static inline const Value *
-  GetPointerBaseWithConstantOffset(const Value *Ptr, int64_t &Offset,
-                                   const DataLayout &DL) {
+  inline const Value *GetPointerBaseWithConstantOffset(const Value *Ptr,
+                                                       int64_t &Offset,
+                                                       const DataLayout &DL) {
     return GetPointerBaseWithConstantOffset(const_cast<Value *>(Ptr), Offset,
                                             DL);
   }
@@ -283,9 +283,8 @@ class Value;
   /// be stripped off.
   Value *GetUnderlyingObject(Value *V, const DataLayout &DL,
                              unsigned MaxLookup = 6);
-  static inline const Value *GetUnderlyingObject(const Value *V,
-                                                 const DataLayout &DL,
-                                                 unsigned MaxLookup = 6) {
+  inline const Value *GetUnderlyingObject(const Value *V, const DataLayout &DL,
+                                          unsigned MaxLookup = 6) {
     return GetUnderlyingObject(const_cast<Value *>(V), DL, MaxLookup);
   }
 
@@ -366,6 +365,10 @@ class Value;
   /// Instructions which just compute a value based on the values of their
   /// operands are not memory dependent.
   bool mayBeMemoryDependent(const Instruction &I);
+
+  /// Return true if it is an intrinsic that cannot be speculated but also
+  /// cannot trap.
+  bool isAssumeLikeIntrinsic(const Instruction *I);
 
   /// Return true if it is valid to use the assumptions provided by an
   /// assume intrinsic, I, at the point in the control-flow identified by the
@@ -483,9 +486,9 @@ class Value;
                                 /// fcmp; select, does the fcmp have to be
                                 /// ordered?
 
-    /// \brief Return true if \p SPF is a min or a max pattern.
+    /// Return true if \p SPF is a min or a max pattern.
     static bool isMinOrMax(SelectPatternFlavor SPF) {
-      return !(SPF == SPF_UNKNOWN || SPF == SPF_ABS || SPF == SPF_NABS);
+      return SPF != SPF_UNKNOWN && SPF != SPF_ABS && SPF != SPF_NABS;
     }
   };
 
@@ -505,8 +508,9 @@ class Value;
   /// -> LHS = %a, RHS = i32 4, *CastOp = Instruction::SExt
   ///
   SelectPatternResult matchSelectPattern(Value *V, Value *&LHS, Value *&RHS,
-                                         Instruction::CastOps *CastOp = nullptr);
-  static inline SelectPatternResult
+                                         Instruction::CastOps *CastOp = nullptr,
+                                         unsigned Depth = 0);
+  inline SelectPatternResult
   matchSelectPattern(const Value *V, const Value *&LHS, const Value *&RHS,
                      Instruction::CastOps *CastOp = nullptr) {
     Value *L = const_cast<Value*>(LHS);
@@ -516,6 +520,19 @@ class Value;
     RHS = R;
     return Result;
   }
+
+  /// Return the canonical comparison predicate for the specified
+  /// minimum/maximum flavor.
+  CmpInst::Predicate getMinMaxPred(SelectPatternFlavor SPF,
+                                   bool Ordered = false);
+
+  /// Return the inverse minimum/maximum flavor of the specified flavor.
+  /// For example, signed minimum is the inverse of signed maximum.
+  SelectPatternFlavor getInverseMinMaxFlavor(SelectPatternFlavor SPF);
+
+  /// Return the canonical inverse comparison predicate for the specified
+  /// minimum/maximum flavor.
+  CmpInst::Predicate getInverseMinMaxPred(SelectPatternFlavor SPF);
 
   /// Return true if RHS is known to be implied true by LHS.  Return false if
   /// RHS is known to be implied false by LHS.  Otherwise, return None if no

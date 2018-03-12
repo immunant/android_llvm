@@ -11,14 +11,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include <string>
 
 using namespace llvm;
@@ -38,6 +38,10 @@ bool TargetSubtargetInfo::enableAtomicExpand() const {
   return true;
 }
 
+bool TargetSubtargetInfo::enableIndirectBrExpand() const {
+  return false;
+}
+
 bool TargetSubtargetInfo::enableMachineScheduler() const {
   return false;
 }
@@ -49,6 +53,10 @@ bool TargetSubtargetInfo::enableJoinGlobalCopies() const {
 bool TargetSubtargetInfo::enableRALocalReassignment(
     CodeGenOpt::Level OptLevel) const {
   return true;
+}
+
+bool TargetSubtargetInfo::enableAdvancedRASplitCost() const {
+  return false;
 }
 
 bool TargetSubtargetInfo::enablePostRAScheduler() const {
@@ -106,4 +114,7 @@ std::string TargetSubtargetInfo::getSchedInfoStr(MCInst const &MCI) const {
   Optional<double> RThroughput =
       TSchedModel.computeInstrRThroughput(MCI.getOpcode());
   return createSchedInfoStr(Latency, RThroughput);
+}
+
+void TargetSubtargetInfo::mirFileLoaded(MachineFunction &MF) const {
 }

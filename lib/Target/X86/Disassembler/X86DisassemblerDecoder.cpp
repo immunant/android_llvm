@@ -588,11 +588,44 @@ static int readPrefixes(struct InternalInstruction* insn) {
                 insn->vectorExtensionPrefix[0], insn->vectorExtensionPrefix[1],
                 insn->vectorExtensionPrefix[2]);
     }
+  } else if (byte == 0x0f) {
+    uint8_t byte1;
+
+    // Check for AMD 3DNow without a REX prefix
+    if (consumeByte(insn, &byte1)) {
+      unconsumeByte(insn);
+    } else {
+      if (byte1 != 0x0f) {
+        unconsumeByte(insn);
+        unconsumeByte(insn);
+      } else {
+        dbgprintf(insn, "Found AMD 3DNow prefix 0f0f");
+        insn->vectorExtensionType = TYPE_3DNOW;
+      }
+    }
   } else if (isREX(insn, byte)) {
     if (lookAtByte(insn, &nextByte))
       return -1;
     insn->rexPrefix = byte;
     dbgprintf(insn, "Found REX prefix 0x%hhx", byte);
+
+    // Check for AMD 3DNow with a REX prefix
+    if (nextByte == 0x0f) {
+      consumeByte(insn, &nextByte);
+      uint8_t byte1;
+
+      if (consumeByte(insn, &byte1)) {
+        unconsumeByte(insn);
+      } else {
+        if (byte1 != 0x0f) {
+          unconsumeByte(insn);
+          unconsumeByte(insn);
+        } else {
+          dbgprintf(insn, "Found AMD 3DNow prefix 0f0f");
+          insn->vectorExtensionType = TYPE_3DNOW;
+        }
+      }
+    }
   } else
     unconsumeByte(insn);
 
@@ -622,6 +655,8 @@ static int readPrefixes(struct InternalInstruction* insn) {
 
   return 0;
 }
+
+static int readModRM(struct InternalInstruction* insn);
 
 /*
  * readOpcode - Reads the opcode (excepting the ModR/M byte in the case of
@@ -690,6 +725,12 @@ static int readOpcode(struct InternalInstruction* insn) {
       insn->opcodeType = XOPA_MAP;
       return consumeByte(insn, &insn->opcode);
     }
+  } else if (insn->vectorExtensionType == TYPE_3DNOW) {
+    // Consume operands before the opcode to comply with the 3DNow encoding
+    if (readModRM(insn))
+      return -1;
+    insn->opcodeType = TWOBYTE;
+    return consumeByte(insn, &insn->opcode);
   }
 
   if (consumeByte(insn, &current))
@@ -734,8 +775,6 @@ static int readOpcode(struct InternalInstruction* insn) {
 
   return 0;
 }
-
-static int readModRM(struct InternalInstruction* insn);
 
 /*
  * getIDWithAttrMask - Determines the ID of an instruction, consuming
@@ -912,6 +951,8 @@ static int getID(struct InternalInstruction* insn, const void *miiArg) {
 
       if (lFromXOP3of3(insn->vectorExtensionPrefix[2]))
         attrMask |= ATTR_VEXL;
+    } else if (insn->vectorExtensionType == TYPE_3DNOW) {
+      attrMask |= ATTR_3DNOW;
     } else {
       return -1;
     }
@@ -949,8 +990,10 @@ static int getID(struct InternalInstruction* insn, const void *miiArg) {
     }
   }
 
-  if (insn->rexPrefix & 0x08)
+  if (insn->rexPrefix & 0x08) {
     attrMask |= ATTR_REXW;
+    attrMask &= ~ATTR_ADSIZE;
+  }
 
   /*
    * JCXZ/JECXZ need special handling for 16-bit mode because the meaning
@@ -1156,7 +1199,6 @@ static int getID(struct InternalInstruction* insn, const void *miiArg) {
  * @return      - 0 if the SIB byte was successfully read; nonzero otherwise.
  */
 static int readSIB(struct InternalInstruction* insn) {
-  SIBIndex sibIndexBase = SIB_INDEX_NONE;
   SIBBase sibBaseBase = SIB_BASE_NONE;
   uint8_t index, base;
 
@@ -1172,11 +1214,11 @@ static int readSIB(struct InternalInstruction* insn) {
     dbgprintf(insn, "SIB-based addressing doesn't work in 16-bit mode");
     return -1;
   case 4:
-    sibIndexBase = SIB_INDEX_EAX;
+    insn->sibIndexBase = SIB_INDEX_EAX;
     sibBaseBase = SIB_BASE_EAX;
     break;
   case 8:
-    sibIndexBase = SIB_INDEX_RAX;
+    insn->sibIndexBase = SIB_INDEX_RAX;
     sibBaseBase = SIB_BASE_RAX;
     break;
   }
@@ -1186,26 +1228,10 @@ static int readSIB(struct InternalInstruction* insn) {
 
   index = indexFromSIB(insn->sib) | (xFromREX(insn->rexPrefix) << 3);
 
-  // FIXME: The fifth bit (bit index 4) is only to be used for instructions
-  // that understand VSIB indexing. ORing the bit in here is mildy dangerous
-  // because performing math on an 'enum SIBIndex' can produce garbage.
-  // Excluding the "none" value, it should cover 6 spaces of register names:
-  //   - 16 possibilities for 16-bit GPR starting at SIB_INDEX_BX_SI
-  //   - 16 possibilities for 32-bit GPR starting at SIB_INDEX_EAX
-  //   - 16 possibilities for 64-bit GPR starting at SIB_INDEX_RAX
-  //   - 32 possibilities for each of XMM, YMM, ZMM registers
-  // When sibIndexBase gets assigned SIB_INDEX_RAX as it does in 64-bit mode,
-  // summing in a fully decoded index between 0 and 31 can end up with a value
-  // that looks like something in the low half of the XMM range.
-  // translateRMMemory() tries to reverse the damage, with only partial success,
-  // as evidenced by known bugs in "test/MC/Disassembler/X86/x86-64.txt"
-  if (insn->vectorExtensionType == TYPE_EVEX)
-    index |= v2FromEVEX4of4(insn->vectorExtensionPrefix[3]) << 4;
-
   if (index == 0x4) {
     insn->sibIndex = SIB_INDEX_NONE;
   } else {
-    insn->sibIndex = (SIBIndex)(sibIndexBase + index);
+    insn->sibIndex = (SIBIndex)(insn->sibIndexBase + index);
   }
 
   insn->sibScale = 1 << scaleFromSIB(insn->sib);
@@ -1470,9 +1496,9 @@ static int readModRM(struct InternalInstruction* insn) {
     case TYPE_MM64:                                       \
       return prefix##_MM0 + (index & 0x7);                \
     case TYPE_SEGMENTREG:                                 \
-      if (index > 5)                                      \
+      if ((index & 7) > 5)                                \
         *valid = 0;                                       \
-      return prefix##_ES + index;                         \
+      return prefix##_ES + (index & 7);                   \
     case TYPE_DEBUGREG:                                   \
       return prefix##_DR0 + index;                        \
     case TYPE_CONTROLREG:                                 \
@@ -1481,6 +1507,12 @@ static int readModRM(struct InternalInstruction* insn) {
       if (index > 3)                                      \
         *valid = 0;                                       \
       return prefix##_BND0 + index;                       \
+    case TYPE_MVSIBX:                                     \
+      return prefix##_XMM0 + index;                       \
+    case TYPE_MVSIBY:                                     \
+      return prefix##_YMM0 + index;                       \
+    case TYPE_MVSIBZ:                                     \
+      return prefix##_ZMM0 + index;                       \
     }                                                     \
   }
 
@@ -1536,7 +1568,6 @@ static int fixupReg(struct InternalInstruction *insn,
       return -1;
     break;
   CASE_ENCODING_RM:
-  CASE_ENCODING_VSIB:
     if (insn->eaBase >= insn->eaRegBase) {
       insn->eaBase = (EABase)fixupRMValue(insn,
                                           (OperandType)op->type,
@@ -1734,8 +1765,39 @@ static int readOperands(struct InternalInstruction* insn) {
         needVVVV = hasVVVV & ((insn->vvvv & 0xf) != 0);
       if (readModRM(insn))
         return -1;
-      if (fixupReg(insn, &Op))
+
+      // Reject if SIB wasn't used.
+      if (insn->eaBase != EA_BASE_sib && insn->eaBase != EA_BASE_sib64)
         return -1;
+
+      // If sibIndex was set to SIB_INDEX_NONE, index offset is 4.
+      if (insn->sibIndex == SIB_INDEX_NONE)
+        insn->sibIndex = (SIBIndex)4;
+
+      // If EVEX.v2 is set this is one of the 16-31 registers.
+      if (insn->vectorExtensionType == TYPE_EVEX &&
+          v2FromEVEX4of4(insn->vectorExtensionPrefix[3]))
+        insn->sibIndex = (SIBIndex)(insn->sibIndex + 16);
+
+      // Adjust the index register to the correct size.
+      switch ((OperandType)Op.type) {
+      default:
+        debug("Unhandled VSIB index type");
+        return -1;
+      case TYPE_MVSIBX:
+        insn->sibIndex = (SIBIndex)(SIB_INDEX_XMM0 +
+                                    (insn->sibIndex - insn->sibIndexBase));
+        break;
+      case TYPE_MVSIBY:
+        insn->sibIndex = (SIBIndex)(SIB_INDEX_YMM0 +
+                                    (insn->sibIndex - insn->sibIndexBase));
+        break;
+      case TYPE_MVSIBZ:
+        insn->sibIndex = (SIBIndex)(SIB_INDEX_ZMM0 +
+                                    (insn->sibIndex - insn->sibIndexBase));
+        break;
+      }
+
       // Apply the AVX512 compressed displacement scaling factor.
       if (Op.encoding != ENCODING_REG && insn->eaDisplacement == EA_DISP_8)
         insn->displacement *= 1 << (Op.encoding - ENCODING_VSIB);
@@ -1783,6 +1845,10 @@ static int readOperands(struct InternalInstruction* insn) {
     case ENCODING_Ia:
       if (readImmediate(insn, insn->addressSize))
         return -1;
+      break;
+    case ENCODING_IRC:
+      insn->RC = (l2FromEVEX4of4(insn->vectorExtensionPrefix[3]) << 1) |
+                 lFromEVEX4of4(insn->vectorExtensionPrefix[3]);
       break;
     case ENCODING_RB:
       if (readOpcodeRegister(insn, 1))

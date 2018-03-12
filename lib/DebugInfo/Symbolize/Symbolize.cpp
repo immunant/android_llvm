@@ -22,7 +22,6 @@
 #include "llvm/DebugInfo/PDB/PDB.h"
 #include "llvm/DebugInfo/PDB/PDBContext.h"
 #include "llvm/Object/COFF.h"
-#include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/MachO.h"
 #include "llvm/Object/MachOUniversal.h"
 #include "llvm/Support/Casting.h"
@@ -186,7 +185,7 @@ bool findDebugBinary(const std::string &OrigPath,
     return true;
   }
   // Try /path/to/original_binary/.debug/debuglink_name
-  DebugPath = OrigRealPath;
+  DebugPath = OrigDir;
   llvm::sys::path::append(DebugPath, ".debug", DebuglinkName);
   if (checkFileCRC(DebugPath, CRCHash)) {
     Result = DebugPath.str();

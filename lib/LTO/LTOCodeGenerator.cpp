@@ -21,7 +21,7 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/CodeGen/ParallelCG.h"
-#include "llvm/CodeGen/RuntimeLibcalls.h"
+#include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Config/config.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -52,10 +52,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
@@ -91,6 +88,12 @@ cl::opt<std::string>
 cl::opt<bool> LTOPassRemarksWithHotness(
     "lto-pass-remarks-with-hotness",
     cl::desc("With PGO, include profile count in optimization remarks"),
+    cl::Hidden);
+
+cl::opt<unsigned> LTOPassRemarksHotnessThreshold(
+    "lto-pass-remarks-hotness-threshold",
+    cl::desc("Minimum profile count required for an optimization remark to be "
+             "output"),
     cl::Hidden);
 }
 
@@ -131,7 +134,6 @@ void LTOCodeGenerator::initializeLTOPasses() {
   initializeMemCpyOptLegacyPassPass(R);
   initializeDCELegacyPassPass(R);
   initializeCFGSimplifyPassPass(R);
-  initializeLateCFGSimplifyPassPass(R);
 }
 
 void LTOCodeGenerator::setAsmUndefinedRefs(LTOModule *Mod) {
@@ -218,18 +220,18 @@ bool LTOCodeGenerator::writeMergedModules(StringRef Path) {
   ToolOutputFile Out(Path, EC, sys::fs::F_None);
   if (EC) {
     std::string ErrMsg = "could not open bitcode file for writing: ";
-    ErrMsg += Path;
+    ErrMsg += Path.str() + ": " + EC.message();
     emitError(ErrMsg);
     return false;
   }
 
   // write bitcode to it
-  WriteBitcodeToFile(MergedModule.get(), Out.os(), ShouldEmbedUselists);
+  WriteBitcodeToFile(*MergedModule, Out.os(), ShouldEmbedUselists);
   Out.os().close();
 
   if (Out.os().has_error()) {
     std::string ErrMsg = "could not write bitcode file: ";
-    ErrMsg += Path;
+    ErrMsg += Path.str() + ": " + Out.os().error().message();
     emitError(ErrMsg);
     Out.os().clear_error();
     return false;
@@ -260,7 +262,9 @@ bool LTOCodeGenerator::compileOptimizedToFile(const char **Name) {
   bool genResult = compileOptimized(&objFile.os());
   objFile.os().close();
   if (objFile.os().has_error()) {
-    emitError((Twine("could not write object file: ") + Filename).str());
+    emitError((Twine("could not write object file: ") + Filename + ": " +
+               objFile.os().error().message())
+                  .str());
     objFile.os().clear_error();
     sys::fs::remove(Twine(Filename));
     return false;
@@ -471,11 +475,9 @@ void LTOCodeGenerator::restoreLinkageForExternals() {
     GV.setLinkage(I->second);
   };
 
-  std::for_each(MergedModule->begin(), MergedModule->end(), externalize);
-  std::for_each(MergedModule->global_begin(), MergedModule->global_end(),
-                externalize);
-  std::for_each(MergedModule->alias_begin(), MergedModule->alias_end(),
-                externalize);
+  llvm::for_each(MergedModule->functions(), externalize);
+  llvm::for_each(MergedModule->globals(), externalize);
+  llvm::for_each(MergedModule->aliases(), externalize);
 }
 
 void LTOCodeGenerator::verifyMergedModuleOnce() {
@@ -509,7 +511,8 @@ bool LTOCodeGenerator::optimize(bool DisableVerify, bool DisableInline,
     return false;
 
   auto DiagFileOrErr = lto::setupOptimizationRemarks(
-      Context, LTORemarksFilename, LTOPassRemarksWithHotness);
+      Context, LTORemarksFilename, LTOPassRemarksWithHotness,
+      LTOPassRemarksHotnessThreshold);
   if (!DiagFileOrErr) {
     errs() << "Error: " << toString(DiagFileOrErr.takeError()) << "\n";
     report_fatal_error("Can't get an output file for the remarks");
