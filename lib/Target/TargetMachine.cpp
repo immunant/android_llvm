@@ -48,7 +48,8 @@ TargetMachine::~TargetMachine() {
 }
 
 bool TargetMachine::isPositionIndependent() const {
-  return getRelocationModel() == Reloc::PIC_;
+  return getRelocationModel() == Reloc::PIC_ ||
+         getRelocationModel() == Reloc::PIP;
 }
 
 /// \brief Reset the target options based on the function's attributes.
@@ -207,7 +208,7 @@ bool TargetMachine::useEmulatedTLS() const {
 TLSModel::Model TargetMachine::getTLSModel(const GlobalValue *GV) const {
   bool IsPIE = GV->getParent()->getPIELevel() != PIELevel::Default;
   Reloc::Model RM = getRelocationModel();
-  bool IsSharedLibrary = RM == Reloc::PIC_ && !IsPIE;
+  bool IsSharedLibrary = (RM == Reloc::PIC_ || RM == Reloc::PIP) && !IsPIE;
   bool IsLocal = shouldAssumeDSOLocal(*GV->getParent(), GV);
 
   TLSModel::Model Model;

@@ -219,6 +219,9 @@ public:
     return Options.FunctionSections;
   }
 
+  /// Return true if Pagerando is enabled on this target.
+  bool isPagerando() const { return getRelocationModel() == Reloc::PIP; }
+
   /// \brief Get a \c TargetIRAnalysis appropriate for the target.
   ///
   /// This is used to construct the new pass manager's target IR analysis pass,
