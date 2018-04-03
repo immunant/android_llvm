@@ -55,7 +55,9 @@ static cl::opt<Reloc::Model> RelocModel(
             Reloc::RWPI, "rwpi",
             "Read-write data relocatable, accessed relative to static base"),
         clEnumValN(Reloc::ROPI_RWPI, "ropi-rwpi",
-                   "Combination of ropi and rwpi")));
+                   "Combination of ropi and rwpi"),
+        clEnumValN(Reloc::PIP, "pip",
+                   "Position independent pages for Pagerando")));
 
 LLVM_ATTRIBUTE_UNUSED static Optional<Reloc::Model> getRelocModel() {
   if (RelocModel.getNumOccurrences()) {
