@@ -32,6 +32,7 @@ set(sources
   X86FixupBWInsts.cpp
   X86FixupLEAs.cpp
   X86FixupSetCC.cpp
+  X86FlagsCopyLowering.cpp
   X86FloatingPoint.cpp
   X86FrameLowering.cpp
   X86InstructionSelector.cpp
