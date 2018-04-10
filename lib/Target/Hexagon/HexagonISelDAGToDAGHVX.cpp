@@ -820,6 +820,7 @@ namespace llvm {
 
     void selectShuffle(SDNode *N);
     void selectRor(SDNode *N);
+    void selectVAlign(SDNode *N);
 
   private:
     void materialize(const ResultStack &Results);
@@ -1952,7 +1953,6 @@ void HvxSelector::selectShuffle(SDNode *N) {
   // If the mask is all -1's, generate "undef".
   if (!UseLeft && !UseRight) {
     ISel.ReplaceNode(N, ISel.selectUndef(SDLoc(SN), ResTy).getNode());
-    DAG.RemoveDeadNode(N);
     return;
   }
 
@@ -2008,6 +2008,15 @@ void HvxSelector::selectRor(SDNode *N) {
     NewN = DAG.getMachineNode(Hexagon::V6_vror, dl, Ty, {VecV, RotV});
 
   ISel.ReplaceNode(N, NewN);
+}
+
+void HvxSelector::selectVAlign(SDNode *N) {
+  SDValue Vv = N->getOperand(0);
+  SDValue Vu = N->getOperand(1);
+  SDValue Rt = N->getOperand(2);
+  SDNode *NewN = DAG.getMachineNode(Hexagon::V6_valignb, SDLoc(N),
+                                    N->getValueType(0), {Vv, Vu, Rt});
+  ISel.ReplaceNode(N, NewN);
   DAG.RemoveDeadNode(N);
 }
 
@@ -2019,7 +2028,15 @@ void HexagonDAGToDAGISel::SelectHvxRor(SDNode *N) {
   HvxSelector(*this, *CurDAG).selectRor(N);
 }
 
+void HexagonDAGToDAGISel::SelectHvxVAlign(SDNode *N) {
+  HvxSelector(*this, *CurDAG).selectVAlign(N);
+}
+
 void HexagonDAGToDAGISel::SelectV65GatherPred(SDNode *N) {
+  if (!HST->usePackets()) {
+    report_fatal_error("Support for gather requires packets, "
+                       "which are disabled");
+  }
   const SDLoc &dl(N);
   SDValue Chain = N->getOperand(0);
   SDValue Address = N->getOperand(2);
@@ -2055,11 +2072,14 @@ void HexagonDAGToDAGISel::SelectV65GatherPred(SDNode *N) {
   MemOp[0] = cast<MemIntrinsicSDNode>(N)->getMemOperand();
   cast<MachineSDNode>(Result)->setMemRefs(MemOp, MemOp + 1);
 
-  ReplaceUses(N, Result);
-  CurDAG->RemoveDeadNode(N);
+  ReplaceNode(N, Result);
 }
 
 void HexagonDAGToDAGISel::SelectV65Gather(SDNode *N) {
+  if (!HST->usePackets()) {
+    report_fatal_error("Support for gather requires packets, "
+                       "which are disabled");
+  }
   const SDLoc &dl(N);
   SDValue Chain = N->getOperand(0);
   SDValue Address = N->getOperand(2);
@@ -2094,8 +2114,7 @@ void HexagonDAGToDAGISel::SelectV65Gather(SDNode *N) {
   MemOp[0] = cast<MemIntrinsicSDNode>(N)->getMemOperand();
   cast<MachineSDNode>(Result)->setMemRefs(MemOp, MemOp + 1);
 
-  ReplaceUses(N, Result);
-  CurDAG->RemoveDeadNode(N);
+  ReplaceNode(N, Result);
 }
 
 void HexagonDAGToDAGISel::SelectHVXDualOutput(SDNode *N) {
@@ -2138,5 +2157,3 @@ void HexagonDAGToDAGISel::SelectHVXDualOutput(SDNode *N) {
   ReplaceUses(SDValue(N, 1), SDValue(Result, 1));
   CurDAG->RemoveDeadNode(N);
 }
-
-

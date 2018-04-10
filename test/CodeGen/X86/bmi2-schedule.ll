@@ -9,8 +9,8 @@
 define i32 @test_bzhi_i32(i32 %a0, i32 %a1, i32 *%a2) {
 ; GENERIC-LABEL: test_bzhi_i32:
 ; GENERIC:       # %bb.0:
-; GENERIC-NEXT:    bzhil %edi, (%rdx), %ecx # sched: [5:0.50]
-; GENERIC-NEXT:    bzhil %edi, %esi, %eax # sched: [1:0.33]
+; GENERIC-NEXT:    bzhil %edi, (%rdx), %ecx # sched: [5:1.00]
+; GENERIC-NEXT:    bzhil %edi, %esi, %eax # sched: [1:1.00]
 ; GENERIC-NEXT:    addl %ecx, %eax # sched: [1:0.33]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
@@ -59,8 +59,8 @@ declare i32 @llvm.x86.bmi.bzhi.32(i32, i32)
 define i64 @test_bzhi_i64(i64 %a0, i64 %a1, i64 *%a2) {
 ; GENERIC-LABEL: test_bzhi_i64:
 ; GENERIC:       # %bb.0:
-; GENERIC-NEXT:    bzhiq %rdi, (%rdx), %rcx # sched: [5:0.50]
-; GENERIC-NEXT:    bzhiq %rdi, %rsi, %rax # sched: [1:0.33]
+; GENERIC-NEXT:    bzhiq %rdi, (%rdx), %rcx # sched: [5:1.00]
+; GENERIC-NEXT:    bzhiq %rdi, %rsi, %rax # sched: [1:1.00]
 ; GENERIC-NEXT:    addq %rcx, %rax # sched: [1:0.33]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
@@ -118,32 +118,32 @@ define void @test_mulx_i32(i32 %a0, i32 %a1, i32* %a2) optsize {
 ; HASWELL-LABEL: test_mulx_i32:
 ; HASWELL:       # %bb.0:
 ; HASWELL-NEXT:    #APP
-; HASWELL-NEXT:    mulxl %esi, %esi, %edi # sched: [5:1.00]
-; HASWELL-NEXT:    mulxl (%rdx), %esi, %edi # sched: [10:1.00]
+; HASWELL-NEXT:    mulxl %esi, %esi, %edi # sched: [4:1.00]
+; HASWELL-NEXT:    mulxl (%rdx), %esi, %edi # sched: [9:1.00]
 ; HASWELL-NEXT:    #NO_APP
 ; HASWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; BROADWELL-LABEL: test_mulx_i32:
 ; BROADWELL:       # %bb.0:
 ; BROADWELL-NEXT:    #APP
-; BROADWELL-NEXT:    mulxl %esi, %esi, %edi # sched: [5:1.00]
-; BROADWELL-NEXT:    mulxl (%rdx), %esi, %edi # sched: [10:1.00]
+; BROADWELL-NEXT:    mulxl %esi, %esi, %edi # sched: [4:1.00]
+; BROADWELL-NEXT:    mulxl (%rdx), %esi, %edi # sched: [9:1.00]
 ; BROADWELL-NEXT:    #NO_APP
 ; BROADWELL-NEXT:    retq # sched: [7:1.00]
 ;
 ; SKYLAKE-LABEL: test_mulx_i32:
 ; SKYLAKE:       # %bb.0:
 ; SKYLAKE-NEXT:    #APP
-; SKYLAKE-NEXT:    mulxl %esi, %esi, %edi # sched: [5:1.00]
-; SKYLAKE-NEXT:    mulxl (%rdx), %esi, %edi # sched: [10:1.00]
+; SKYLAKE-NEXT:    mulxl %esi, %esi, %edi # sched: [4:1.00]
+; SKYLAKE-NEXT:    mulxl (%rdx), %esi, %edi # sched: [9:1.00]
 ; SKYLAKE-NEXT:    #NO_APP
 ; SKYLAKE-NEXT:    retq # sched: [7:1.00]
 ;
 ; KNL-LABEL: test_mulx_i32:
 ; KNL:       # %bb.0:
 ; KNL-NEXT:    #APP
-; KNL-NEXT:    mulxl %esi, %esi, %edi # sched: [5:1.00]
-; KNL-NEXT:    mulxl (%rdx), %esi, %edi # sched: [10:1.00]
+; KNL-NEXT:    mulxl %esi, %esi, %edi # sched: [4:1.00]
+; KNL-NEXT:    mulxl (%rdx), %esi, %edi # sched: [9:1.00]
 ; KNL-NEXT:    #NO_APP
 ; KNL-NEXT:    retq # sched: [7:1.00]
 ;

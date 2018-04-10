@@ -40,6 +40,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include <cassert>
@@ -591,13 +592,13 @@ struct LoopInterchange : public FunctionPass {
     LoopInterchangeLegality LIL(OuterLoop, InnerLoop, SE, LI, DT,
                                 PreserveLCSSA, ORE);
     if (!LIL.canInterchangeLoops(InnerLoopId, OuterLoopId, DependencyMatrix)) {
-      DEBUG(dbgs() << "Not interchanging Loops. Cannot prove legality\n");
+      DEBUG(dbgs() << "Not interchanging loops. Cannot prove legality.\n");
       return false;
     }
     DEBUG(dbgs() << "Loops are legal to interchange\n");
     LoopInterchangeProfitability LIP(OuterLoop, InnerLoop, SE, ORE);
     if (!LIP.isProfitable(InnerLoopId, OuterLoopId, DependencyMatrix)) {
-      DEBUG(dbgs() << "Interchanging loops not profitable\n");
+      DEBUG(dbgs() << "Interchanging loops not profitable.\n");
       return false;
     }
 
@@ -611,7 +612,7 @@ struct LoopInterchange : public FunctionPass {
     LoopInterchangeTransform LIT(OuterLoop, InnerLoop, SE, LI, DT,
                                  LoopNestExit, LIL.hasInnerLoopReduction());
     LIT.transform();
-    DEBUG(dbgs() << "Loops interchanged\n");
+    DEBUG(dbgs() << "Loops interchanged.\n");
     return true;
   }
 };

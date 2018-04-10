@@ -543,7 +543,7 @@ define <16 x i32> @vpmulld_test(<16 x i32> %i, <16 x i32> %j) {
 ;
 ; SKX-LABEL: vpmulld_test:
 ; SKX:       # %bb.0:
-; SKX-NEXT:    vpmulld %zmm1, %zmm0, %zmm0 # sched: [8:0.67]
+; SKX-NEXT:    vpmulld %zmm1, %zmm0, %zmm0 # sched: [10:0.67]
 ; SKX-NEXT:    retq # sched: [7:1.00]
   %x = mul <16 x i32> %i, %j
   ret <16 x i32> %x
@@ -553,7 +553,7 @@ declare float @sqrtf(float) readnone
 define float @sqrtA(float %a) nounwind uwtable readnone ssp {
 ; GENERIC-LABEL: sqrtA:
 ; GENERIC:       # %bb.0: # %entry
-; GENERIC-NEXT:    vsqrtss %xmm0, %xmm0, %xmm0 # sched: [114:1.00]
+; GENERIC-NEXT:    vsqrtss %xmm0, %xmm0, %xmm0 # sched: [14:1.00]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
 ; SKX-LABEL: sqrtA:
@@ -585,7 +585,7 @@ declare float @llvm.sqrt.f32(float)
 define float @sqrtC(float %a) nounwind {
 ; GENERIC-LABEL: sqrtC:
 ; GENERIC:       # %bb.0:
-; GENERIC-NEXT:    vsqrtss %xmm0, %xmm0, %xmm0 # sched: [114:1.00]
+; GENERIC-NEXT:    vsqrtss %xmm0, %xmm0, %xmm0 # sched: [14:1.00]
 ; GENERIC-NEXT:    retq # sched: [1:1.00]
 ;
 ; SKX-LABEL: sqrtC:

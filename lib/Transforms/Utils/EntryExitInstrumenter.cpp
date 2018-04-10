@@ -9,14 +9,13 @@
 
 #include "llvm/Transforms/Utils/EntryExitInstrumenter.h"
 #include "llvm/Analysis/GlobalsModRef.h"
-#include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
-#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils.h"
 using namespace llvm;
 
 static void insertCall(Function &CurFn, StringRef Func,

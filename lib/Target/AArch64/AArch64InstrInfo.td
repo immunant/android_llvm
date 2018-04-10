@@ -396,6 +396,15 @@ def MOVaddrEXT
              [(set GPR64:$dst, (AArch64addlow (AArch64adrp texternalsym:$hi),
                                             texternalsym:$low))]>,
       Sched<[WriteAdrAdr]>;
+// Normally AArch64addlow either gets folded into a following ldr/str,
+// or together with an adrp into MOVaddr above. For cases with TLS, it
+// might appear without either of them, so allow lowering it into a plain
+// add.
+def ADDlowTLS
+    : Pseudo<(outs GPR64:$dst), (ins GPR64:$src, i64imm:$low),
+             [(set GPR64:$dst, (AArch64addlow GPR64:$src,
+                                            tglobaltlsaddr:$low))]>,
+      Sched<[WriteAdr]>;
 
 } // isReMaterializable, isCodeGenOnly
 
@@ -1331,6 +1340,7 @@ def ADRP : ADRI<1, "adrp", adrplabel,
 // page address of a constant pool entry, block address
 def : Pat<(AArch64adrp tconstpool:$cp), (ADRP tconstpool:$cp)>;
 def : Pat<(AArch64adrp tblockaddress:$cp), (ADRP tblockaddress:$cp)>;
+def : Pat<(AArch64adrp texternalsym:$sym), (ADRP texternalsym:$sym)>;
 
 //===----------------------------------------------------------------------===//
 // Unconditional branch (register) instructions.
@@ -6183,20 +6193,25 @@ def : Pat<(v1i64 (extract_subvector (v2i64 FPR128:$Rn), (i64 1))),
 
 // A 64-bit subvector insert to the first 128-bit vector position
 // is a subregister copy that needs no instruction.
-def : Pat<(insert_subvector undef, (v1i64 FPR64:$src), (i32 0)),
-          (INSERT_SUBREG (v2i64 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
-def : Pat<(insert_subvector undef, (v1f64 FPR64:$src), (i32 0)),
-          (INSERT_SUBREG (v2f64 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
-def : Pat<(insert_subvector undef, (v2i32 FPR64:$src), (i32 0)),
-          (INSERT_SUBREG (v4i32 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
-def : Pat<(insert_subvector undef, (v2f32 FPR64:$src), (i32 0)),
-          (INSERT_SUBREG (v4f32 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
-def : Pat<(insert_subvector undef, (v4i16 FPR64:$src), (i32 0)),
-          (INSERT_SUBREG (v8i16 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
-def : Pat<(insert_subvector undef, (v4f16 FPR64:$src), (i32 0)),
-          (INSERT_SUBREG (v8f16 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
-def : Pat<(insert_subvector undef, (v8i8 FPR64:$src), (i32 0)),
-          (INSERT_SUBREG (v16i8 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+multiclass InsertSubvectorUndef<ValueType Ty> {
+  def : Pat<(insert_subvector undef, (v1i64 FPR64:$src), (Ty 0)),
+            (INSERT_SUBREG (v2i64 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+  def : Pat<(insert_subvector undef, (v1f64 FPR64:$src), (Ty 0)),
+            (INSERT_SUBREG (v2f64 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+  def : Pat<(insert_subvector undef, (v2i32 FPR64:$src), (Ty 0)),
+            (INSERT_SUBREG (v4i32 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+  def : Pat<(insert_subvector undef, (v2f32 FPR64:$src), (Ty 0)),
+            (INSERT_SUBREG (v4f32 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+  def : Pat<(insert_subvector undef, (v4i16 FPR64:$src), (Ty 0)),
+            (INSERT_SUBREG (v8i16 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+  def : Pat<(insert_subvector undef, (v4f16 FPR64:$src), (Ty 0)),
+            (INSERT_SUBREG (v8f16 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+  def : Pat<(insert_subvector undef, (v8i8 FPR64:$src), (Ty 0)),
+            (INSERT_SUBREG (v16i8 (IMPLICIT_DEF)), FPR64:$src, dsub)>;
+}
+
+defm : InsertSubvectorUndef<i32>;
+defm : InsertSubvectorUndef<i64>;
 
 // Use pair-wise add instructions when summing up the lanes for v2f64, v2i64
 // or v2f32.
