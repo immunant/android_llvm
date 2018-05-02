@@ -247,7 +247,7 @@ void ARMSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
       (Options.UnsafeFPMath || isTargetDarwin()))
     UseNEONForSinglePrecisionFP = true;
 
-  if (isRWPI() || isPIP())
+  if (isRWPI())
     ReserveR9 = true;
 
   // FIXME: Teach TableGen to deal with these instead of doing it manually here.

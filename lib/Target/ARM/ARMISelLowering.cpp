@@ -2177,6 +2177,11 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Ops.push_back(DAG.getRegister(RegsToPass[i].first,
                                   RegsToPass[i].second.getValueType()));
 
+  // Make sure the POT base register stays live into the call
+  if (UsePIPAddressing) {
+    Ops.push_back(DAG.getRegister(getPOTBaseRegister(), PtrVt));
+  }
+
   // Add a register mask operand representing the call-preserved registers.
   if (!isTailCall) {
     const uint32_t *Mask;
