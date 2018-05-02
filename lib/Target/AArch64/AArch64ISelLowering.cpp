@@ -3796,10 +3796,17 @@ SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG) const {
                                  DAG.getVTList(MVT::i64, MVT::Other));
   SDValue Chain = POTValue.getValue(1);
 
+  size_t POTBaseIndex = getTargetMachine().getPOTBaseIndex();
+  if (POTBaseIndex != 0) {
+    POTValue = DAG.getNode(ISD::ADD, DL, PtrVT, POTValue,
+                           DAG.getConstant(POTBaseIndex, DL, MVT::i64));
+  }
+
   if (OpFlags == AArch64II::MO_GOT) {
     // Load the GOT address from the POT
-    SDValue GOTAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain, POTValue,
-                                  DAG.getTargetConstant(0, DL, MVT::i32));
+    SDValue GOTAddr = DAG.getLoad(PtrVT, DL, Chain, POTValue, MachinePointerInfo());
+      // DAG.getNode(AArch64ISD::LOAD, DL, PtrVT, Chain, POTValue,
+      //                             DAG.getConstant(POTBaseIndex, DL, MVT::i32));
 
     const Module *M = DAG.getMachineFunction().getFunction().getParent();
     PICLevel::Level picLevel = M->getPICLevel();
@@ -3825,6 +3832,8 @@ SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG) const {
     // We may have an alias, so we need to use the real target function for the
     // POT offset
     SDValue POTOffset = DAG.getTargetGlobalAddress(F, DL, PtrVT, 0, AArch64II::MO_POT);
+    // SDValue POTSlot = DAG.getNode(ISD::ADD, DL, PtrVT, POTValue, POTOffset);
+    // SDValue BaseAddr = DAG.getLoad(PtrVT, DL, Chain, POTSlot, MachinePointerInfo());
     SDValue BaseAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain,
                                    POTValue, POTOffset);
 
@@ -3833,8 +3842,10 @@ SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG) const {
     return DAG.getNode(ISD::ADD, DL, PtrVT, BaseAddr, Offset);
   } else {
     // Load the GOT address from the POT
-    SDValue GOTAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain, POTValue,
-                                  DAG.getTargetConstant(0, DL, MVT::i32));
+    SDValue GOTAddr = DAG.getLoad(PtrVT, DL, Chain, POTValue, MachinePointerInfo());
+    // SDValue GOTAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain, POTValue,
+    //                               DAG.getConstant(
+    //                                   getTargetMachine().getPOTBaseIndex(), DL, MVT::i32));
 
     SDValue Hi = getTargetNode(N, PtrVT, DAG, AArch64II::MO_PAGE);
     SDValue Lo = getTargetNode(N, PtrVT, DAG,

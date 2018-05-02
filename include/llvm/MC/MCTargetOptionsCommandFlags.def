@@ -61,6 +61,12 @@ ABIName("target-abi", cl::Hidden,
         cl::desc("The name of the ABI to be targeted from the backend."),
         cl::init(""));
 
+static cl::opt<unsigned> GlobalPOTIndex(
+    "global-pot-index", cl::desc("Index of this module's page-offset table "
+                                 "(POT) in the system-wide POT"),
+    cl::init(0));
+
+
 static MCTargetOptions InitMCTargetOptionsFromFlags() {
   MCTargetOptions Options;
   Options.SanitizeAddress =
@@ -74,6 +80,7 @@ static MCTargetOptions InitMCTargetOptionsFromFlags() {
   Options.MCFatalWarnings = FatalWarnings;
   Options.MCNoWarn = NoWarn;
   Options.MCNoDeprecatedWarn = NoDeprecatedWarn;
+  Options.GlobalPOTIndex = GlobalPOTIndex;
   return Options;
 }
 

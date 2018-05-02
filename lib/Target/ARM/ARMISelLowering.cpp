@@ -2029,8 +2029,14 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     } else if (ExternalSymbolSDNode *S=dyn_cast<ExternalSymbolSDNode>(Callee)) {
       SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, dl,
                                      DAG.getVTList(MVT::i32, MVT::Other));
+      SDValue POTChain = POTValue.getValue(1);
+      unsigned POTBaseOffset = getTargetMachine().getPOTBaseIndex();
+      if (POTBaseOffset != 0) {
+        SDValue Offset = DAG.getConstant(POTBaseOffset, dl, MVT::i32);
+        POTValue = DAG.getNode(ISD::ADD, dl, PtrVt, POTValue, Offset);
+      }
       SDValue GOTAddr = DAG.getLoad(
-          PtrVt, dl, POTValue.getValue(1), POTValue,
+          PtrVt, dl, POTChain, POTValue,
           MachinePointerInfo::getPOT(DAG.getMachineFunction()));
 
       ARMConstantPoolValue *CPV =
@@ -3331,6 +3337,12 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
     SDValue POTValue = DAG.getNode(ISD::PAGE_OFFSET_TABLE, dl,
                                    DAG.getVTList(MVT::i32, MVT::Other));
     SDValue Chain = POTValue.getValue(1);
+    unsigned POTBaseOffset = getTargetMachine().getPOTBaseIndex();
+    if (POTBaseOffset != 0) {
+      SDValue Offset = DAG.getConstant(POTBaseOffset, dl, MVT::i32);
+      POTValue = DAG.getNode(ISD::ADD, dl, PtrVT, POTValue, Offset);
+    }
+
     if (pagerandoBinTarget) {
       ARMConstantPoolValue *CPV = ARMConstantPoolConstant::Create(
           F, ARMCP::POTOFF);

@@ -222,6 +222,12 @@ public:
   /// Return true if Pagerando is enabled on this target.
   bool isPagerando() const { return getRelocationModel() == Reloc::PIP; }
 
+  /// Return the index from the POT base to the first entry for the current
+  /// module. When not using a global POT, this function returns 0.
+  unsigned getPOTBaseIndex() const {
+    return Options.MCOptions.GlobalPOTIndex * 4096;
+  }
+
   /// \brief Get a \c TargetIRAnalysis appropriate for the target.
   ///
   /// This is used to construct the new pass manager's target IR analysis pass,

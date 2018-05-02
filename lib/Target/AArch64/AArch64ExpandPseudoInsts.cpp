@@ -927,22 +927,37 @@ bool AArch64ExpandPseudo::expandMI(MachineBasicBlock &MBB,
     const MachineOperand &Offset = MI.getOperand(2);
     unsigned Flags = Offset.getTargetFlags();
 
-    MachineInstrBuilder MIB =
-        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
-            .add(Base);
-
     if (Offset.isGlobal()) {
-      MIB.addGlobalAddress(Offset.getGlobal(), 0, Flags | AArch64II::MO_POT);
+      MachineInstrBuilder MIB =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+        .add(Base)
+        .addGlobalAddress(Offset.getGlobal(), 0, Flags | AArch64II::MO_POT);
+      transferImpOps(MI, MIB, MIB);
     } else if (Offset.isImm()) {
-      MIB.addImm(Offset.getImm());
-    } else {
+      MachineInstrBuilder MIB =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+        .add(Base)
+        .addImm(Offset.getImm());
+      transferImpOps(MI, MIB, MIB);
+    } else if (Offset.isCPI()) {
       assert(Offset.isCPI() && "Only expect globals, immediates, or constant pools");
-      MIB.addConstantPoolIndex(Offset.getIndex(), Offset.getOffset(),
-                               Flags | AArch64II::MO_POT);
-
+      MachineInstrBuilder MIB =
+        BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXui), DstReg)
+        .add(Base)
+        .addConstantPoolIndex(Offset.getIndex(), Offset.getOffset(),
+                              Flags | AArch64II::MO_POT);
+      transferImpOps(MI, MIB, MIB);
+    } else {
+      assert(Offset.isReg() &&
+             "Only expect global, immediate, constant pool, or register offset");
+      MachineInstrBuilder MIB =
+          BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(AArch64::LDRXroX), DstReg)
+              .add(Base)
+              .add(Offset)
+              .addImm(0)
+              .addImm(0);
+      transferImpOps(MI, MIB, MIB);
     }
-
-    transferImpOps(MI, MIB, MIB);
     MI.eraseFromParent();
     return true;
   }

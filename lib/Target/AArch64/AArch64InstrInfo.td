@@ -167,7 +167,7 @@ def AArch64adrp          : SDNode<"AArch64ISD::ADRP", SDTIntUnaryOp, []>;
 def AArch64addlow        : SDNode<"AArch64ISD::ADDlow", SDTIntBinOp, []>;
 def AArch64LOADgot       : SDNode<"AArch64ISD::LOADgot", SDTIntUnaryOp>;
 def AArch64LOADgotr      : SDNode<"AArch64ISD::LOADgotr", SDTIntBinOp>;
-def AArch64LOADpot      : SDNode<"AArch64ISD::LOADpot", SDTIntBinOp,
+def AArch64LOADpot       : SDNode<"AArch64ISD::LOADpot", SDTIntBinOp,
                                   [SDNPHasChain]>;
 def AArch64callseq_start : SDNode<"ISD::CALLSEQ_START",
                                 SDCallSeqStart<[ SDTCisVT<0, i32>,
@@ -441,6 +441,9 @@ def : Pat<(AArch64LOADpot GPR64:$base, timm:$index),
 
 def : Pat<(AArch64LOADpot GPR64:$base, tconstpool:$index),
           (LOADpot GPR64:$base, tconstpool:$index)>;
+
+def : Pat<(AArch64LOADpot GPR64:$base, GPR64:$offset),
+          (LOADpot GPR64:$base, GPR64:$offset)>;
 
 //===----------------------------------------------------------------------===//
 // System instructions.

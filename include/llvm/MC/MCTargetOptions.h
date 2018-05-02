@@ -67,6 +67,8 @@ public:
   /// integrated assembler.
   std::vector<std::string> IASSearchPaths;
 
+  unsigned GlobalPOTIndex = 0;
+
   MCTargetOptions();
 
   /// getABIName - If this returns a non-empty string this represents the

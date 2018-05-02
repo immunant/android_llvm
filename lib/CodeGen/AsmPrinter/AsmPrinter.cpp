@@ -1820,16 +1820,22 @@ bool AsmPrinter::EmitSpecialLLVMGlobal(const GlobalVariable *GV) {
 void AsmPrinter::EmitPOT() {
   assert(TM.getTargetTriple().isOSBinFormatELF() &&
          "Pagerando is only supported on ELF");
-  unsigned Alignment = getDataLayout().getPointerPrefAlignment(0);
+  unsigned AlignmentBits = 12; // Log2(PAGE_SIZE)
   unsigned PtrSize = getDataLayout().getPointerSize(0);
 
   auto *Section = OutContext.getELFSection(".pot", ELF::SHT_PROGBITS,
                                            ELF::SHF_ALLOC | ELF::SHF_WRITE);
   OutStreamer->SwitchSection(Section);
+  EmitAlignment(AlignmentBits);
 
   // Emit POT start label
-  auto *POTSym = OutContext.getOrCreateSymbol("_PAGE_OFFSET_TABLE_");
-  OutStreamer->EmitValueToAlignment(Alignment);
+  bool global_pot = TM.getPOTBaseIndex() != 0;
+  MCSymbol *POTSym;
+  if (global_pot) {
+    POTSym = OutContext.getOrCreateSymbol("_LOCAL_PAGE_OFFSET_TABLE_");
+    OutStreamer->EmitSymbolAttribute(POTSym, MCSA_Global);
+  } else
+    POTSym = OutContext.getOrCreateSymbol("_PAGE_OFFSET_TABLE_");
   OutStreamer->EmitLabel(POTSym);
 
   // Entry 0 is GOT reference
@@ -2712,7 +2718,8 @@ unsigned AsmPrinter::GetPOTIndex(const MCSection *Sec) {
   auto Index = static_cast<unsigned>(I - POT.begin());
   if (I == POT.end())
     POT.push_back(Sec);
-  return Index + 1;  // Index 0 denotes the default bin #0
+
+  return Index + 1;  // Index 0 holds the GOT address
 }
 
 /// PrintParentLoopComment - Print comments about parent loops of this one.

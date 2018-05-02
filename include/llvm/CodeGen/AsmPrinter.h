@@ -457,6 +457,8 @@ public:
   unsigned GetPOTIndex(const GlobalObject *GO);
   /// Return the POT index of the section containing this constant pool ID.
   unsigned GetPOTIndex(unsigned CPID);
+  /// Return the POT index of the GOT entry.
+  unsigned GetPOTBaseIndex();
 
   //===------------------------------------------------------------------===//
   // Emission Helper Routines.

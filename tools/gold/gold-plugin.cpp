@@ -1126,7 +1126,7 @@ static ld_plugin_status new_input_hook(const ld_plugin_input_file *file) {
                        (is_bin ? ELF::PF_X : ELF::PF_W);
       unique_segments(name, /* segment_name */
                       flags, /* p_flags */
-                      4096, /* aligment */
+                      12, /* alignment */
                       &cur_section, /* section_list */
                       1); /* num_sections */
     }
