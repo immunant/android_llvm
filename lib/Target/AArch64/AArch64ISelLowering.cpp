@@ -3773,6 +3773,8 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     InFlag = Chain.getValue(1);
   }
 
+  bool IsPagerandoCall = false;
+
   // If the callee is a GlobalAddress/ExternalSymbol node (quite common, every
   // direct call is) turn it into a TargetGlobalAddress/TargetExternalSymbol
   // node so that legalize doesn't hack it.
@@ -3788,6 +3790,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     unsigned char OpFlags =
       Subtarget->classifyGlobalFunctionReference(GV, getTargetMachine());
     if (UsePIPAddressing) {
+      IsPagerandoCall = true;
       Callee = getPOT(G, DAG);
     } else if (OpFlags & AArch64II::MO_GOT) {
       Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, AArch64II::MO_GOT);
@@ -3802,6 +3805,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
     }
   } else if (auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     if (MF.getFunction().isPagerando()) {
+      IsPagerandoCall = true;
       Callee = getPOT(S, DAG);
     } else if (getTargetMachine().getCodeModel() == CodeModel::Large &&
         Subtarget->isTargetMachO()) {
@@ -3840,6 +3844,11 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   for (auto &RegToPass : RegsToPass)
     Ops.push_back(DAG.getRegister(RegToPass.first,
                                   RegToPass.second.getValueType()));
+
+  // Make sure the POT base register stays live into the call
+  if (IsPagerandoCall) {
+    Ops.push_back(DAG.getRegister(getPOTBaseRegister(), PtrVT));
+  }
 
   // Add a register mask operand representing the call-preserved registers.
   const uint32_t *Mask;
