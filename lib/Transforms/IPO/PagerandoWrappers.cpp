@@ -261,8 +261,16 @@ Function *PagerandoWrappers::createWrapper(Function &F,
 
   // Blacklist target independent attributes that should not be inherited
   for (const auto &Attr : F.getAttributes().getFnAttributes()) {
-    if (Attr.isStringAttribute())
+    if (Attr.isStringAttribute()) {
+      // We want wrappers to be as small as possible, so we want to eliminate
+      // the frame pointer if possible.
+      auto AttrString = Attr.getKindAsString();
+      if (AttrString == "no-frame-pointer-elim" ||
+          AttrString == "no-frame-pointer-elim-non-leaf")
+        Wrapper->removeFnAttr(Attr.getKindAsString());
+
       continue;
+    }
 
     switch (Attr.getKindAsEnum()) {
     // These attributes cannot be propagated safely. Explicitly list them here

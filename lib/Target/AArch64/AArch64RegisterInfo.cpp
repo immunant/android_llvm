@@ -136,7 +136,7 @@ AArch64RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   if (hasBasePointer(MF))
     markSuperRegs(Reserved, AArch64::W19);
 
-  if (MF.getTarget().isPagerando())
+  if (MF.getFunction().isPagerando())
     markSuperRegs(Reserved, AArch64::W20); // POT register
 
   assert(checkAllSuperRegsMarked(Reserved));
@@ -166,7 +166,7 @@ bool AArch64RegisterInfo::isReservedReg(const MachineFunction &MF,
     return hasBasePointer(MF);
   case AArch64::W20:
   case AArch64::X20:
-    return MF.getTarget().isPagerando();
+    return MF.getFunction().isPagerando();
   }
 
   return false;
@@ -435,7 +435,7 @@ unsigned AArch64RegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
               - MF.getSubtarget<AArch64Subtarget>()
                     .isX18Reserved() // X18 reserved as platform register
               - hasBasePointer(MF)   // X19
-              - MF.getTarget()
+              - MF.getFunction()
                     .isPagerando();  // X20 reserved as POT register
   case AArch64::FPR8RegClassID:
   case AArch64::FPR16RegClassID:

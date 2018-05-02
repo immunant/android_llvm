@@ -193,6 +193,9 @@ getReservedRegs(const MachineFunction &MF) const {
   // Some targets reserve R9.
   if (STI.isR9Reserved())
     markSuperRegs(Reserved, ARM::R9);
+  // Pagerando reserves R9 for the POT base
+  if (MF.getFunction().isPagerando())
+    markSuperRegs(Reserved, ARM::R9);
   // Reserve D16-D31 if the subtarget doesn't support them.
   if (!STI.hasVFP3() || STI.hasD16()) {
     static_assert(ARM::D31 == ARM::D16 + 15, "Register list not consecutive!");
@@ -263,7 +266,8 @@ ARMBaseRegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
   case ARM::GPRRegClassID: {
     bool HasFP = MF.getFrameInfo().isMaxCallFrameSizeComputed()
                  ? TFI->hasFP(MF) : true;
-    return 10 - HasFP - (STI.isR9Reserved() ? 1 : 0);
+    bool IsPagerando =  MF.getFunction().isPagerando();
+    return 10 - HasFP - (STI.isR9Reserved() || IsPagerando ? 1 : 0);
   }
   case ARM::SPRRegClassID:  // Currently not used as 'rep' register class.
   case ARM::DPRRegClassID:
