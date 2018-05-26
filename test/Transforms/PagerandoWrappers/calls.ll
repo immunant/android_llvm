@@ -1,13 +1,14 @@
 ; RUN: opt < %s -pagerando-wrappers -S | FileCheck %s
 
-; CHECK-LABEL: define hidden void @"global$$orig"() #0 {
-; CHECK-LABEL: define internal void @internal() #0 {
+; CHECK-LABEL: define void @global() #0 {
+; CHECK-LABEL: define hidden void @"global$$orig"() #1 {
+; CHECK-LABEL: define internal void @internal() #1 {
 
-define void @global() { ret void }
-define internal void @internal() { ret void }
+define void @global() pagerando { ret void }
+define internal void @internal() pagerando { ret void }
 
-; CHECK-LABEL: define internal void @user() #0 {
-define internal void @user() {
+; CHECK-LABEL: define internal void @user() #1 {
+define internal void @user() pagerando {
 ; CHECK-NEXT:    call void @global()
 ; CHECK-NEXT:    call void @internal()
 ; CHECK-NEXT:    ret void
@@ -16,7 +17,6 @@ define internal void @user() {
   ret void
 }
 
-; CHECK-LABEL: define void @global() #1 {
 
-; CHECK-LABEL: attributes #0 = { pagerando }
-; CHECK-LABEL: attributes #1 = { noinline optsize }
+; CHECK-LABEL: attributes #0 = { noinline optsize }
+; CHECK-LABEL: attributes #1 = { pagerando }

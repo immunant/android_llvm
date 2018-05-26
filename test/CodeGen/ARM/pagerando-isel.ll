@@ -5,47 +5,51 @@
 @internal_var = internal global i32 0
 
 define void @legacy() { ret void }
-define void @wrapper() pagerando_wrapper { ret void }
-define hidden void @binned() pagerando_binned { ret void }
+define void @wrapper() pagerando { ret void }
+define hidden void @binned() pagerando { ret void }
 
 ; CHECK-LABEL: # *** IR Dump Before Pagerando intra-bin optimizer for ARM ***:
 ; CHECK-LABEL: # Machine code for function user: IsSSA, TracksLiveness
 ; CHECK-LABEL: Constant Pool:
 ; CHECK: cp#0: legacy(got_brel), align=4
-; CHECK: cp#1: wrapper(got_brel), align=4
-; CHECK: cp#2: binned(potoff), align=4
-; CHECK: cp#3: binned(binoff), align=4
-; CHECK: cp#4: global_var(got_brel), align=4
-; CHECK: cp#5: internal_var(gotoff), align=4
+; CHECK: cp#1: wrapper(potoff), align=4
+; CHECK: cp#2: wrapper(binoff), align=4
+; CHECK: cp#3: binned(potoff), align=4
+; CHECK: cp#4: binned(binoff), align=4
+; CHECK: cp#5: global_var(got_brel), align=4
+; CHECK: cp#6: internal_var(gotoff), align=4
 
-define void @user() pagerando_binned {
-; CHECK-DAG: [[POT:%vreg[0-9]+]]<def> = COPY %R9
-; CHECK-DAG: [[GOT:%vreg[0-9]+]]<def> = LDRi12 [[POT]], 0, pred:14, pred:%noreg
+; CHECK-LABEL: bb.0 (%ir-block.0)
+; CHECK-NEXT: [[LEGACY_GOT:%[0-9]+]]:gprnopc = LDRi12 %const.0, 0, 14, $noreg :: (load 4 from constant-pool)
+define void @user() pagerando {
+; CHECK-DAG: [[POT:%[0-9]+]]:gpr = COPY $r9
+; CHECK-DAG: [[GOT:%[0-9]+]]:gpr = LDRi12 [[POT]]:gpr, 0, 14, $noreg :: (load 4 from pot)
+; CHECK-DAG: [[LEGACY:%[0-9]+]]:gpr = LDRrs [[GOT]]:gpr, killed [[LEGACY_GOT]]:gprnopc, 0, 14, $noreg :: (load 4 from got)
 
-; CHECK-DAG: [[LEGACY_GOT:%vreg[0-9]+]]<def> = LDRi12 <cp#0>, 0, pred:14, pred:%noreg
-; CHECK: [[LEGACY:%vreg[0-9]+]]<def> = LDRrs [[GOT]], [[LEGACY_GOT]]<kill>, 0, pred:14, pred:%noreg
-; CHECK: BLX [[LEGACY]]<kill>
+; CHECK: BLX killed [[LEGACY]]:gpr
   call void @legacy()
 
-; CHECK: [[WRAPPER_GOT:%vreg[0-9]+]]<def> = LDRi12 <cp#1>, 0, pred:14, pred:%noreg
-; CHECK: [[WRAPPER:%vreg[0-9]+]]<def> = LDRrs [[GOT]], [[WRAPPER_GOT]]<kill>, 0, pred:14, pred:%noreg
-; CHECK: BLX [[WRAPPER]]<kill>
+; CHECK: [[WRAPPER_GOT:%[0-9]+]]:gprnopc = LDRi12 %const.1, 0, 14, $noreg :: (load 4 from constant-pool)
+; CHECK: [[WRAPPER:%[0-9]+]]:gpr = LDRrs [[POT]]:gpr, killed [[WRAPPER_GOT]]
+; CHECK: [[WRAPPER_TEST:%[0-9]+]]:gprnopc = LDRi12 %const.2, 0, 14, $noreg :: (load 4 from constant-pool)
+; CHECK: [[TEST:%[0-9]+]]:gpr = LDRrs killed [[WRAPPER]]:gpr, killed [[WRAPPER_TEST]]
+; CHECK: BLX killed [[TEST]]:gpr
   call void @wrapper()
-
-; CHECK: [[BINNED_POTOFF:%vreg[0-9]+]]<def> = LDRi12 <cp#2>, 0, pred:14, pred:%noreg
-; CHECK: [[BINNED_BIN:%vreg[0-9]+]]<def> = LDRrs [[POT]], [[BINNED_POTOFF]]<kill>, 0, pred:14, pred:%noreg
-; CHECK: [[BINNED_BINOFF:%vreg[0-9]+]]<def> = LDRi12 <cp#3>, 0, pred:14, pred:%noreg
-; CHECK: [[BINNED:%vreg[0-9]+]]<def> = ADDrr [[BINNED_BIN]]<kill>, [[BINNED_BINOFF]]<kill>, pred:14, pred:%noreg, opt:%noreg
-; CHECK: BLX [[BINNED]]<kill>
+  
+; CHECK: [[BINNED_POTOFF:%[0-9]+]]:gprnopc = LDRi12 %const.3, 0, 14, $noreg :: (load 4 from constant-pool) 
+; CHECK: [[BINNED_BIN:%[0-9]+]]:gpr = LDRrs [[POT]]:gpr, killed [[BINNED_POTOFF]]:gprnopc, 0, 14, $noreg
+; CHECK: [[BINNED_BINOFF:%[0-9]+]]:gpr = LDRi12 %const.4, 0, 14, $noreg :: (load 4 from constant-pool)
+; CHECK: [[BINNED:%[0-9]+]]:gpr = ADDrr killed [[BINNED_BIN]]:gpr, killed [[BINNED_BINOFF]]:gpr, 14, $noreg, $noreg
+; CHECK: BLX killed [[BINNED]]:gpr
   call void @binned()
 
-; CHECK: [[GLOBAL_VAR_GOT:%vreg[0-9]+]]<def> = LDRi12 <cp#4>, 0, pred:14, pred:%noreg
-; CHECK: [[GLOBAL_VAR:%vreg[0-9]+]]<def> = LDRrs [[GOT]], [[GLOBAL_VAR_GOT]]<kill>, 0, pred:14, pred:%noreg
-; CHECK-DAG: [[VAL:%vreg[0-9]+]]<def> = LDRi12 [[GLOBAL_VAR]]<kill>, 0, pred:14, pred:%noreg
+; CHECK: [[GLOBAL_VAR_GOT:%[0-9]+]]:gprnopc = LDRi12 %const.5, 0, 14, $noreg :: (load 4 from constant-pool)
+; CHECK: [[GLOBAL_VAR:%[0-9]+]]:gpr = LDRrs [[GOT]]:gpr, killed [[GLOBAL_VAR_GOT]]:gprnopc, 0, 14, $noreg
+; CHECK-DAG: [[VAL:%[0-9]+]]:gpr = LDRi12 killed [[GLOBAL_VAR]]:gpr, 0, 14, $noreg
   %val = load i32, i32* @global_var
 
-; CHECK-DAG: [[INTERNAL_VAR_GOTOFF:%vreg[0-9]+]]<def> = LDRi12 <cp#5>, 0, pred:14, pred:%noreg
-; CHECK: STRrs [[VAL]]<kill>, [[GOT]], [[INTERNAL_VAR_GOTOFF]]<kill>, 0, pred:14, pred:%noreg
+; CHECK-DAG: [[INTERNAL_VAR_GOTOFF:%[0-9]+]]:gprnopc = LDRi12 %const.6, 0, 14, $noreg :: (load 4 from constant-pool)
+; CHECK: STRrs killed [[VAL]]:gpr, [[GOT]]:gpr, killed [[INTERNAL_VAR_GOTOFF]]:gprnopc, 0, 14, $noreg
   store i32 %val, i32* @internal_var
 
   ret void

@@ -6,11 +6,11 @@
 @fn_ptr1 = global void ()* @global
 @fn_ptr2 = global void ()* @internal
 
-; CHECK-LABEL: define hidden void @"global$$orig"() #0
-; CHECK-LABEL: define internal void @"internal$$orig"() #0
+; CHECK-LABEL: define internal void @internal() #0
+; CHECK-LABEL: define void @global() #0
 
-define void @global() { ret void }
-define internal void @internal() { ret void }
+define void @global() pagerando { ret void }
+define internal void @internal() pagerando { ret void }
 
-; CHECK-LABEL: define void @global() #1
-; CHECK-LABEL: define internal void @internal() #1
+; CHECK-LABEL: define hidden void @"global$$orig"() #1
+; CHECK-LABEL: define internal void @"internal$$orig"() #1

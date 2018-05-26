@@ -1,15 +1,17 @@
 ; RUN: llc < %s -mtriple=armv7-linux -relocation-model=pip -o - | FileCheck %s
 
-; CHECK-LABEL: .text
+; CHECK-LABEL: .section .text.bin_1
+; CHECK-LABEL: .type wrapper
 ; CHECK-LABEL: wrapper:
-define void @wrapper() pagerando_wrapper { ret void }
+define void @wrapper() pagerando { ret void }
 
-; CHECK-LABEL: section .text.bin_1
+; CHECK-LABEL: .type  orig
 ; CHECK-LABEL: orig:
-define hidden void @orig() pagerando_binned { ret void }
+define hidden void @orig() pagerando { ret void }
 
+; CHECK-LABEL: .type  user
 ; CHECK-LABEL: user:
-define void @user() pagerando_binned {
+define void @user() pagerando {
   call void @wrapper()
 
 ; CHECK-NOT: add
