@@ -1,10 +1,10 @@
 ; RUN: llc < %s -march=aarch64 -relocation-model=pip -o - | FileCheck %s
 
-; CHECK-LABEL: section .text.bin_1
+; CHECK-LABEL: .text
 ; CHECK-LABEL: wrapper:
-define void @wrapper() pagerando { ret void }
+define void @wrapper() { ret void }
 
-; CHECK-LABEL: .type orig
+; CHECK-LABEL: .section .text.bin_1
 ; CHECK-LABEL: orig:
 define hidden void @orig() pagerando { ret void }
 

@@ -5,7 +5,7 @@
 @internal_var = internal global i32 0
 
 define void @legacy() { ret void }
-define void @wrapper() pagerando { ret void }
+define void @wrapper() { ret void }
 define hidden void @binned() pagerando { ret void }
 
 ; CHECK-LABEL: # *** IR Dump Before Pagerando intra-bin optimizer for AArch64 ***:
