@@ -2,18 +2,17 @@
 
 ; CHECK-LABEL: .text
 ; CHECK-LABEL: wrapper:
-define void @wrapper() pagerando_wrapper { ret void }
+define void @wrapper() { ret void }
 
-; CHECK-LABEL: section .text.bin_1
+; CHECK-LABEL: .section .text.bin_1
 ; CHECK-LABEL: orig:
-define hidden void @orig() pagerando_binned { ret void }
+define hidden void @orig() pagerando { ret void }
 
 ; CHECK-LABEL: user:
-define void @user() pagerando_binned {
+define void @user() pagerando {
   call void @wrapper()
 
 ; CHECK-NOT: .text.bin_1
-; CHECK: bl orig
   call void @orig()
 
   ret void

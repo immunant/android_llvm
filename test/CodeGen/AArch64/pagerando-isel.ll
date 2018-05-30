@@ -5,48 +5,48 @@
 @internal_var = internal global i32 0
 
 define void @legacy() { ret void }
-define void @wrapper() pagerando_wrapper { ret void }
-define hidden void @binned() pagerando_binned { ret void }
+define void @wrapper() { ret void }
+define hidden void @binned() pagerando { ret void }
 
 ; CHECK-LABEL: # *** IR Dump Before Pagerando intra-bin optimizer for AArch64 ***:
 ; CHECK-LABEL: # Machine code for function user: IsSSA, TracksLiveness
-define void @user() pagerando_binned {
-; CHECK-DAG: [[POT:%vreg[0-9]+]]<def> = COPY %X20
-; CHECK-DAG: [[GOT:%vreg[0-9]+]]<def> = LOADpot [[POT]], 0
+define void @user() pagerando {
+; CHECK-DAG: [[POT:%[0-9]+]]:gpr64 = COPY $x20
+; CHECK-DAG: [[GOT:%[0-9]+]]:gpr64common = LOADpot [[POT]]:gpr64, 0
 
-; CHECK-DAG: %vreg{{[0-9]+}}<def> = MOVZXi <ga:@legacy>[TF=166], 0
-; CHECK-DAG: %vreg{{[0-9]+}}<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@legacy>[TF=165], 16
-; CHECK-DAG: %vreg{{[0-9]+}}<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@legacy>[TF=164], 32
-; CHECK-DAG: [[LEGACY_GOTOFF:%vreg[0-9]+]]<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@legacy>[TF=35], 48
-; CHECK: [[LEGACY:%vreg[0-9]+]]<def> = LOADgotr [[GOT]], [[LEGACY_GOTOFF]]<kill>
-; CHECK: BLR [[LEGACY]]<kill>
+; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, <unknown bitmask target flag>) @legacy, 0
+; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, <unknown bitmask target flag>) @legacy, 16
+; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, <unknown bitmask target flag>) @legacy, 32 
+; CHECK-DAG: [[LEGACY_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, <unknown bitmask target flag>) @legacy, 48
+; CHECK: [[LEGACY:%[0-9]+]]:gpr64 = LOADgotr [[GOT]]:gpr64common, killed [[LEGACY_GOTOFF]]:gpr64
+; CHECK: BLR killed [[LEGACY]]:gpr64
   call void @legacy()
 
-; CHECK: %vreg{{[0-9]+}}<def> = MOVZXi <ga:@wrapper>[TF=166], 0
-; CHECK: %vreg{{[0-9]+}}<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@wrapper>[TF=165], 16
-; CHECK: %vreg{{[0-9]+}}<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@wrapper>[TF=164], 32
-; CHECK: [[WRAPPER_GOTOFF:%vreg[0-9]+]]<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@wrapper>[TF=35], 48
-; CHECK: [[WRAPPER:%vreg[0-9]+]]<def> = LOADgotr [[GOT]], [[WRAPPER_GOTOFF]]<kill>
-; CHECK: BLR [[WRAPPER]]<kill>
+; CHECK: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, <unknown bitmask target flag>) @wrapper, 0
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, <unknown bitmask target flag>) @wrapper, 16
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, <unknown bitmask target flag>) @wrapper, 32
+; CHECK: [[WRAPPER_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, <unknown bitmask target flag>) @wrapper, 48
+; CHECK: [[WRAPPER:%[0-9]+]]:gpr64 = LOADgotr [[GOT]]:gpr64common, killed [[WRAPPER_GOTOFF]]:gpr64
+; CHECK: BLR killed [[WRAPPER]]
   call void @wrapper()
 
-; CHECK: [[BINNED_BIN:%vreg[0-9]+]]<def> = LOADpot [[POT]], <ga:@binned>[TF=48]
-; CHECK: [[BINNED:%vreg[0-9]+]]<def> = MOVaddrBIN [[BINNED_BIN]]<kill>, <ga:@binned>[TF=80]
-; CHECK: BLR [[BINNED]]<kill>
+; CHECK: [[BINNED_BIN:%[0-9]+]]:gpr64 = LOADpot [[POT]]:gpr64, target-flags(aarch64-got, <unknown bitmask target flag>) @binned
+; CHECK: [[BINNED:%[0-9]+]]:gpr64 = MOVaddrBIN killed [[BINNED_BIN]]:gpr64, target-flags(aarch64-got, aarch64-tls) @binned
+; CHECK: BLR killed [[BINNED]]:gpr64
   call void @binned()
 
-; CHECK: %vreg{{[0-9]+}}<def> = MOVZXi <ga:@global_var>[TF=166], 0
-; CHECK: %vreg{{[0-9]+}}<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@global_var>[TF=165], 16
-; CHECK: %vreg{{[0-9]+}}<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@global_var>[TF=164], 32
-; CHECK: [[GLOBAL_VAR_GOTOFF:%vreg[0-9]+]]<def,tied1> = MOVKXi %vreg{{[0-9]+}}<tied0>, <ga:@global_var>[TF=35], 48
-; CHECK: [[GLOBAL_VAR_ADDR:%vreg[0-9]+]]<def> = LOADgotr [[GOT]], [[GLOBAL_VAR_GOTOFF]]<kill>
-; CHECK: [[VAL:%vreg[0-9]+]]<def> = LDRWui [[GLOBAL_VAR_ADDR]]<kill>, 0
+; CHECK: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, <unknown bitmask target flag>) @global_var, 0
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, <unknown bitmask target flag>) @global_var, 16
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, <unknown bitmask target flag>) @global_var, 32
+; CHECK: [[GLOBAL_VAR_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, <unknown bitmask target flag>) @global_var, 48
+; CHECK: [[GLOBAL_VAR_ADDR:%[0-9]+]]:gpr64common = LOADgotr [[GOT]]:gpr64common, killed [[GLOBAL_VAR_GOTOFF]]:gpr64
+; CHECK: [[VAL:%[0-9]+]]:gpr32 = LDRWui killed [[GLOBAL_VAR_ADDR]]:gpr64common, 0
   %val = load i32, i32* @global_var
 
-; CHECK: [[GOT_PCREL:%vreg[0-9]+]]<def> = MOVaddrEXT <es:_GLOBAL_OFFSET_TABLE_>[TF=1], <es:_GLOBAL_OFFSET_TABLE_>[TF=130]
-; CHECK: [[INTERNAL_VAR_PCREL:%vreg[0-9]+]]<def> = MOVaddr <ga:@internal_var>[TF=1], <ga:@internal_var>[TF=130]
-; CHECK: [[DIFF:%vreg[0-9]+]]<def> = SUBXrr [[INTERNAL_VAR_PCREL]]<kill>, [[GOT_PCREL]]<kill>
-; CHECK: STRWroX [[VAL]]<kill>, [[GOT]], [[DIFF]]<kill>, 0, 0
+; CHECK: [[GOT_PCREL:%[0-9]+]]:gpr64 = MOVaddrEXT target-flags(aarch64-page) &_GLOBAL_OFFSET_TABLE_, target-flags(aarch64-pageoff, aarch64-nc) &_GLOBAL_OFFSET_TABLE_
+; CHECK: [[INTERNAL_VAR_PCREL:%[0-9]+]]:gpr64 = MOVaddr target-flags(aarch64-page) @internal_var, target-flags(aarch64-pageoff, aarch64-nc) @internal_var
+; CHECK: [[DIFF:%[0-9]+]]:gpr64 = SUBXrr killed [[INTERNAL_VAR_PCREL]]:gpr64, killed [[GOT_PCREL]]:gpr64
+; CHECK: STRWroX killed [[VAL]]:gpr32, [[GOT]]:gpr64common, killed [[DIFF]]:gpr64, 0, 0
   store i32 %val, i32* @internal_var
 
   ret void
