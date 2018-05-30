@@ -32,7 +32,6 @@ define void @user() pagerando {
 ; CHECK: [[WRAPPER:%[0-9]+]]:gpr = LDRrs [[GOT]]:gpr, killed [[WRAPPER_GOT]]
 ; CHECK: BLX killed [[WRAPPER]]:gpr
   call void @wrapper()
-  
 ; CHECK: [[BINNED_POTOFF:%[0-9]+]]:gprnopc = LDRi12 %const.2, 0, 14, $noreg :: (load 4 from constant-pool) 
 ; CHECK: [[BINNED_BIN:%[0-9]+]]:gpr = LDRrs [[POT]]:gpr, killed [[BINNED_POTOFF]]:gprnopc, 0, 14, $noreg
 ; CHECK: [[BINNED_BINOFF:%[0-9]+]]:gpr = LDRi12 %const.3, 0, 14, $noreg :: (load 4 from constant-pool)
