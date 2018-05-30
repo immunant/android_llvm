@@ -1,7 +1,5 @@
 ; RUN: opt < %s -pagerando-wrappers -S | FileCheck %s
 
-; CHECK-LABEL: %struct.va_list = type { i8*, i8*, i8*, i32, i32 }
-
 declare void @llvm.va_start(i8*)
 declare void @llvm.va_end(i8*)
 declare void @llvm.va_copy(i8*, i8*)
