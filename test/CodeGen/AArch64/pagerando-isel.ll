@@ -14,31 +14,31 @@ define void @user() pagerando {
 ; CHECK-DAG: [[POT:%[0-9]+]]:gpr64 = COPY $x20
 ; CHECK-DAG: [[GOT:%[0-9]+]]:gpr64common = LOADpot [[POT]]:gpr64, 0
 
-; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, <unknown bitmask target flag>) @legacy, 0
-; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, <unknown bitmask target flag>) @legacy, 16
-; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, <unknown bitmask target flag>) @legacy, 32 
-; CHECK-DAG: [[LEGACY_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, <unknown bitmask target flag>) @legacy, 48
+; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, aarch64-gotoff) @legacy, 0
+; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, aarch64-gotoff) @legacy, 16
+; CHECK-DAG: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, aarch64-gotoff) @legacy, 32
+; CHECK-DAG: [[LEGACY_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, aarch64-gotoff) @legacy, 48
 ; CHECK: [[LEGACY:%[0-9]+]]:gpr64 = LOADgotr [[GOT]]:gpr64common, killed [[LEGACY_GOTOFF]]:gpr64
 ; CHECK: BLR killed [[LEGACY]]:gpr64
   call void @legacy()
 
-; CHECK: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, <unknown bitmask target flag>) @wrapper, 0
-; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, <unknown bitmask target flag>) @wrapper, 16
-; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, <unknown bitmask target flag>) @wrapper, 32
-; CHECK: [[WRAPPER_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, <unknown bitmask target flag>) @wrapper, 48
+; CHECK: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, aarch64-gotoff) @wrapper, 0
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, aarch64-gotoff) @wrapper, 16
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, aarch64-gotoff) @wrapper, 32
+; CHECK: [[WRAPPER_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, aarch64-gotoff) @wrapper, 48
 ; CHECK: [[WRAPPER:%[0-9]+]]:gpr64 = LOADgotr [[GOT]]:gpr64common, killed [[WRAPPER_GOTOFF]]:gpr64
 ; CHECK: BLR killed [[WRAPPER]]
   call void @wrapper()
 
-; CHECK: [[BINNED_BIN:%[0-9]+]]:gpr64 = LOADpot [[POT]]:gpr64, target-flags(aarch64-got, <unknown bitmask target flag>) @binned
+; CHECK: [[BINNED_BIN:%[0-9]+]]:gpr64 = LOADpot [[POT]]:gpr64, target-flags(aarch64-got, aarch64-gotoff) @binned
 ; CHECK: [[BINNED:%[0-9]+]]:gpr64 = MOVaddrBIN killed [[BINNED_BIN]]:gpr64, target-flags(aarch64-got, aarch64-tls) @binned
 ; CHECK: BLR killed [[BINNED]]:gpr64
   call void @binned()
 
-; CHECK: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, <unknown bitmask target flag>) @global_var, 0
-; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, <unknown bitmask target flag>) @global_var, 16
-; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, <unknown bitmask target flag>) @global_var, 32
-; CHECK: [[GLOBAL_VAR_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, <unknown bitmask target flag>) @global_var, 48
+; CHECK: %{{[0-9]+}}:gpr64 = MOVZXi target-flags(aarch64-g0, aarch64-nc, aarch64-gotoff) @global_var, 0
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g1, aarch64-nc, aarch64-gotoff) @global_var, 16
+; CHECK: %{{[0-9]+}}:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g2, aarch64-nc, aarch64-gotoff) @global_var, 32
+; CHECK: [[GLOBAL_VAR_GOTOFF:%[0-9]+]]:gpr64 = MOVKXi %{{[0-9]+}}:gpr64, target-flags(aarch64-g3, aarch64-gotoff) @global_var, 48
 ; CHECK: [[GLOBAL_VAR_ADDR:%[0-9]+]]:gpr64common = LOADgotr [[GOT]]:gpr64common, killed [[GLOBAL_VAR_GOTOFF]]:gpr64
 ; CHECK: [[VAL:%[0-9]+]]:gpr32 = LDRWui killed [[GLOBAL_VAR_ADDR]]:gpr64common, 0
   %val = load i32, i32* @global_var
