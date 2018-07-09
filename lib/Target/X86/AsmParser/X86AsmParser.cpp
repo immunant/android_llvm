@@ -1760,7 +1760,6 @@ bool X86AsmParser::ParseIntelMemoryOperandSize(unsigned &Size) {
     .Cases("XMMWORD", "xmmword", 128)
     .Cases("YMMWORD", "ymmword", 256)
     .Cases("ZMMWORD", "zmmword", 512)
-    .Cases("OPAQUE", "opaque", -1U) // needs to be non-zero, but doesn't matter
     .Default(0);
   if (Size) {
     const AsmToken &Tok = Lex(); // Eat operand size (e.g., byte, word).
@@ -2385,6 +2384,20 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
 
   if (Flags)
     PatchedName = Name;
+
+  // Hacks to handle 'data16' and 'data32'
+  if (PatchedName == "data16" && is16BitMode()) {
+    return Error(NameLoc, "redundant data16 prefix");
+  }
+  if (PatchedName == "data32") {
+    if (is32BitMode())
+      return Error(NameLoc, "redundant data32 prefix");
+    if (is64BitMode())
+      return Error(NameLoc, "'data32' is not supported in 64-bit mode");
+    // Hack to 'data16' for the table lookup.
+    PatchedName = "data16";
+  }
+
   Operands.push_back(X86Operand::CreateToken(PatchedName, NameLoc));
 
   // This does the actual operand parsing.  Don't parse any more if we have a
@@ -2419,7 +2432,7 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
         (getLexer().is(AsmToken::LCurly) || getLexer().is(AsmToken::RCurly));
     if (getLexer().isNot(AsmToken::EndOfStatement) && !CurlyAsEndOfStatement)
       return TokError("unexpected token in argument list");
-   }
+  }
 
   // Consume the EndOfStatement or the prefix separator Slash
   if (getLexer().is(AsmToken::EndOfStatement) ||
@@ -2697,6 +2710,39 @@ bool X86AsmParser::validateInstruction(MCInst &Inst, const OperandVector &Ops) {
     if (Dest == Index)
       return Warning(Ops[0]->getStartLoc(), "index and destination registers "
                                             "should be distinct");
+    break;
+  }
+  case X86::V4FMADDPSrm:
+  case X86::V4FMADDPSrmk:
+  case X86::V4FMADDPSrmkz:
+  case X86::V4FMADDSSrm:
+  case X86::V4FMADDSSrmk:
+  case X86::V4FMADDSSrmkz:
+  case X86::V4FNMADDPSrm:
+  case X86::V4FNMADDPSrmk:
+  case X86::V4FNMADDPSrmkz:
+  case X86::V4FNMADDSSrm:
+  case X86::V4FNMADDSSrmk:
+  case X86::V4FNMADDSSrmkz:
+  case X86::VP4DPWSSDSrm:
+  case X86::VP4DPWSSDSrmk:
+  case X86::VP4DPWSSDSrmkz:
+  case X86::VP4DPWSSDrm:
+  case X86::VP4DPWSSDrmk:
+  case X86::VP4DPWSSDrmkz: {
+    unsigned Src2 = Inst.getOperand(Inst.getNumOperands() -
+                                    X86::AddrNumOperands - 1).getReg();
+    unsigned Src2Enc = MRI->getEncodingValue(Src2);
+    if (Src2Enc % 4 != 0) {
+      StringRef RegName = X86IntelInstPrinter::getRegisterName(Src2);
+      unsigned GroupStart = (Src2Enc / 4) * 4;
+      unsigned GroupEnd = GroupStart + 3;
+      return Warning(Ops[0]->getStartLoc(),
+                     "source register '" + RegName + "' implicitly denotes '" +
+                     RegName.take_front(3) + Twine(GroupStart) + "' to '" +
+                     RegName.take_front(3) + Twine(GroupEnd) +
+                     "' source group");
+    }
     break;
   }
   }

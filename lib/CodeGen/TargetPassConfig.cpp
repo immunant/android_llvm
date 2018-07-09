@@ -114,11 +114,6 @@ static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
 static cl::opt<bool> EnableMachineOutliner("enable-machine-outliner",
     cl::Hidden,
     cl::desc("Enable machine outliner"));
-static cl::opt<bool> EnableLinkOnceODROutlining(
-    "enable-linkonceodr-outlining",
-    cl::Hidden,
-    cl::desc("Enable the machine outliner on linkonceodr functions"),
-    cl::init(false));
 // Enable or disable FastISel. Both options are needed, because
 // FastISel is enabled by default with -fast, and we wish to be
 // able to enable or disable fast-isel independently from -O0.
@@ -661,7 +656,12 @@ void TargetPassConfig::addPassesToHandleExceptions() {
     addPass(createDwarfEHPass());
     break;
   case ExceptionHandling::Wasm:
-    // TODO to prevent warning
+    // Wasm EH uses Windows EH instructions, but it does not need to demote PHIs
+    // on catchpads and cleanuppads because it does not outline them into
+    // funclets. Catchswitch blocks are not lowered in SelectionDAG, so we
+    // should remove PHIs there.
+    addPass(createWinEHPass(/*DemoteCatchSwitchPHIOnly=*/false));
+    addPass(createWasmEHPass());
     break;
   case ExceptionHandling::None:
     addPass(createLowerInvokePass());
@@ -907,7 +907,7 @@ void TargetPassConfig::addMachinePasses() {
   addPass(&PatchableFunctionID, false);
 
   if (EnableMachineOutliner)
-    PM->add(createMachineOutlinerPass(EnableLinkOnceODROutlining));
+    addPass(createMachineOutlinerPass());
 
   // Add passes that directly emit MI after all other MI passes.
   addPreEmitPass2();

@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// \brief This file defines the WebAssembly-specific subclass of TargetMachine.
+/// This file defines the WebAssembly-specific subclass of TargetMachine.
 ///
 //===----------------------------------------------------------------------===//
 
@@ -65,6 +65,7 @@ extern "C" void LLVMInitializeWebAssemblyTarget() {
   initializeWebAssemblyRegColoringPass(PR);
   initializeWebAssemblyExplicitLocalsPass(PR);
   initializeWebAssemblyFixIrreducibleControlFlowPass(PR);
+  initializeWebAssemblyExceptionPreparePass(PR);
   initializeWebAssemblyCFGSortPass(PR);
   initializeWebAssemblyCFGStackifyPass(PR);
   initializeWebAssemblyLowerBrUnlessPass(PR);
@@ -264,16 +265,15 @@ void WebAssemblyPassConfig::addPostRegAlloc() {
   // virtual registers. Consider removing their restrictions and re-enabling
   // them.
 
-  // Has no asserts of its own, but was not written to handle virtual regs.
-  disablePass(&ShrinkWrapID);
-
   // These functions all require the NoVRegs property.
   disablePass(&MachineCopyPropagationID);
+  disablePass(&PostRAMachineSinkingID);
   disablePass(&PostRASchedulerID);
   disablePass(&FuncletLayoutID);
   disablePass(&StackMapLivenessID);
   disablePass(&LiveDebugValuesID);
   disablePass(&PatchableFunctionID);
+  disablePass(&ShrinkWrapID);
 
   TargetPassConfig::addPostRegAlloc();
 }
@@ -320,6 +320,9 @@ void WebAssemblyPassConfig::addPreEmitPass() {
 
   // Insert explicit get_local and set_local operators.
   addPass(createWebAssemblyExplicitLocals());
+
+  // Do various transformations for exception handling
+  addPass(createWebAssemblyExceptionPrepare());
 
   // Sort the blocks of the CFG into topological order, a prerequisite for
   // BLOCK and LOOP markers.

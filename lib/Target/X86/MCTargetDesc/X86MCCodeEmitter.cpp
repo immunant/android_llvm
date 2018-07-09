@@ -399,6 +399,7 @@ void X86MCCodeEmitter::emitMemModRMByte(const MCInst &MI, unsigned Op,
         return X86::reloc_riprel_4byte_movq_load;
       case X86::CALL64m:
       case X86::JMP64m:
+      case X86::TAILJMPm64:
       case X86::TEST64mr:
       case X86::ADC64rm:
       case X86::ADD64rm:
@@ -700,10 +701,8 @@ void X86MCCodeEmitter::EmitVEXOpcodePrefix(uint64_t TSFlags, unsigned &CurByte,
   //  0b10: F3
   //  0b11: F2
   //
-  uint8_t VEX_PP;
+  uint8_t VEX_PP = 0;
   switch (TSFlags & X86II::OpPrefixMask) {
-  default: llvm_unreachable("Invalid op prefix!");
-  case X86II::PS: VEX_PP = 0x0; break; // none
   case X86II::PD: VEX_PP = 0x1; break; // 66
   case X86II::XS: VEX_PP = 0x2; break; // F3
   case X86II::XD: VEX_PP = 0x3; break; // F2

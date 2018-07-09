@@ -200,6 +200,8 @@ llvm::SmallVector<ReduceEntry, 16> MicroMipsSizeReduce::ReduceTable = {
      OpInfo(OT_OperandsAll), ImmField(0, -1, 15, 2)},
     {RT_OneInstr, OpCodes(Mips::LEA_ADDiu, Mips::ADDIUR1SP_MM),
      ReduceADDIUToADDIUR1SP, OpInfo(OT_Operands02), ImmField(2, 0, 64, 2)},
+    {RT_OneInstr, OpCodes(Mips::LEA_ADDiu_MM, Mips::ADDIUR1SP_MM),
+     ReduceADDIUToADDIUR1SP, OpInfo(OT_Operands02), ImmField(2, 0, 64, 2)},
     {RT_OneInstr, OpCodes(Mips::LHu, Mips::LHU16_MM), ReduceLXUtoLXU16,
      OpInfo(OT_OperandsAll), ImmField(1, 0, 16, 2)},
     {RT_OneInstr, OpCodes(Mips::LHu_MM, Mips::LHU16_MM), ReduceLXUtoLXU16,
@@ -444,12 +446,12 @@ bool MicroMipsSizeReduce::ReplaceInstruction(MachineInstr *MI,
 
   enum OperandTransfer OpTransfer = Entry.TransferOperands();
 
-  DEBUG(dbgs() << "Converting 32-bit: " << *MI);
+  LLVM_DEBUG(dbgs() << "Converting 32-bit: " << *MI);
   ++NumReduced;
 
   if (OpTransfer == OT_OperandsAll) {
     MI->setDesc(MipsII->get(Entry.NarrowOpc()));
-    DEBUG(dbgs() << "       to 16-bit: " << *MI);
+    LLVM_DEBUG(dbgs() << "       to 16-bit: " << *MI);
     return true;
   } else {
     MachineBasicBlock &MBB = *MI->getParent();
@@ -484,7 +486,7 @@ bool MicroMipsSizeReduce::ReplaceInstruction(MachineInstr *MI,
     // Transfer MI flags.
     MIB.setMIFlags(MI->getFlags());
 
-    DEBUG(dbgs() << "       to 16-bit: " << *MIB);
+    LLVM_DEBUG(dbgs() << "       to 16-bit: " << *MIB);
     MBB.erase_instr(MI);
     return true;
   }

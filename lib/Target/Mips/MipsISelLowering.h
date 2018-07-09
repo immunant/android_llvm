@@ -19,6 +19,7 @@
 #include "MCTargetDesc/MipsBaseInfo.h"
 #include "MCTargetDesc/MipsMCTargetDesc.h"
 #include "Mips.h"
+#include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -88,6 +89,9 @@ class TargetRegisterClass;
 
       // Thread Pointer
       ThreadPointer,
+
+      // Vector Floating Point Multiply and Subtract
+      FMS,
 
       // Floating Point Branch Conditional
       FPBrcond,
@@ -278,10 +282,6 @@ class TargetRegisterClass;
 
     /// Return the register type for a given MVT, ensuring vectors are treated
     /// as a series of gpr sized integers.
-    MVT getRegisterTypeForCallingConv(MVT VT) const override;
-
-    /// Return the register type for a given MVT, ensuring vectors are treated
-    /// as a series of gpr sized integers.
     MVT getRegisterTypeForCallingConv(LLVMContext &Context,
                                       EVT VT) const override;
 
@@ -364,6 +364,10 @@ class TargetRegisterClass;
     bool isJumpTableRelative() const override {
       return getTargetMachine().isPositionIndependent();
     }
+
+   CCAssignFn *CCAssignFnForCall() const;
+
+   CCAssignFn *CCAssignFnForReturn() const;
 
   protected:
     SDValue getGlobalReg(SelectionDAG &DAG, EVT Ty) const;

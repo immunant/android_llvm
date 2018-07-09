@@ -1,9 +1,9 @@
-; RUN: llc < %s -march=amdgcn -mcpu=tonga -verify-machineinstrs -show-mc-encoding | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=UNPACKED %s
-; RUN: llc < %s -march=amdgcn -mcpu=gfx810 -verify-machineinstrs | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=PACKED -check-prefix=GFX81 %s
-; RUN: llc < %s -march=amdgcn -mcpu=gfx900 -verify-machineinstrs | FileCheck -enable-var-scope -check-prefix=GCN -check-prefix=PACKED -check-prefix=GFX9 %s
+; RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=tonga -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefixes=GCN,UNPACKED %s
+; RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=gfx810 -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefixes=GCN,PACKED,GFX81 %s
+; RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=gfx900 -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefixes=GCN,PACKED,GFX9 %s
 
 ; GCN-LABEL: {{^}}buffer_store_format_d16_x:
-; GCN: v_trunc_f16_e32 v[[LO:[0-9]+]], s{{[0-9]+}}
+; GCN: {{buffer|flat|global}}_load_ushort v[[LO:[0-9]+]]
 ; GCN: buffer_store_format_d16_x v[[LO]], v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], 0 idxen
 define amdgpu_kernel void @buffer_store_format_d16_x(<4 x i32> %rsrc, half %data, i32 %index) {
 main_body:
@@ -13,9 +13,12 @@ main_body:
 
 ; GCN-LABEL: {{^}}buffer_store_format_d16_xy:
 
-; UNPACKED: flat_load_ushort v[[HI:[0-9]+]], v[{{[0-9]+:[0-9]+}}] ;
-; UNPACKED: flat_load_ushort v[[LO:[0-9]+]], v[{{[0-9]+:[0-9]+}}] ;
-; UNPACKED: buffer_store_format_d16_xy v{{\[}}[[LO]]:[[HI]]{{\]}}, v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], 0 idxen
+; UNPACKED: s_load_dword [[S_DATA:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0x10
+; UNPACKED-DAG: s_lshr_b32 [[SHR:s[0-9]+]], [[S_DATA]], 16
+; UNPACKED-DAG: s_and_b32 [[MASKED:s[0-9]+]], [[S_DATA]], 0xffff{{$}}
+; UNPACKED-DAG: v_mov_b32_e32 v[[V_LO:[0-9]+]], [[MASKED]]
+; UNPACKED-DAG: v_mov_b32_e32 v[[V_HI:[0-9]+]], [[SHR]]
+; UNPACKED: buffer_store_format_d16_xy v{{\[}}[[V_LO]]:[[V_HI]]{{\]}}, v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], 0 idxen
 
 ; PACKED: buffer_store_format_d16_xy v{{[0-9]+}}, v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], 0 idxen
 define amdgpu_kernel void @buffer_store_format_d16_xy(<4 x i32> %rsrc, <2 x half> %data, i32 %index) {
@@ -26,17 +29,26 @@ main_body:
 
 ; GCN-LABEL: {{^}}buffer_store_format_d16_xyzw:
 
-; UNPACKED: flat_load_ushort v[[HI:[0-9]+]], v[{{[0-9]+:[0-9]+}}] ;
-; UNPACKED: flat_load_ushort v{{[0-9]+}}, v[{{[0-9]+:[0-9]+}}] ;
-; UNPACKED: flat_load_ushort v{{[0-9]+}}, v[{{[0-9]+:[0-9]+}}] ;
-; UNPACKED: flat_load_ushort v[[LO:[0-9]+]], v[{{[0-9]+:[0-9]+}}] ;
+; UNPACKED-DAG: s_load_dword [[S_DATA_0:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0x10
+; UNPACKED-DAG: s_load_dword [[S_DATA_1:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0x14
+
+; UNPACKED-DAG: s_mov_b32 [[K:s[0-9]+]], 0xffff{{$}}
+; UNPACKED-DAG: s_lshr_b32 [[SHR0:s[0-9]+]], [[S_DATA_0]], 16
+; UNPACKED-DAG: s_and_b32 [[MASKED0:s[0-9]+]], [[S_DATA_0]], [[K]]
+; UNPACKED-DAG: s_lshr_b32 [[SHR1:s[0-9]+]], [[S_DATA_1]], 16
+; UNPACKED-DAG: s_and_b32 [[MASKED1:s[0-9]+]], [[S_DATA_1]], [[K]]
+
+; UNPACKED-DAG: v_mov_b32_e32 v[[LO:[0-9]+]], [[MASKED0]]
+; UNPACKED-DAG: v_mov_b32_e32 v[[HI:[0-9]+]], [[SHR1]]
+
 ; UNPACKED: buffer_store_format_d16_xyzw v{{\[}}[[LO]]:[[HI]]{{\]}}, v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], 0 idxen
 
-; GFX81: v_or_b32_e32 v[[HI:[0-9]+]]
-; GFX81: v_or_b32_e32 v[[LO:[0-9]+]]
 
-; GFX9: v_mov_b32_e32 v[[LO:[0-9]+]]
-; GFX9: v_mov_b32_e32 v[[HI:[0-9]+]]
+; PACKED-DAG: s_load_dword [[S_DATA_0:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0x10
+; PACKED-DAG: s_load_dword [[S_DATA_1:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, 0x14
+
+; PACKED: v_mov_b32_e32 v[[LO:[0-9]+]], [[S_DATA_0]]
+; PACKED: v_mov_b32_e32 v[[HI:[0-9]+]], [[S_DATA_1]]
 
 ; PACKED: buffer_store_format_d16_xyzw v{{\[}}[[LO]]:[[HI]]{{\]}}, v{{[0-9]+}}, s[{{[0-9]+:[0-9]+}}], 0 idxen
 define amdgpu_kernel void @buffer_store_format_d16_xyzw(<4 x i32> %rsrc, <4 x half> %data, i32 %index) {

@@ -36,6 +36,8 @@ namespace HexagonISD {
 
       CONST32 = OP_BEGIN,
       CONST32_GP,  // For marking data present in GP.
+      ADDC,        // Add with carry: (X, Y, Cin) -> (X+Y, Cout).
+      SUBC,        // Sub with carry: (X, Y, Cin) -> (X+~Y+Cin, Cout).
       ALLOCA,
 
       AT_GOT,      // Index in GOT.
@@ -51,7 +53,8 @@ namespace HexagonISD {
       CP,          // Constant pool.
 
       COMBINE,
-      VSPLAT,
+      VSPLAT,      // Generic splat, selection depends on argument/return
+                   // types.
       VASL,
       VASR,
       VLSR,
@@ -77,6 +80,7 @@ namespace HexagonISD {
       QTRUE,
       QFALSE,
       VZERO,
+      VSPLATW,     // HVX splat of a 32-bit word with an arbitrary result type.
       TYPECAST,    // No-op that's used to convert between different legal
                    // types in a register.
       VALIGN,      // Align two vectors (in Op0, Op1) to one that would have
@@ -160,6 +164,7 @@ namespace HexagonISD {
     SDValue LowerSIGN_EXTEND(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerZERO_EXTEND(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerUnalignedLoad(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerAddSubCarry(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerINLINEASM(SDValue Op, SelectionDAG &DAG) const;
@@ -420,6 +425,7 @@ namespace HexagonISD {
     SDValue LowerHvxAnyExt(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerHvxSignExt(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerHvxZeroExt(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerHvxCttz(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerHvxMul(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerHvxMulh(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerHvxSetCC(SDValue Op, SelectionDAG &DAG) const;

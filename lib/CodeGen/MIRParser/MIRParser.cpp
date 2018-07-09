@@ -122,8 +122,9 @@ public:
                                 const yaml::StringValue &RegisterSource,
                                 bool IsRestored, int FrameIdx);
 
+  template <typename T>
   bool parseStackObjectsDebugInfo(PerFunctionMIParsingState &PFS,
-                                  const yaml::MachineStackObject &Object,
+                                  const T &Object,
                                   int FrameIdx);
 
   bool initializeConstantPool(PerFunctionMIParsingState &PFS,
@@ -582,6 +583,7 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
   MFI.setHasOpaqueSPAdjustment(YamlMFI.HasOpaqueSPAdjustment);
   MFI.setHasVAStart(YamlMFI.HasVAStart);
   MFI.setHasMustTailInVarArgFunc(YamlMFI.HasMustTailInVarArgFunc);
+  MFI.setLocalFrameSize(YamlMFI.LocalFrameSize);
   if (!YamlMFI.SavePoint.Value.empty()) {
     MachineBasicBlock *MBB = nullptr;
     if (parseMBBReference(PFS, MBB, YamlMFI.SavePoint))
@@ -614,6 +616,8 @@ bool MIRParserImpl::initializeFrameInfo(PerFunctionMIParsingState &PFS,
                        Twine(Object.ID.Value) + "'");
     if (parseCalleeSavedRegister(PFS, CSIInfo, Object.CalleeSavedRegister,
                                  Object.CalleeSavedRestored, ObjectIdx))
+      return true;
+    if (parseStackObjectsDebugInfo(PFS, Object, ObjectIdx))
       return true;
   }
 
@@ -699,11 +703,11 @@ static bool typecheckMDNode(T *&Result, MDNode *Node,
   return false;
 }
 
+template <typename T>
 bool MIRParserImpl::parseStackObjectsDebugInfo(PerFunctionMIParsingState &PFS,
-    const yaml::MachineStackObject &Object, int FrameIdx) {
+    const T &Object, int FrameIdx) {
   // Debug information can only be attached to stack objects; Fixed stack
   // objects aren't supported.
-  assert(FrameIdx >= 0 && "Expected a stack object frame index");
   MDNode *Var = nullptr, *Expr = nullptr, *Loc = nullptr;
   if (parseMDNode(PFS, Var, Object.DebugVar) ||
       parseMDNode(PFS, Expr, Object.DebugExpr) ||
@@ -718,7 +722,7 @@ bool MIRParserImpl::parseStackObjectsDebugInfo(PerFunctionMIParsingState &PFS,
       typecheckMDNode(DIExpr, Expr, Object.DebugExpr, "DIExpression", *this) ||
       typecheckMDNode(DILoc, Loc, Object.DebugLoc, "DILocation", *this))
     return true;
-  PFS.MF.setVariableDbgInfo(DIVar, DIExpr, unsigned(FrameIdx), DILoc);
+  PFS.MF.setVariableDbgInfo(DIVar, DIExpr, FrameIdx, DILoc);
   return false;
 }
 

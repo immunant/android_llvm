@@ -54,13 +54,16 @@ class LoopRotate {
   DominatorTree *DT;
   ScalarEvolution *SE;
   const SimplifyQuery &SQ;
+  bool RotationOnly;
+  bool IsUtilMode;
 
 public:
   LoopRotate(unsigned MaxHeaderSize, LoopInfo *LI,
              const TargetTransformInfo *TTI, AssumptionCache *AC,
-             DominatorTree *DT, ScalarEvolution *SE, const SimplifyQuery &SQ)
+             DominatorTree *DT, ScalarEvolution *SE, const SimplifyQuery &SQ,
+             bool RotationOnly, bool IsUtilMode)
       : MaxHeaderSize(MaxHeaderSize), LI(LI), TTI(TTI), AC(AC), DT(DT), SE(SE),
-        SQ(SQ) {}
+        SQ(SQ), RotationOnly(RotationOnly), IsUtilMode(IsUtilMode) {}
   bool processLoop(Loop *L);
 
 private:
@@ -163,6 +166,27 @@ static void RewriteUsesOfClonedInstructions(BasicBlock *OrigHeader,
   }
 }
 
+// Look for a phi which is only used outside the loop (via a LCSSA phi)
+// in the exit from the header. This means that rotating the loop can
+// remove the phi.
+static bool shouldRotateLoopExitingLatch(Loop *L) {
+  BasicBlock *Header = L->getHeader();
+  BasicBlock *HeaderExit = Header->getTerminator()->getSuccessor(0);
+  if (L->contains(HeaderExit))
+    HeaderExit = Header->getTerminator()->getSuccessor(1);
+
+  for (auto &Phi : Header->phis()) {
+    // Look for uses of this phi in the loop/via exits other than the header.
+    if (llvm::any_of(Phi.users(), [HeaderExit](const User *U) {
+          return cast<Instruction>(U)->getParent() != HeaderExit;
+        }))
+      continue;
+    return true;
+  }
+
+  return false;
+}
+
 /// Rotate loop LP. Return true if the loop is rotated.
 ///
 /// \param SimplifiedLatch is true if the latch was just folded into the final
@@ -197,8 +221,9 @@ bool LoopRotate::rotateLoop(Loop *L, bool SimplifiedLatch) {
     return false;
 
   // Rotate if either the loop latch does *not* exit the loop, or if the loop
-  // latch was just simplified.
-  if (L->isLoopExiting(OrigLatch) && !SimplifiedLatch)
+  // latch was just simplified. Or if we think it will be profitable.
+  if (L->isLoopExiting(OrigLatch) && !SimplifiedLatch && IsUtilMode == false &&
+      !shouldRotateLoopExitingLatch(L))
     return false;
 
   // Check size of original header and reject loop if it is very big or we can't
@@ -210,15 +235,16 @@ bool LoopRotate::rotateLoop(Loop *L, bool SimplifiedLatch) {
     CodeMetrics Metrics;
     Metrics.analyzeBasicBlock(OrigHeader, *TTI, EphValues);
     if (Metrics.notDuplicatable) {
-      DEBUG(dbgs() << "LoopRotation: NOT rotating - contains non-duplicatable"
-                   << " instructions: ";
-            L->dump());
+      LLVM_DEBUG(
+          dbgs() << "LoopRotation: NOT rotating - contains non-duplicatable"
+                 << " instructions: ";
+          L->dump());
       return false;
     }
     if (Metrics.convergent) {
-      DEBUG(dbgs() << "LoopRotation: NOT rotating - contains convergent "
-                      "instructions: ";
-            L->dump());
+      LLVM_DEBUG(dbgs() << "LoopRotation: NOT rotating - contains convergent "
+                           "instructions: ";
+                 L->dump());
       return false;
     }
     if (Metrics.NumInsts > MaxHeaderSize)
@@ -234,11 +260,14 @@ bool LoopRotate::rotateLoop(Loop *L, bool SimplifiedLatch) {
     return false;
 
   // Anything ScalarEvolution may know about this loop or the PHI nodes
-  // in its header will soon be invalidated.
+  // in its header will soon be invalidated. We should also invalidate
+  // all outer loops because insertion and deletion of blocks that happens
+  // during the rotation may violate invariants related to backedge taken
+  // infos in them.
   if (SE)
-    SE->forgetLoop(L);
+    SE->forgetTopmostLoop(L);
 
-  DEBUG(dbgs() << "LoopRotation: rotating "; L->dump());
+  LLVM_DEBUG(dbgs() << "LoopRotation: rotating "; L->dump());
 
   // Find new Loop header. NewHeader is a Header's one and only successor
   // that is inside loop.  Header's other successor is outside the
@@ -449,7 +478,7 @@ bool LoopRotate::rotateLoop(Loop *L, bool SimplifiedLatch) {
   // emitted code isn't too gross in this common case.
   MergeBlockIntoPredecessor(OrigHeader, DT, LI);
 
-  DEBUG(dbgs() << "LoopRotation: into "; L->dump());
+  LLVM_DEBUG(dbgs() << "LoopRotation: into "; L->dump());
 
   ++NumRotated;
   return true;
@@ -552,8 +581,8 @@ bool LoopRotate::simplifyLoopLatch(Loop *L) {
   if (!shouldSpeculateInstrs(Latch->begin(), Jmp->getIterator(), L))
     return false;
 
-  DEBUG(dbgs() << "Folding loop latch " << Latch->getName() << " into "
-               << LastExit->getName() << "\n");
+  LLVM_DEBUG(dbgs() << "Folding loop latch " << Latch->getName() << " into "
+                    << LastExit->getName() << "\n");
 
   // Hoist the instructions from Latch into LastExit.
   LastExit->getInstList().splice(BI->getIterator(), Latch->getInstList(),
@@ -582,10 +611,13 @@ bool LoopRotate::processLoop(Loop *L) {
   // Save the loop metadata.
   MDNode *LoopMD = L->getLoopID();
 
+  bool SimplifiedLatch = false;
+
   // Simplify the loop latch before attempting to rotate the header
   // upward. Rotation may not be needed if the loop tail can be folded into the
   // loop exit.
-  bool SimplifiedLatch = simplifyLoopLatch(L);
+  if (!RotationOnly)
+    SimplifiedLatch = simplifyLoopLatch(L);
 
   bool MadeChange = rotateLoop(L, SimplifiedLatch);
   assert((!MadeChange || L->isLoopExiting(L->getLoopLatch())) &&
@@ -601,11 +633,13 @@ bool LoopRotate::processLoop(Loop *L) {
 
 
 /// The utility to convert a loop into a loop with bottom test.
-bool llvm::LoopRotation(Loop *L, unsigned MaxHeaderSize, LoopInfo *LI,
-                        const TargetTransformInfo *TTI, AssumptionCache *AC,
-                        DominatorTree *DT, ScalarEvolution *SE,
-                        const SimplifyQuery &SQ) {
-  LoopRotate LR(MaxHeaderSize, LI, TTI, AC, DT, SE, SQ);
+bool llvm::LoopRotation(Loop *L, LoopInfo *LI, const TargetTransformInfo *TTI,
+                        AssumptionCache *AC, DominatorTree *DT,
+                        ScalarEvolution *SE, const SimplifyQuery &SQ,
+                        bool RotationOnly = true,
+                        unsigned Threshold = unsigned(-1),
+                        bool IsUtilMode = true) {
+  LoopRotate LR(Threshold, LI, TTI, AC, DT, SE, SQ, RotationOnly, IsUtilMode);
 
   return LR.processLoop(L);
 }

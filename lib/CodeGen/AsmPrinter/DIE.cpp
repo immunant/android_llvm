@@ -17,6 +17,7 @@
 #include "DwarfUnit.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -86,8 +87,9 @@ void DIEAbbrev::Emit(const AsmPrinter *AP) const {
     // easily, which helps track down where it came from.
     if (!dwarf::isValidFormForVersion(AttrData.getForm(),
                                       AP->getDwarfVersion())) {
-      DEBUG(dbgs() << "Invalid form " << format("0x%x", AttrData.getForm())
-                   << " for DWARF version " << AP->getDwarfVersion() << "\n");
+      LLVM_DEBUG(dbgs() << "Invalid form " << format("0x%x", AttrData.getForm())
+                        << " for DWARF version " << AP->getDwarfVersion()
+                        << "\n");
       llvm_unreachable("Invalid form for specified DWARF version");
     }
 #endif
@@ -746,6 +748,7 @@ void DIEBlock::EmitValue(const AsmPrinter *Asm, dwarf::Form Form) const {
   case dwarf::DW_FORM_block2: Asm->emitInt16(Size);   break;
   case dwarf::DW_FORM_block4: Asm->emitInt32(Size);   break;
   case dwarf::DW_FORM_block:  Asm->EmitULEB128(Size); break;
+  case dwarf::DW_FORM_string: break;
   case dwarf::DW_FORM_data16: break;
   }
 

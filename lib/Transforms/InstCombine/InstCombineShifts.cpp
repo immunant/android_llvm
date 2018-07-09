@@ -356,8 +356,10 @@ Instruction *InstCombiner::FoldShiftByConstant(Value *Op0, Constant *Op1,
   // cast of lshr(shl(x,c1),c2) as well as other more complex cases.
   if (I.getOpcode() != Instruction::AShr &&
       canEvaluateShifted(Op0, Op1C->getZExtValue(), isLeftShift, *this, &I)) {
-    DEBUG(dbgs() << "ICE: GetShiftedValue propagating shift through expression"
-              " to eliminate shift:\n  IN: " << *Op0 << "\n  SH: " << I <<"\n");
+    LLVM_DEBUG(
+        dbgs() << "ICE: GetShiftedValue propagating shift through expression"
+                  " to eliminate shift:\n  IN: "
+               << *Op0 << "\n  SH: " << I << "\n");
 
     return replaceInstUsesWith(
         I, getShiftedValue(Op0, Op1C->getZExtValue(), isLeftShift, *this, DL));
@@ -586,14 +588,14 @@ Instruction *InstCombiner::FoldShiftByConstant(Value *Op0, Constant *Op1,
 }
 
 Instruction *InstCombiner::visitShl(BinaryOperator &I) {
-  if (Value *V = SimplifyVectorOp(I))
-    return replaceInstUsesWith(I, V);
-
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
   if (Value *V =
           SimplifyShlInst(Op0, Op1, I.hasNoSignedWrap(), I.hasNoUnsignedWrap(),
                           SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
+
+  if (Instruction *X = foldShuffledBinop(I))
+    return X;
 
   if (Instruction *V = commonShiftTransforms(I))
     return V;
@@ -685,13 +687,13 @@ Instruction *InstCombiner::visitShl(BinaryOperator &I) {
 }
 
 Instruction *InstCombiner::visitLShr(BinaryOperator &I) {
-  if (Value *V = SimplifyVectorOp(I))
-    return replaceInstUsesWith(I, V);
-
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
   if (Value *V =
           SimplifyLShrInst(Op0, Op1, I.isExact(), SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
+
+  if (Instruction *X = foldShuffledBinop(I))
+    return X;
 
   if (Instruction *R = commonShiftTransforms(I))
     return R;
@@ -804,13 +806,13 @@ Instruction *InstCombiner::visitLShr(BinaryOperator &I) {
 }
 
 Instruction *InstCombiner::visitAShr(BinaryOperator &I) {
-  if (Value *V = SimplifyVectorOp(I))
-    return replaceInstUsesWith(I, V);
-
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
   if (Value *V =
           SimplifyAShrInst(Op0, Op1, I.isExact(), SQ.getWithInstruction(&I)))
     return replaceInstUsesWith(I, V);
+
+  if (Instruction *X = foldShuffledBinop(I))
+    return X;
 
   if (Instruction *R = commonShiftTransforms(I))
     return R;

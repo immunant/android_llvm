@@ -71,7 +71,7 @@ static Constant *BitCastConstantVector(Constant *CV, VectorType *DstTy) {
 /// This function determines which opcode to use to fold two constant cast
 /// expressions together. It uses CastInst::isEliminableCastPair to determine
 /// the opcode. Consequently its just a wrapper around that function.
-/// @brief Determine if it is valid to fold a cast of a cast
+/// Determine if it is valid to fold a cast of a cast
 static unsigned
 foldConstantCastPair(
   unsigned opc,          ///< opcode of the second cast constant expression
@@ -321,7 +321,7 @@ static Constant *ExtractConstantBytes(Constant *C, unsigned ByteStart,
     if (ByteStart == 0 && ByteSize*8 == SrcBitSize)
       return CE->getOperand(0);
 
-    // If extracting something completely in the input, if if the input is a
+    // If extracting something completely in the input, if the input is a
     // multiple of 8 bits, recurse.
     if ((SrcBitSize&7) == 0 && (ByteStart+ByteSize)*8 <= SrcBitSize)
       return ExtractConstantBytes(CE->getOperand(0), ByteStart, ByteSize);
@@ -545,7 +545,11 @@ Constant *llvm::ConstantFoldCastInstruction(unsigned opc, Constant *V,
                opc != Instruction::AddrSpaceCast &&
                // Do not fold bitcast (gep) with inrange index, as this loses
                // information.
-               !cast<GEPOperator>(CE)->getInRangeIndex().hasValue()) {
+               !cast<GEPOperator>(CE)->getInRangeIndex().hasValue() &&
+               // Do not fold if the gep type is a vector, as bitcasting
+               // operand 0 of a vector gep will result in a bitcast between
+               // different sizes.
+               !CE->getType()->isVectorTy()) {
       // If all of the indexes in the GEP are null values, there is no pointer
       // adjustment going on.  We might as well cast the source pointer.
       bool isAllNull = true;
