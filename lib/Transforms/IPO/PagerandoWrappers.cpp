@@ -205,7 +205,7 @@ static void replaceWithWrapper(Function &F, Function *Wrapper,
   if (F.isVarArg() || (!F.hasLocalLinkage() && !F.hasProtectedVisibility())) {
     F.replaceAllUsesWith(Wrapper);
     if (!F.hasLocalLinkage())
-      F.setVisibility(GlobalValue::HiddenVisibility);
+      F.setVisibility(GlobalValue::ProtectedVisibility);
   } else {
     // Replace all address-taken uses so we don't leak a binned address to
     // another DSO.
