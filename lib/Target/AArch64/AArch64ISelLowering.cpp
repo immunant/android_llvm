@@ -3530,7 +3530,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
       Subtarget->classifyGlobalFunctionReference(GV, getTargetMachine());
     if (UsePIPAddressing) {
       IsPagerandoCall = true;
-      Callee = getPOT(G, DAG);
+      Callee = getPOT(G, DAG, AArch64II::MO_PAGERANDOCALL);
     } else if (OpFlags == AArch64II::MO_GOT) {
       Callee = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, AArch64II::MO_GOT);
       Callee = DAG.getNode(AArch64ISD::LOADgot, DL, PtrVT, Callee);
@@ -3545,7 +3545,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   } else if (auto *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     if (MF.getFunction().isPagerando()) {
       IsPagerandoCall = true;
-      Callee = getPOT(S, DAG);
+      Callee = getPOT(S, DAG, AArch64II::MO_PAGERANDOCALL);
     } else if (getTargetMachine().getCodeModel() == CodeModel::Large &&
         Subtarget->isTargetMachO()) {
       const char *Sym = S->getSymbol();
@@ -3765,7 +3765,8 @@ SDValue AArch64TargetLowering::getGOT(NodeTy *N, SelectionDAG &DAG,
 
 // Position-independent pages, access through the POT
 template <class NodeTy>
-SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG) const {
+SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG,
+                                      unsigned Flags) const {
   DEBUG(dbgs() << "AArch64TargetLowering::getPOT\n");
 
   // Pagerando targets DSOs specifically, and the large code model can only be
@@ -3816,28 +3817,28 @@ SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG) const {
     const unsigned char MO_GOTOFF = AArch64II::MO_GOTOFF;
     if (picLevel == PICLevel::SmallPIC) {
       // GOT size <= 28KiB
-      Offset = getTargetNode(N, PtrVT, DAG, MO_GOTOFF);
+      Offset = getTargetNode(N, PtrVT, DAG, MO_GOTOFF | Flags);
     } else {
       // Large GOT size
       Offset = DAG.getNode(
           AArch64ISD::WrapperLarge, DL, PtrVT,
-          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G3),
-          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G2 | MO_NC),
-          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G1 | MO_NC),
-          getTargetNode(N, PtrVT, DAG, MO_GOTOFF | AArch64II::MO_G0 | MO_NC));
+          getTargetNode(N, PtrVT, DAG, Flags | MO_GOTOFF | AArch64II::MO_G3),
+          getTargetNode(N, PtrVT, DAG, Flags | MO_GOTOFF | AArch64II::MO_G2 | MO_NC),
+          getTargetNode(N, PtrVT, DAG, Flags | MO_GOTOFF | AArch64II::MO_G1 | MO_NC),
+          getTargetNode(N, PtrVT, DAG, Flags | MO_GOTOFF | AArch64II::MO_G0 | MO_NC));
     }
 
     return DAG.getNode(AArch64ISD::LOADgotr, DL, PtrVT, GOTAddr, Offset);
   } else if (pagerandoBinTarget) {
     // We may have an alias, so we need to use the real target function for the
     // POT offset
-    SDValue POTOffset = DAG.getTargetGlobalAddress(F, DL, PtrVT, 0, AArch64II::MO_POT);
+    SDValue POTOffset = DAG.getTargetGlobalAddress(F, DL, PtrVT, 0, Flags | AArch64II::MO_POT);
     // SDValue POTSlot = DAG.getNode(ISD::ADD, DL, PtrVT, POTValue, POTOffset);
     // SDValue BaseAddr = DAG.getLoad(PtrVT, DL, Chain, POTSlot, MachinePointerInfo());
     SDValue BaseAddr = DAG.getNode(AArch64ISD::LOADpot, DL, PtrVT, Chain,
                                    POTValue, POTOffset);
 
-    SDValue Offset = DAG.getTargetGlobalAddress(F, DL, PtrVT, 0, AArch64II::MO_SEC);
+    SDValue Offset = DAG.getTargetGlobalAddress(F, DL, PtrVT, 0, Flags | AArch64II::MO_SEC);
 
     return DAG.getNode(ISD::ADD, DL, PtrVT, BaseAddr, Offset);
   } else {
@@ -3847,9 +3848,9 @@ SDValue AArch64TargetLowering::getPOT(NodeTy *N, SelectionDAG &DAG) const {
     //                               DAG.getConstant(
     //                                   getTargetMachine().getPOTBaseIndex(), DL, MVT::i32));
 
-    SDValue Hi = getTargetNode(N, PtrVT, DAG, AArch64II::MO_PAGE);
+    SDValue Hi = getTargetNode(N, PtrVT, DAG, Flags | AArch64II::MO_PAGE);
     SDValue Lo = getTargetNode(N, PtrVT, DAG,
-                                   AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
+                               Flags | AArch64II::MO_PAGEOFF | AArch64II::MO_NC);
 
     SDValue ADRP = DAG.getNode(AArch64ISD::ADRP, DL, PtrVT, Hi);
     SDValue TargetPCRel = DAG.getNode(AArch64ISD::ADDlow, DL, PtrVT, ADRP, Lo);

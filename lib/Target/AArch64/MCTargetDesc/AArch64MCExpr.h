@@ -60,6 +60,9 @@ public:
     // explicit about this!
     VK_NC       = 0x100,
 
+    // Whether we need to specify the relocation as a pagerando-specific call.
+    VK_PAGERANDOCALL = 0x200,
+
     // Convenience definitions for referring to specific textual representations
     // of relocation specifiers. Note that this means the "_NC" is sometimes
     // omitted in line with assembly syntax here (VK_LO12 rather than VK_LO12_NC
@@ -111,6 +114,13 @@ public:
     VK_GOTOFF_G1_NC      = VK_GOTOFF   | VK_G1      | VK_NC,
     VK_GOTOFF_G0         = VK_GOTOFF   | VK_G0,
     VK_GOTOFF_G0_NC      = VK_GOTOFF   | VK_G0      | VK_NC,
+    VK_GOTOFF_G3_PRC     = VK_GOTOFF   | VK_G3      | VK_PAGERANDOCALL,
+    VK_GOTOFF_G2_PRC     = VK_GOTOFF   | VK_G2      | VK_PAGERANDOCALL,
+    VK_GOTOFF_G2_PRC_NC  = VK_GOTOFF   | VK_G2      | VK_PAGERANDOCALL | VK_NC,
+    VK_GOTOFF_G1_PRC     = VK_GOTOFF   | VK_G1      | VK_PAGERANDOCALL,
+    VK_GOTOFF_G1_PRC_NC  = VK_GOTOFF   | VK_G1      | VK_PAGERANDOCALL | VK_NC,
+    VK_GOTOFF_G0_PRC     = VK_GOTOFF   | VK_G0      | VK_PAGERANDOCALL,
+    VK_GOTOFF_G0_PRC_NC  = VK_GOTOFF   | VK_G0      | VK_PAGERANDOCALL | VK_NC,
     VK_SEC_HI12          = VK_SEC      | VK_HI12,
     VK_SEC_LO12          = VK_SEC      | VK_PAGEOFF,
     VK_SEC_LO12_NC       = VK_SEC      | VK_PAGEOFF | VK_NC,

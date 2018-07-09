@@ -558,7 +558,7 @@ private:
   template <class NodeTy>
   SDValue getGOT(NodeTy *N, SelectionDAG &DAG, unsigned Flags = 0) const;
   template <class NodeTy>
-  SDValue getPOT(NodeTy *N, SelectionDAG &DAG) const;
+  SDValue getPOT(NodeTy *N, SelectionDAG &DAG, unsigned Flags = 0) const;
   template <class NodeTy>
   SDValue getAddrLarge(NodeTy *N, SelectionDAG &DAG, unsigned Flags = 0) const;
   template <class NodeTy>

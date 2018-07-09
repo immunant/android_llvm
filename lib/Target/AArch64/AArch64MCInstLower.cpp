@@ -164,6 +164,9 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandELF(const MachineOperand &MO,
   if (MO.getTargetFlags() & AArch64II::MO_NC)
     RefFlags |= AArch64MCExpr::VK_NC;
 
+  if (MO.getTargetFlags() & AArch64II::MO_PAGERANDOCALL)
+    RefFlags |= AArch64MCExpr::VK_PAGERANDOCALL;
+
   const MCExpr *Expr =
       MCSymbolRefExpr::create(Sym, MCSymbolRefExpr::VK_None, Ctx);
   if (!MO.isJTI() && MO.getOffset())

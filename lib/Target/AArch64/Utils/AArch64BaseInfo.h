@@ -517,6 +517,12 @@ namespace AArch64II {
     /// storage class indication on Windows.
     MO_DLLIMPORT = 0x08,
 
+    /// MO_PAGERANDOCALL - Indicates that the reference to this symbols is a
+    /// call and not an address-taken reference, allowing the static and dynamic
+    /// linkers to redirect this reference to a pagerando address instead of
+    /// accessing the function through a wrapper to initialize the POT register.
+    MO_PAGERANDOCALL = 0x08,
+
     MO_SOURCE = 0x70,
 
     /// MO_GOT - This flag indicates that a symbol operand represents the

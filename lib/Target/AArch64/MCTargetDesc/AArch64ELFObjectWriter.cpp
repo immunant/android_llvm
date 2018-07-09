@@ -434,6 +434,20 @@ unsigned AArch64ELFObjectWriter::getRelocType(MCContext &Ctx,
         return ELF::R_AARCH64_MOVW_GOTOFF_G0_NC;
       if (RefKind == AArch64MCExpr::VK_GOTOFF_G0)
         return ELF::R_AARCH64_MOVW_GOTOFF_G0;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G3_PRC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G3_PRC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G2_PRC_NC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G2_PRC_NC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G2_PRC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G2_PRC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G1_PRC_NC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G1_PRC_NC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G1_PRC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G1_PRC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G0_PRC_NC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G0_PRC_NC;
+      if (RefKind == AArch64MCExpr::VK_GOTOFF_G0_PRC)
+        return ELF::R_AARCH64_MOVW_GOTOFF_G0_PRC;
       Ctx.reportError(Fixup.getLoc(),
                       "invalid fixup for movz/movk instruction");
       return ELF::R_AARCH64_NONE;

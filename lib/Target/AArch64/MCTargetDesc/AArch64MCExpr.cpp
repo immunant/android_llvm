@@ -80,6 +80,13 @@ StringRef AArch64MCExpr::getVariantKindName() const {
   case VK_GOTOFF_G1_NC:        return ":gotoff_g1_nc:";
   case VK_GOTOFF_G0:           return ":gotoff_g0:";
   case VK_GOTOFF_G0_NC:        return ":gotoff_g0_nc:";
+  case VK_GOTOFF_G3_PRC:       return ":gotoff_g3_prc:";
+  case VK_GOTOFF_G2_PRC:       return ":gotoff_g2_prc:";
+  case VK_GOTOFF_G2_PRC_NC:    return ":gotoff_g2_prc_nc:";
+  case VK_GOTOFF_G1_PRC:       return ":gotoff_g1_prc:";
+  case VK_GOTOFF_G1_PRC_NC:    return ":gotoff_g1_prc_nc:";
+  case VK_GOTOFF_G0_PRC:       return ":gotoff_g0_prc:";
+  case VK_GOTOFF_G0_PRC_NC:    return ":gotoff_g0_prc_nc:";
   case VK_SEC_HI12:            return ":sec_hi12:";
   case VK_SEC_LO12:            return ":sec_lo12:";
   case VK_SEC:                 return ":sec:";
