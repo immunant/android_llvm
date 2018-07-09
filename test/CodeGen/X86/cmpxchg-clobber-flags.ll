@@ -158,7 +158,6 @@ cond.end:
 
 ; This one is an interesting case because CMOV doesn't have a chain
 ; operand. Naive attempts to limit cmpxchg EFLAGS use are likely to fail here.
-<<<<<<< HEAD
 define i32 @test_feed_cmov(i32* %addr, i32 %desired, i32 %new) {
 ; i386-LABEL: test_feed_cmov:
 ; i386: cmpxchgl
@@ -205,70 +204,6 @@ define i32 @test_feed_cmov(i32* %addr, i32 %desired, i32 %new) {
 ; x8664-sahf-NEXT: sahf
 ; x8664-sahf-NEXT: popq %rax
 
-=======
-define i32 @test_feed_cmov(i32* %addr, i32 %desired, i32 %new) nounwind {
-; 32-GOOD-RA-LABEL: test_feed_cmov:
-; 32-GOOD-RA:       # %bb.0: # %entry
-; 32-GOOD-RA-NEXT:    pushl %ebx
-; 32-GOOD-RA-NEXT:    pushl %esi
-; 32-GOOD-RA-NEXT:    pushl %eax
-; 32-GOOD-RA-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; 32-GOOD-RA-NEXT:    movl {{[0-9]+}}(%esp), %esi
-; 32-GOOD-RA-NEXT:    movl {{[0-9]+}}(%esp), %ecx
-; 32-GOOD-RA-NEXT:    lock cmpxchgl %esi, (%ecx)
-; 32-GOOD-RA-NEXT:    sete %bl
-; 32-GOOD-RA-NEXT:    calll foo
-; 32-GOOD-RA-NEXT:    testb %bl, %bl
-; 32-GOOD-RA-NEXT:    jne .LBB2_2
-; 32-GOOD-RA-NEXT:  # %bb.1: # %entry
-; 32-GOOD-RA-NEXT:    movl %eax, %esi
-; 32-GOOD-RA-NEXT:  .LBB2_2: # %entry
-; 32-GOOD-RA-NEXT:    movl %esi, %eax
-; 32-GOOD-RA-NEXT:    addl $4, %esp
-; 32-GOOD-RA-NEXT:    popl %esi
-; 32-GOOD-RA-NEXT:    popl %ebx
-; 32-GOOD-RA-NEXT:    retl
-;
-; 32-FAST-RA-LABEL: test_feed_cmov:
-; 32-FAST-RA:       # %bb.0: # %entry
-; 32-FAST-RA-NEXT:    pushl %ebx
-; 32-FAST-RA-NEXT:    pushl %esi
-; 32-FAST-RA-NEXT:    pushl %eax
-; 32-FAST-RA-NEXT:    movl {{[0-9]+}}(%esp), %ecx
-; 32-FAST-RA-NEXT:    movl {{[0-9]+}}(%esp), %esi
-; 32-FAST-RA-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; 32-FAST-RA-NEXT:    lock cmpxchgl %esi, (%ecx)
-; 32-FAST-RA-NEXT:    sete %bl
-; 32-FAST-RA-NEXT:    calll foo
-; 32-FAST-RA-NEXT:    testb %bl, %bl
-; 32-FAST-RA-NEXT:    jne .LBB2_2
-; 32-FAST-RA-NEXT:  # %bb.1: # %entry
-; 32-FAST-RA-NEXT:    movl %eax, %esi
-; 32-FAST-RA-NEXT:  .LBB2_2: # %entry
-; 32-FAST-RA-NEXT:    movl %esi, %eax
-; 32-FAST-RA-NEXT:    addl $4, %esp
-; 32-FAST-RA-NEXT:    popl %esi
-; 32-FAST-RA-NEXT:    popl %ebx
-; 32-FAST-RA-NEXT:    retl
-;
-; 64-ALL-LABEL: test_feed_cmov:
-; 64-ALL:       # %bb.0: # %entry
-; 64-ALL-NEXT:    pushq %rbp
-; 64-ALL-NEXT:    pushq %rbx
-; 64-ALL-NEXT:    pushq %rax
-; 64-ALL-NEXT:    movl %edx, %ebx
-; 64-ALL-NEXT:    movl %esi, %eax
-; 64-ALL-NEXT:    lock cmpxchgl %edx, (%rdi)
-; 64-ALL-NEXT:    sete %bpl
-; 64-ALL-NEXT:    callq foo
-; 64-ALL-NEXT:    testb %bpl, %bpl
-; 64-ALL-NEXT:    cmovnel %ebx, %eax
-; 64-ALL-NEXT:    addq $8, %rsp
-; 64-ALL-NEXT:    popq %rbx
-; 64-ALL-NEXT:    popq %rbp
-; 64-ALL-NEXT:    retq
-entry:
->>>>>>> bb1ae438ca5... [x86] Switch EFLAGS copy lowering to use reg-reg form of testing for
   %res = cmpxchg i32* %addr, i32 %desired, i32 %new seq_cst seq_cst
   %success = extractvalue { i32, i1 } %res, 1
 
