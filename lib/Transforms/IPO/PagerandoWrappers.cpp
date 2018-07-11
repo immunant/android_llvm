@@ -66,6 +66,8 @@ private:
   Function *rewriteVarargs(Function &F, Type *&VAListTy);
   Function *createWrapper(Function &F, const SmallVectorImpl<Use *> &AddressUses);
   void createWrapperBody(Function *Wrapper, Function *Callee, Type *VAListTy);
+  void replaceWithWrapper(Function &F, Function *Wrapper,
+                          const SmallVectorImpl<Use *> &AddressUses);
 };
 } // end anonymous namespace
 
@@ -200,8 +202,8 @@ void PagerandoWrappers::processFunction(Function *F) {
 //   since protected functions cannot be preempted at load time.
 // - Address-taken uses of local functions might escape, so we must replace
 //   these addresses with the address of a wrapper.
-static void replaceWithWrapper(Function &F, Function *Wrapper,
-                        const SmallVectorImpl<Use *> &AddressUses) {
+void PagerandoWrappers::replaceWithWrapper(Function &F, Function *Wrapper,
+                                           const SmallVectorImpl<Use *> &AddressUses) {
   if (F.isVarArg() || (!F.hasLocalLinkage() && !F.hasProtectedVisibility())) {
     F.replaceAllUsesWith(Wrapper);
     if (!F.hasLocalLinkage())
@@ -226,6 +228,14 @@ static void replaceWithWrapper(Function &F, Function *Wrapper,
           if (auto *GA = dyn_cast<GlobalAlias>(C)) {
             assert(GA->getAliasee() == &F);
             GA->setAliasee(Wrapper);
+            // We want an alias pointing to the pagerando version to ensure that
+            // we can resolve the symbol to the pagerando version at load time.
+            auto *NewGA = GlobalAlias::create(
+                GA->getValueType(), GA->getType()->getPointerAddressSpace(),
+                GA->getLinkage(),
+                Twine(GA->getName(), F.isVarArg() ? OrigVASuffix : OrigSuffix),
+                &F, GA->getParent());
+            NewGA->copyAttributesFrom(GA);
           } else {
             C->handleOperandChange(&F, Wrapper);
           }
