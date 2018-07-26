@@ -389,7 +389,8 @@ void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
       // Keep special sections.
       if (Obj.SectionNames == &Sec)
         return false;
-      if (Obj.SymbolTable == &Sec || Obj.SymbolTable->getStrTab() == &Sec)
+      if (Obj.SymbolTable == &Sec ||
+          (Obj.SymbolTable && Obj.SymbolTable->getStrTab() == &Sec))
         return false;
 
       // Remove everything else.
@@ -414,7 +415,7 @@ void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
   // (equivalently, the updated symbol table is not empty)
   // the symbol table and the string table should not be removed.
   if ((!Config.SymbolsToKeep.empty() || Config.KeepFileSymbols) &&
-      !Obj.SymbolTable->empty()) {
+      Obj.SymbolTable && !Obj.SymbolTable->empty()) {
     RemovePred = [&Obj, RemovePred](const SectionBase &Sec) {
       if (&Sec == Obj.SymbolTable || &Sec == Obj.SymbolTable->getStrTab())
         return false;
