@@ -157,6 +157,8 @@ public:
 
   const Module *getModule() const { return TheModule; }
 
+  const TargetMachine &getTargetMachine() const { return TM; };
+
   /// Returns the MachineFunction constructed for the IR function \p F.
   /// Creates a new MachineFunction if none exists yet.
   MachineFunction &getOrCreateMachineFunction(const Function &F);

@@ -63,12 +63,17 @@ namespace {
 
 class FirstFitAlgo {
 public:
-  PagerandoBinnerBase::Bin assignToBin(unsigned FnSize, unsigned getMaxBinSize, bool isUniPOT);
+  PagerandoBinnerBase::Bin assignToBin(unsigned FnSize);
+
+  void setMaxBinSize(unsigned m) { MaxBinSize = m; }
+  void setUniPOT(bool b) { isUniPOT = b; }
 
 private:
   // <free space  ->  bin numbers>
   std::multimap<unsigned, PagerandoBinnerBase::Bin> Bins;
   unsigned BinCount = 1;
+  unsigned MaxBinSize;
+  bool isUniPOT;
 };
 
 class SimpleBinner : public PagerandoBinnerBase {
@@ -81,7 +86,7 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 
-  Bin getBinAssignment(Function &F) override;
+  Bin getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) override;
 
 private:
   FirstFitAlgo FitAlgo;
@@ -99,7 +104,7 @@ public:
 
   bool initializeBinning(Module &M) override;
 
-  Bin getBinAssignment(Function &F) override;
+  Bin getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) override;
 
 private:
   struct Cluster {
@@ -153,10 +158,9 @@ bool PagerandoBinnerBase::initializeBinning(Module &M) {
 
 bool PagerandoBinnerBase::runOnModule(Module &M) {
   bool Modified = initializeBinning(M);
-
   for (auto &F : M) {
     if (F.isPagerando()) {
-      Bin B = getBinAssignment(F);
+      Bin B = getBinAssignment(F, maxBinSize(F), isUniPOT(F));
       setBin(F, B);
       Modified = true;
     }
@@ -181,21 +185,22 @@ unsigned PagerandoBinnerBase::estimateFunctionSize(const Function &F) {
   return std::max(Size, MinFnSize+0);
 }
 
-unsigned PagerandoBinnerBase::getMaxBinSize(const Function &F) {
-  auto arch = getAnalysisIfAvailable<MachineModuleInfo>()->getMachineFunction(F)->getTarget().getTargetTriple().getArch();
+unsigned PagerandoBinnerBase::maxBinSize(Function &F) {
+  auto &TM = getAnalysis<MachineModuleInfo>().getTargetMachine();
+  auto Arch = TM.getTargetTriple().getArch();
 
-  if (arch == Triple::ArchType::aarch64)
+  if (Arch == Triple::ArchType::aarch64)
     return 511;
-  else if (arch == Triple::ArchType::arm)
+  else if (Arch == Triple::ArchType::arm)
     return 1023; 
 
   // The arch is neither arm64 or arm, so just return 0
   return 0;
 }
 
-bool PagerandoBinnerBase::isUniPOT(const Function &F) {
-  auto MMI = getAnalysisIfAvailable<MachineModuleInfo>();
-  unsigned index = MMI->getMachineFunction(F)->getTarget().Options.MCOptions.GlobalPOTIndex;
+bool PagerandoBinnerBase::isUniPOT(Function &F) {
+  auto &MMI = getAnalysis<MachineModuleInfo>();
+  unsigned index = MMI.getTargetMachine().Options.MCOptions.GlobalPOTIndex;
   if (index > 0) return true;
   return false;
 }
@@ -207,9 +212,12 @@ INITIALIZE_PASS_DEPENDENCY(MachineModuleInfo)
 INITIALIZE_PASS_END(SimpleBinner, "pagerando-binning-simple", "Simple Function Binning",
                     false, false)
 
-PagerandoBinnerBase::Bin SimpleBinner::getBinAssignment(Function &F) {
+PagerandoBinnerBase::Bin SimpleBinner::getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) {
+  FitAlgo.setUniPOT(isUniPOT);
+  FitAlgo.setMaxBinSize(maxBinSize);
+
   auto FnSize = estimateFunctionSize(F);
-  return FitAlgo.assignToBin(FnSize, getMaxBinSize(F), isUniPOT(F));
+  return FitAlgo.assignToBin(FnSize);
 }
 
 void SimpleBinner::getAnalysisUsage(AnalysisUsage &AU) const {
@@ -217,9 +225,9 @@ void SimpleBinner::getAnalysisUsage(AnalysisUsage &AU) const {
   PagerandoBinnerBase::getAnalysisUsage(AU);
 }
 
-PagerandoBinnerBase::Bin FirstFitAlgo::assignToBin(unsigned FnSize, unsigned MaxBinSize, bool isUniPOT) {
+PagerandoBinnerBase::Bin FirstFitAlgo::assignToBin(unsigned FnSize) {
   if (MaxBinSize > 0) {
-    if (isUniPOT and (BinCount > MaxBinSize)) {
+    if (isUniPOT && (BinCount > MaxBinSize)) {
         report_fatal_error("Please increase the bin-size.");
     }
   }
@@ -347,17 +355,19 @@ void PGOBinner::mergeClusters(std::shared_ptr<Cluster> C1, std::shared_ptr<Clust
     FnToCluster[F] = C1;
 }
 
-PagerandoBinnerBase::Bin PGOBinner::getBinAssignment(Function &F) {
+PagerandoBinnerBase::Bin PGOBinner::getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) {
+  FitAlgo.setUniPOT(isUniPOT);
+  FitAlgo.setMaxBinSize(maxBinSize);
+
   if (!HaveProfileInfo) {
     // Fall back to simple binning
     auto FnSize = estimateFunctionSize(F);
-    return FitAlgo.assignToBin(FnSize, getMaxBinSize(F), isUniPOT(F));
+    return FitAlgo.assignToBin(FnSize);
   }
 
   auto Cluster = FnToCluster[&F];
-  if (Cluster->Bin == 0) {
-    Cluster->Bin = FitAlgo.assignToBin(Cluster->Size, getMaxBinSize(F), isUniPOT(F));
-  }
+  if (Cluster->Bin == 0)
+    Cluster->Bin = FitAlgo.assignToBin(Cluster->Size);
   return Cluster->Bin;
 }
 
