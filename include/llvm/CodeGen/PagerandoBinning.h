@@ -35,7 +35,10 @@ protected:
   virtual bool initializeBinning(Module &M);
   virtual Bin getBinAssignment(Function &F) = 0;
 
+  bool isUniPOT(const Function &F);
+
   unsigned estimateFunctionSize(const Function &F);
+  unsigned getMaxBinSize(const Function &F);
 
 private:
   static void setBin(Function &F, Bin Bin);

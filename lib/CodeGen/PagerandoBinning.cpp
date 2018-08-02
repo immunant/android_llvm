@@ -32,6 +32,7 @@
 #include "llvm/CodeGen/PagerandoBinning.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
@@ -39,6 +40,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/Target/TargetMachine.h"
 #include <algorithm>
 
 using namespace llvm;
@@ -61,7 +63,7 @@ namespace {
 
 class FirstFitAlgo {
 public:
-  PagerandoBinnerBase::Bin assignToBin(unsigned FnSize);
+  PagerandoBinnerBase::Bin assignToBin(unsigned FnSize, unsigned getMaxBinSize, bool isUniPOT);
 
 private:
   // <free space  ->  bin numbers>
@@ -179,6 +181,24 @@ unsigned PagerandoBinnerBase::estimateFunctionSize(const Function &F) {
   return std::max(Size, MinFnSize+0);
 }
 
+unsigned PagerandoBinnerBase::getMaxBinSize(const Function &F) {
+  auto arch = getAnalysisIfAvailable<MachineModuleInfo>()->getMachineFunction(F)->getTarget().getTargetTriple().getArch();
+
+  if (arch == Triple::ArchType::aarch64)
+    return 511;
+  else if (arch == Triple::ArchType::arm)
+    return 1023; 
+
+  // The arch is neither arm64 or arm, so just return 0
+  return 0;
+}
+
+bool PagerandoBinnerBase::isUniPOT(const Function &F) {
+  auto MMI = getAnalysisIfAvailable<MachineModuleInfo>();
+  unsigned index = MMI->getMachineFunction(F)->getTarget().Options.MCOptions.GlobalPOTIndex;
+  if (index > 0) return true;
+  return false;
+}
 
 char SimpleBinner::ID = 0;
 INITIALIZE_PASS_BEGIN(SimpleBinner, "pagerando-binning-simple", "Simple Function Binning",
@@ -189,7 +209,7 @@ INITIALIZE_PASS_END(SimpleBinner, "pagerando-binning-simple", "Simple Function B
 
 PagerandoBinnerBase::Bin SimpleBinner::getBinAssignment(Function &F) {
   auto FnSize = estimateFunctionSize(F);
-  return FitAlgo.assignToBin(FnSize);
+  return FitAlgo.assignToBin(FnSize, getMaxBinSize(F), isUniPOT(F));
 }
 
 void SimpleBinner::getAnalysisUsage(AnalysisUsage &AU) const {
@@ -197,8 +217,13 @@ void SimpleBinner::getAnalysisUsage(AnalysisUsage &AU) const {
   PagerandoBinnerBase::getAnalysisUsage(AU);
 }
 
+PagerandoBinnerBase::Bin FirstFitAlgo::assignToBin(unsigned FnSize, unsigned MaxBinSize, bool isUniPOT) {
+  if (MaxBinSize > 0) {
+    if (isUniPOT and (BinCount > MaxBinSize)) {
+        report_fatal_error("Please increase the bin-size.");
+    }
+  }
 
-PagerandoBinnerBase::Bin FirstFitAlgo::assignToBin(unsigned FnSize) {
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -326,12 +351,13 @@ PagerandoBinnerBase::Bin PGOBinner::getBinAssignment(Function &F) {
   if (!HaveProfileInfo) {
     // Fall back to simple binning
     auto FnSize = estimateFunctionSize(F);
-    return FitAlgo.assignToBin(FnSize);
+    return FitAlgo.assignToBin(FnSize, getMaxBinSize(F), isUniPOT(F));
   }
 
   auto Cluster = FnToCluster[&F];
-  if (Cluster->Bin == 0)
-    Cluster->Bin = FitAlgo.assignToBin(Cluster->Size);
+  if (Cluster->Bin == 0) {
+    Cluster->Bin = FitAlgo.assignToBin(Cluster->Size, getMaxBinSize(F), isUniPOT(F));
+  }
   return Cluster->Bin;
 }
 
