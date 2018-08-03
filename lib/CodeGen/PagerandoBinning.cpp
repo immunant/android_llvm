@@ -32,6 +32,7 @@
 #include "llvm/CodeGen/PagerandoBinning.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
@@ -39,6 +40,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/Target/TargetMachine.h"
 #include <algorithm>
 
 using namespace llvm;
@@ -63,10 +65,17 @@ class FirstFitAlgo {
 public:
   PagerandoBinnerBase::Bin assignToBin(unsigned FnSize);
 
+  void initialize(unsigned BinSize, bool UniPOT) {
+    MaxBinSize = BinSize;
+    isUniPOT = UniPOT;
+  }
+
 private:
   // <free space  ->  bin numbers>
   std::multimap<unsigned, PagerandoBinnerBase::Bin> Bins;
   unsigned BinCount = 1;
+  unsigned MaxBinSize;
+  bool isUniPOT;
 };
 
 class SimpleBinner : public PagerandoBinnerBase {
@@ -78,6 +87,8 @@ public:
   static char ID; // Pass identification, replacement for typeid
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
+
+  bool initializeBinning(Module &M) override;
 
   Bin getBinAssignment(Function &F) override;
 
@@ -151,7 +162,6 @@ bool PagerandoBinnerBase::initializeBinning(Module &M) {
 
 bool PagerandoBinnerBase::runOnModule(Module &M) {
   bool Modified = initializeBinning(M);
-
   for (auto &F : M) {
     if (F.isPagerando()) {
       Bin B = getBinAssignment(F);
@@ -179,6 +189,24 @@ unsigned PagerandoBinnerBase::estimateFunctionSize(const Function &F) {
   return std::max(Size, MinFnSize+0);
 }
 
+unsigned PagerandoBinnerBase::maxBinSize() {
+  auto &TM = getAnalysis<MachineModuleInfo>().getTargetMachine();
+  auto Arch = TM.getTargetTriple().getArch();
+
+  if (Arch == Triple::ArchType::aarch64)
+    return 511;
+  else if (Arch == Triple::ArchType::arm)
+    return 1023; 
+
+  // The arch is neither arm64 or arm, so just return 0
+  return 0;
+}
+
+bool PagerandoBinnerBase::isUniPOT() {
+  auto &MMI = getAnalysis<MachineModuleInfo>();
+  unsigned index = MMI.getTargetMachine().Options.MCOptions.GlobalPOTIndex;
+  return index > 0;
+}
 
 char SimpleBinner::ID = 0;
 INITIALIZE_PASS_BEGIN(SimpleBinner, "pagerando-binning-simple", "Simple Function Binning",
@@ -186,6 +214,10 @@ INITIALIZE_PASS_BEGIN(SimpleBinner, "pagerando-binning-simple", "Simple Function
 INITIALIZE_PASS_DEPENDENCY(MachineModuleInfo)
 INITIALIZE_PASS_END(SimpleBinner, "pagerando-binning-simple", "Simple Function Binning",
                     false, false)
+
+bool SimpleBinner::initializeBinning(Module &M) {
+  FitAlgo.initialize(maxBinSize(), isUniPOT());
+}
 
 PagerandoBinnerBase::Bin SimpleBinner::getBinAssignment(Function &F) {
   auto FnSize = estimateFunctionSize(F);
@@ -197,8 +229,14 @@ void SimpleBinner::getAnalysisUsage(AnalysisUsage &AU) const {
   PagerandoBinnerBase::getAnalysisUsage(AU);
 }
 
-
 PagerandoBinnerBase::Bin FirstFitAlgo::assignToBin(unsigned FnSize) {
+  if (MaxBinSize > 0) {
+    if (isUniPOT && (BinCount > MaxBinSize)) {
+        report_fatal_error(
+          "Pagerando w/ Unified POT is active, but the POT exceeds a single page. Please increase bin size with `-pagerando-bin-size=N`");
+    }
+  }
+
   unsigned Bin, FreeSpace;
 
   auto I = Bins.lower_bound(FnSize);
@@ -230,6 +268,7 @@ INITIALIZE_PASS_END(PGOBinner, "pagerando-binning-pgo", "PGO Function Binning",
                     false, false)
 
 bool PGOBinner::initializeBinning(Module &M) {
+  FitAlgo.initialize(maxBinSize(), isUniPOT());
   auto &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   PSI = getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
   if (!PSI || !PSI->hasProfileSummary()) {
