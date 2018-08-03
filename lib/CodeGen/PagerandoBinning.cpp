@@ -233,7 +233,7 @@ PagerandoBinnerBase::Bin FirstFitAlgo::assignToBin(unsigned FnSize) {
   if (MaxBinSize > 0) {
     if (isUniPOT && (BinCount > MaxBinSize)) {
         report_fatal_error(
-          "Pagerando w/ Unified POT is active, but the POT is exceeding a single page. Please increase bin-size with `-pagerando-bin-size=N`");
+          "Pagerando w/ Unified POT is active, but the POT exceeds a single page. Please increase bin size with `-pagerando-bin-size=N`");
     }
   }
 
