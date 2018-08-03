@@ -33,12 +33,11 @@ public:
 
 protected:
   virtual bool initializeBinning(Module &M);
-  virtual Bin getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) = 0;
+  virtual Bin getBinAssignment(Function &F) = 0;
 
-  bool isUniPOT(Function &F);
+  bool isUniPOT();
+  unsigned maxBinSize();
   unsigned estimateFunctionSize(const Function &F);
-  unsigned maxBinSize(Function &F);
-
 private:
   static void setBin(Function &F, Bin Bin);
 };

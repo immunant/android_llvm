@@ -65,8 +65,10 @@ class FirstFitAlgo {
 public:
   PagerandoBinnerBase::Bin assignToBin(unsigned FnSize);
 
-  void setMaxBinSize(unsigned m) { MaxBinSize = m; }
-  void setUniPOT(bool b) { isUniPOT = b; }
+  void initialize(unsigned BinSize, bool UniPOT) {
+    MaxBinSize = BinSize;
+    isUniPOT = UniPOT;
+  }
 
 private:
   // <free space  ->  bin numbers>
@@ -86,7 +88,9 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 
-  Bin getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) override;
+  bool initializeBinning(Module &M) override;
+
+  Bin getBinAssignment(Function &F) override;
 
 private:
   FirstFitAlgo FitAlgo;
@@ -104,7 +108,7 @@ public:
 
   bool initializeBinning(Module &M) override;
 
-  Bin getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) override;
+  Bin getBinAssignment(Function &F) override;
 
 private:
   struct Cluster {
@@ -160,7 +164,7 @@ bool PagerandoBinnerBase::runOnModule(Module &M) {
   bool Modified = initializeBinning(M);
   for (auto &F : M) {
     if (F.isPagerando()) {
-      Bin B = getBinAssignment(F, maxBinSize(F), isUniPOT(F));
+      Bin B = getBinAssignment(F);
       setBin(F, B);
       Modified = true;
     }
@@ -185,7 +189,7 @@ unsigned PagerandoBinnerBase::estimateFunctionSize(const Function &F) {
   return std::max(Size, MinFnSize+0);
 }
 
-unsigned PagerandoBinnerBase::maxBinSize(Function &F) {
+unsigned PagerandoBinnerBase::maxBinSize() {
   auto &TM = getAnalysis<MachineModuleInfo>().getTargetMachine();
   auto Arch = TM.getTargetTriple().getArch();
 
@@ -198,11 +202,10 @@ unsigned PagerandoBinnerBase::maxBinSize(Function &F) {
   return 0;
 }
 
-bool PagerandoBinnerBase::isUniPOT(Function &F) {
+bool PagerandoBinnerBase::isUniPOT() {
   auto &MMI = getAnalysis<MachineModuleInfo>();
   unsigned index = MMI.getTargetMachine().Options.MCOptions.GlobalPOTIndex;
-  if (index > 0) return true;
-  return false;
+  return index > 0;
 }
 
 char SimpleBinner::ID = 0;
@@ -212,10 +215,11 @@ INITIALIZE_PASS_DEPENDENCY(MachineModuleInfo)
 INITIALIZE_PASS_END(SimpleBinner, "pagerando-binning-simple", "Simple Function Binning",
                     false, false)
 
-PagerandoBinnerBase::Bin SimpleBinner::getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) {
-  FitAlgo.setUniPOT(isUniPOT);
-  FitAlgo.setMaxBinSize(maxBinSize);
+bool SimpleBinner::initializeBinning(Module &M) {
+  FitAlgo.initialize(maxBinSize(), isUniPOT());
+}
 
+PagerandoBinnerBase::Bin SimpleBinner::getBinAssignment(Function &F) {
   auto FnSize = estimateFunctionSize(F);
   return FitAlgo.assignToBin(FnSize);
 }
@@ -228,7 +232,8 @@ void SimpleBinner::getAnalysisUsage(AnalysisUsage &AU) const {
 PagerandoBinnerBase::Bin FirstFitAlgo::assignToBin(unsigned FnSize) {
   if (MaxBinSize > 0) {
     if (isUniPOT && (BinCount > MaxBinSize)) {
-        report_fatal_error("Please increase the bin-size.");
+        report_fatal_error(
+          "Pagerando w/ Unified POT is active, but the POT is exceeding a single page. Please increase bin-size with `-pagerando-bin-size=N`");
     }
   }
 
@@ -263,6 +268,7 @@ INITIALIZE_PASS_END(PGOBinner, "pagerando-binning-pgo", "PGO Function Binning",
                     false, false)
 
 bool PGOBinner::initializeBinning(Module &M) {
+  FitAlgo.initialize(maxBinSize(), isUniPOT());
   auto &CG = getAnalysis<CallGraphWrapperPass>().getCallGraph();
   PSI = getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
   if (!PSI || !PSI->hasProfileSummary()) {
@@ -355,10 +361,7 @@ void PGOBinner::mergeClusters(std::shared_ptr<Cluster> C1, std::shared_ptr<Clust
     FnToCluster[F] = C1;
 }
 
-PagerandoBinnerBase::Bin PGOBinner::getBinAssignment(Function &F, unsigned maxBinSize, bool isUniPOT) {
-  FitAlgo.setUniPOT(isUniPOT);
-  FitAlgo.setMaxBinSize(maxBinSize);
-
+PagerandoBinnerBase::Bin PGOBinner::getBinAssignment(Function &F) {
   if (!HaveProfileInfo) {
     // Fall back to simple binning
     auto FnSize = estimateFunctionSize(F);
