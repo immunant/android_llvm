@@ -9,6 +9,7 @@
 
 #include "Assembler.h"
 
+#include "Target.h"
 #include "llvm/CodeGen/GlobalISel/CallLowering.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -26,6 +27,22 @@ namespace exegesis {
 
 static constexpr const char ModuleID[] = "ExegesisInfoTest";
 static constexpr const char FunctionID[] = "foo";
+
+static std::vector<llvm::MCInst>
+generateSnippetSetupCode(const llvm::ArrayRef<unsigned> RegsToDef,
+                         const ExegesisTarget &ET,
+                         const llvm::LLVMTargetMachine &TM, bool &IsComplete) {
+  IsComplete = true;
+  std::vector<llvm::MCInst> Result;
+  for (const unsigned Reg : RegsToDef) {
+    // Load a constant in the register.
+    const auto Code = ET.setRegToConstant(*TM.getMCSubtargetInfo(), Reg);
+    if (Code.empty())
+      IsComplete = false;
+    Result.insert(Result.end(), Code.begin(), Code.end());
+  }
+  return Result;
+}
 
 // Small utility function to add named passes.
 static bool addPass(llvm::PassManagerBase &PM, llvm::StringRef PassName,
@@ -49,12 +66,16 @@ static bool addPass(llvm::PassManagerBase &PM, llvm::StringRef PassName,
   return false;
 }
 
-// Creates a void MachineFunction with no argument.
+// Creates a void(int8*) MachineFunction.
 static llvm::MachineFunction &
-createVoidVoidMachineFunction(llvm::StringRef FunctionID, llvm::Module *Module,
-                              llvm::MachineModuleInfo *MMI) {
+createVoidVoidPtrMachineFunction(llvm::StringRef FunctionID,
+                                 llvm::Module *Module,
+                                 llvm::MachineModuleInfo *MMI) {
   llvm::Type *const ReturnType = llvm::Type::getInt32Ty(Module->getContext());
-  llvm::FunctionType *FunctionType = llvm::FunctionType::get(ReturnType, false);
+  llvm::Type *const MemParamType = llvm::PointerType::get(
+      llvm::Type::getInt8Ty(Module->getContext()), 0 /*default address space*/);
+  llvm::FunctionType *FunctionType =
+      llvm::FunctionType::get(ReturnType, {MemParamType}, false);
   llvm::Function *const F = llvm::Function::Create(
       FunctionType, llvm::GlobalValue::InternalLinkage, FunctionID, Module);
   // Making sure we can create a MachineFunction out of this Function even if it
@@ -64,9 +85,12 @@ createVoidVoidMachineFunction(llvm::StringRef FunctionID, llvm::Module *Module,
 }
 
 static void fillMachineFunction(llvm::MachineFunction &MF,
+                                llvm::ArrayRef<unsigned> LiveIns,
                                 llvm::ArrayRef<llvm::MCInst> Instructions) {
   llvm::MachineBasicBlock *MBB = MF.CreateMachineBasicBlock();
   MF.push_back(MBB);
+  for (const unsigned Reg : LiveIns)
+    MBB->addLiveIn(Reg);
   const llvm::MCInstrInfo *MCII = MF.getTarget().getMCInstrInfo();
   llvm::DebugLoc DL;
   for (const llvm::MCInst &Inst : Instructions) {
@@ -117,12 +141,15 @@ llvm::BitVector getFunctionReservedRegs(const llvm::TargetMachine &TM) {
   std::unique_ptr<llvm::MachineModuleInfo> MMI =
       llvm::make_unique<llvm::MachineModuleInfo>(&TM);
   llvm::MachineFunction &MF =
-      createVoidVoidMachineFunction(FunctionID, Module.get(), MMI.get());
+      createVoidVoidPtrMachineFunction(FunctionID, Module.get(), MMI.get());
   // Saving reserved registers for client.
   return MF.getSubtarget().getRegisterInfo()->getReservedRegs(MF);
 }
 
-void assembleToStream(std::unique_ptr<llvm::LLVMTargetMachine> TM,
+void assembleToStream(const ExegesisTarget &ET,
+                      std::unique_ptr<llvm::LLVMTargetMachine> TM,
+                      llvm::ArrayRef<unsigned> LiveIns,
+                      llvm::ArrayRef<unsigned> RegsToDef,
                       llvm::ArrayRef<llvm::MCInst> Instructions,
                       llvm::raw_pwrite_stream &AsmStream) {
   std::unique_ptr<llvm::LLVMContext> Context =
@@ -132,20 +159,36 @@ void assembleToStream(std::unique_ptr<llvm::LLVMTargetMachine> TM,
   std::unique_ptr<llvm::MachineModuleInfo> MMI =
       llvm::make_unique<llvm::MachineModuleInfo>(TM.get());
   llvm::MachineFunction &MF =
-      createVoidVoidMachineFunction(FunctionID, Module.get(), MMI.get());
+      createVoidVoidPtrMachineFunction(FunctionID, Module.get(), MMI.get());
 
   // We need to instruct the passes that we're done with SSA and virtual
   // registers.
   auto &Properties = MF.getProperties();
   Properties.set(llvm::MachineFunctionProperties::Property::NoVRegs);
   Properties.reset(llvm::MachineFunctionProperties::Property::IsSSA);
-  Properties.reset(llvm::MachineFunctionProperties::Property::TracksLiveness);
+
+  for (const unsigned Reg : LiveIns)
+    MF.getRegInfo().addLiveIn(Reg);
+
+  bool IsSnippetSetupComplete = false;
+  std::vector<llvm::MCInst> SnippetWithSetup =
+      generateSnippetSetupCode(RegsToDef, ET, *TM, IsSnippetSetupComplete);
+  if (!SnippetWithSetup.empty()) {
+    SnippetWithSetup.insert(SnippetWithSetup.end(), Instructions.begin(),
+                            Instructions.end());
+    Instructions = SnippetWithSetup;
+  }
+  // If the snippet setup is not complete, we disable liveliness tracking. This
+  // means that we won't know what values are in the registers.
+  if (!IsSnippetSetupComplete)
+    Properties.reset(llvm::MachineFunctionProperties::Property::TracksLiveness);
+
   // prologue/epilogue pass needs the reserved registers to be frozen, this
   // is usually done by the SelectionDAGISel pass.
   MF.getRegInfo().freezeReservedRegs(MF);
 
   // Fill the MachineFunction from the instructions.
-  fillMachineFunction(MF, Instructions);
+  fillMachineFunction(MF, LiveIns, Instructions);
 
   // We create the pass manager, run the passes to populate AsmBuffer.
   llvm::MCContext &MCContext = MMI->getContext();
@@ -158,6 +201,9 @@ void assembleToStream(std::unique_ptr<llvm::LLVMTargetMachine> TM,
   PM.add(TPC);
   PM.add(MMI.release());
   TPC->printAndVerify("MachineFunctionGenerator::assemble");
+  // Add target-specific passes.
+  ET.addTargetSpecificPasses(PM);
+  TPC->printAndVerify("After ExegesisTarget::addTargetSpecificPasses");
   // Adding the following passes:
   // - machineverifier: checks that the MachineFunction is well formed.
   // - prologepilog: saves and restore callee saved registers.

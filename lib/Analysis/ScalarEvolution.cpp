@@ -421,24 +421,21 @@ SCEVCastExpr::SCEVCastExpr(const FoldingSetNodeIDRef ID,
 SCEVTruncateExpr::SCEVTruncateExpr(const FoldingSetNodeIDRef ID,
                                    const SCEV *op, Type *ty)
   : SCEVCastExpr(ID, scTruncate, op, ty) {
-  assert((Op->getType()->isIntegerTy() || Op->getType()->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(Op->getType()->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot truncate non-integer value!");
 }
 
 SCEVZeroExtendExpr::SCEVZeroExtendExpr(const FoldingSetNodeIDRef ID,
                                        const SCEV *op, Type *ty)
   : SCEVCastExpr(ID, scZeroExtend, op, ty) {
-  assert((Op->getType()->isIntegerTy() || Op->getType()->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(Op->getType()->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot zero extend non-integer value!");
 }
 
 SCEVSignExtendExpr::SCEVSignExtendExpr(const FoldingSetNodeIDRef ID,
                                        const SCEV *op, Type *ty)
   : SCEVCastExpr(ID, scSignExtend, op, ty) {
-  assert((Op->getType()->isIntegerTy() || Op->getType()->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(Op->getType()->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot sign extend non-integer value!");
 }
 
@@ -1256,42 +1253,32 @@ const SCEV *ScalarEvolution::getTruncateExpr(const SCEV *Op,
   if (const SCEVZeroExtendExpr *SZ = dyn_cast<SCEVZeroExtendExpr>(Op))
     return getTruncateOrZeroExtend(SZ->getOperand(), Ty);
 
-  // trunc(x1+x2+...+xN) --> trunc(x1)+trunc(x2)+...+trunc(xN) if we can
-  // eliminate all the truncates, or we replace other casts with truncates.
-  if (const SCEVAddExpr *SA = dyn_cast<SCEVAddExpr>(Op)) {
+  // trunc(x1 + ... + xN) --> trunc(x1) + ... + trunc(xN) and
+  // trunc(x1 * ... * xN) --> trunc(x1) * ... * trunc(xN),
+  // if after transforming we have at most one truncate, not counting truncates
+  // that replace other casts.
+  if (isa<SCEVAddExpr>(Op) || isa<SCEVMulExpr>(Op)) {
+    auto *CommOp = cast<SCEVCommutativeExpr>(Op);
     SmallVector<const SCEV *, 4> Operands;
-    bool hasTrunc = false;
-    for (unsigned i = 0, e = SA->getNumOperands(); i != e && !hasTrunc; ++i) {
-      const SCEV *S = getTruncateExpr(SA->getOperand(i), Ty);
-      if (!isa<SCEVCastExpr>(SA->getOperand(i)))
-        hasTrunc = isa<SCEVTruncateExpr>(S);
+    unsigned numTruncs = 0;
+    for (unsigned i = 0, e = CommOp->getNumOperands(); i != e && numTruncs < 2;
+         ++i) {
+      const SCEV *S = getTruncateExpr(CommOp->getOperand(i), Ty);
+      if (!isa<SCEVCastExpr>(CommOp->getOperand(i)) && isa<SCEVTruncateExpr>(S))
+        numTruncs++;
       Operands.push_back(S);
     }
-    if (!hasTrunc)
-      return getAddExpr(Operands);
-    // In spite we checked in the beginning that ID is not in the cache,
-    // it is possible that during recursion and different modification
-    // ID came to cache, so if we found it, just return it.
-    if (const SCEV *S = UniqueSCEVs.FindNodeOrInsertPos(ID, IP))
-      return S;
-  }
-
-  // trunc(x1*x2*...*xN) --> trunc(x1)*trunc(x2)*...*trunc(xN) if we can
-  // eliminate all the truncates, or we replace other casts with truncates.
-  if (const SCEVMulExpr *SM = dyn_cast<SCEVMulExpr>(Op)) {
-    SmallVector<const SCEV *, 4> Operands;
-    bool hasTrunc = false;
-    for (unsigned i = 0, e = SM->getNumOperands(); i != e && !hasTrunc; ++i) {
-      const SCEV *S = getTruncateExpr(SM->getOperand(i), Ty);
-      if (!isa<SCEVCastExpr>(SM->getOperand(i)))
-        hasTrunc = isa<SCEVTruncateExpr>(S);
-      Operands.push_back(S);
+    if (numTruncs < 2) {
+      if (isa<SCEVAddExpr>(Op))
+        return getAddExpr(Operands);
+      else if (isa<SCEVMulExpr>(Op))
+        return getMulExpr(Operands);
+      else
+        llvm_unreachable("Unexpected SCEV type for Op.");
     }
-    if (!hasTrunc)
-      return getMulExpr(Operands);
-    // In spite we checked in the beginning that ID is not in the cache,
-    // it is possible that during recursion and different modification
-    // ID came to cache, so if we found it, just return it.
+    // Although we checked in the beginning that ID is not in the cache, it is
+    // possible that during recursion and different modification ID was inserted
+    // into the cache. So if we find it, just return it.
     if (const SCEV *S = UniqueSCEVs.FindNodeOrInsertPos(ID, IP))
       return S;
   }
@@ -1572,6 +1559,43 @@ bool ScalarEvolution::proveNoWrapByVaryingStart(const SCEV *Start,
   return false;
 }
 
+// Finds an integer D for an expression (C + x + y + ...) such that the top
+// level addition in (D + (C - D + x + y + ...)) would not wrap (signed or
+// unsigned) and the number of trailing zeros of (C - D + x + y + ...) is
+// maximized, where C is the \p ConstantTerm, x, y, ... are arbitrary SCEVs, and
+// the (C + x + y + ...) expression is \p WholeAddExpr.
+static APInt extractConstantWithoutWrapping(ScalarEvolution &SE,
+                                            const SCEVConstant *ConstantTerm,
+                                            const SCEVAddExpr *WholeAddExpr) {
+  const APInt C = ConstantTerm->getAPInt();
+  const unsigned BitWidth = C.getBitWidth();
+  // Find number of trailing zeros of (x + y + ...) w/o the C first:
+  uint32_t TZ = BitWidth;
+  for (unsigned I = 1, E = WholeAddExpr->getNumOperands(); I < E && TZ; ++I)
+    TZ = std::min(TZ, SE.GetMinTrailingZeros(WholeAddExpr->getOperand(I)));
+  if (TZ) {
+    // Set D to be as many least significant bits of C as possible while still
+    // guaranteeing that adding D to (C - D + x + y + ...) won't cause a wrap:
+    return TZ < BitWidth ? C.trunc(TZ).zext(BitWidth) : C;
+  }
+  return APInt(BitWidth, 0);
+}
+
+// Finds an integer D for an affine AddRec expression {C,+,x} such that the top
+// level addition in (D + {C-D,+,x}) would not wrap (signed or unsigned) and the
+// number of trailing zeros of (C - D + x * n) is maximized, where C is the \p
+// ConstantStart, x is an arbitrary \p Step, and n is the loop trip count.
+static APInt extractConstantWithoutWrapping(ScalarEvolution &SE,
+                                            const APInt &ConstantStart,
+                                            const SCEV *Step) {
+  const unsigned BitWidth = ConstantStart.getBitWidth();
+  const uint32_t TZ = SE.GetMinTrailingZeros(Step);
+  if (TZ)
+    return TZ < BitWidth ? ConstantStart.trunc(TZ).zext(BitWidth)
+                         : ConstantStart;
+  return APInt(BitWidth, 0);
+}
+
 const SCEV *
 ScalarEvolution::getZeroExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
   assert(getTypeSizeInBits(Op->getType()) < getTypeSizeInBits(Ty) &&
@@ -1758,6 +1782,23 @@ ScalarEvolution::getZeroExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
         }
       }
 
+      // zext({C,+,Step}) --> (zext(D) + zext({C-D,+,Step}))<nuw><nsw>
+      // if D + (C - D + Step * n) could be proven to not unsigned wrap
+      // where D maximizes the number of trailing zeros of (C - D + Step * n)
+      if (const auto *SC = dyn_cast<SCEVConstant>(Start)) {
+        const APInt &C = SC->getAPInt();
+        const APInt &D = extractConstantWithoutWrapping(*this, C, Step);
+        if (D != 0) {
+          const SCEV *SZExtD = getZeroExtendExpr(getConstant(D), Ty, Depth);
+          const SCEV *SResidual =
+              getAddRecExpr(getConstant(C - D), Step, L, AR->getNoWrapFlags());
+          const SCEV *SZExtR = getZeroExtendExpr(SResidual, Ty, Depth + 1);
+          return getAddExpr(SZExtD, SZExtR,
+                            (SCEV::NoWrapFlags)(SCEV::FlagNSW | SCEV::FlagNUW),
+                            Depth + 1);
+        }
+      }
+
       if (proveNoWrapByVaryingStart<SCEVZeroExtendExpr>(Start, Step, L)) {
         const_cast<SCEVAddRecExpr *>(AR)->setNoWrapFlags(SCEV::FlagNUW);
         return getAddRecExpr(
@@ -1765,6 +1806,20 @@ ScalarEvolution::getZeroExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
             getZeroExtendExpr(Step, Ty, Depth + 1), L, AR->getNoWrapFlags());
       }
     }
+
+  // zext(A % B) --> zext(A) % zext(B)
+  {
+    const SCEV *LHS;
+    const SCEV *RHS;
+    if (matchURem(Op, LHS, RHS))
+      return getURemExpr(getZeroExtendExpr(LHS, Ty, Depth + 1),
+                         getZeroExtendExpr(RHS, Ty, Depth + 1));
+  }
+
+  // zext(A / B) --> zext(A) / zext(B).
+  if (auto *Div = dyn_cast<SCEVUDivExpr>(Op))
+    return getUDivExpr(getZeroExtendExpr(Div->getLHS(), Ty, Depth + 1),
+                       getZeroExtendExpr(Div->getRHS(), Ty, Depth + 1));
 
   if (auto *SA = dyn_cast<SCEVAddExpr>(Op)) {
     // zext((A + B + ...)<nuw>) --> (zext(A) + zext(B) + ...)<nuw>
@@ -1776,6 +1831,65 @@ ScalarEvolution::getZeroExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
         Ops.push_back(getZeroExtendExpr(Op, Ty, Depth + 1));
       return getAddExpr(Ops, SCEV::FlagNUW, Depth + 1);
     }
+
+    // zext(C + x + y + ...) --> (zext(D) + zext((C - D) + x + y + ...))
+    // if D + (C - D + x + y + ...) could be proven to not unsigned wrap
+    // where D maximizes the number of trailing zeros of (C - D + x + y + ...)
+    //
+    // Often address arithmetics contain expressions like
+    // (zext (add (shl X, C1), C2)), for instance, (zext (5 + (4 * X))).
+    // This transformation is useful while proving that such expressions are
+    // equal or differ by a small constant amount, see LoadStoreVectorizer pass.
+    if (const auto *SC = dyn_cast<SCEVConstant>(SA->getOperand(0))) {
+      const APInt &D = extractConstantWithoutWrapping(*this, SC, SA);
+      if (D != 0) {
+        const SCEV *SZExtD = getZeroExtendExpr(getConstant(D), Ty, Depth);
+        const SCEV *SResidual =
+            getAddExpr(getConstant(-D), SA, SCEV::FlagAnyWrap, Depth);
+        const SCEV *SZExtR = getZeroExtendExpr(SResidual, Ty, Depth + 1);
+        return getAddExpr(SZExtD, SZExtR,
+                          (SCEV::NoWrapFlags)(SCEV::FlagNSW | SCEV::FlagNUW),
+                          Depth + 1);
+      }
+    }
+  }
+
+  if (auto *SM = dyn_cast<SCEVMulExpr>(Op)) {
+    // zext((A * B * ...)<nuw>) --> (zext(A) * zext(B) * ...)<nuw>
+    if (SM->hasNoUnsignedWrap()) {
+      // If the multiply does not unsign overflow then we can, by definition,
+      // commute the zero extension with the multiply operation.
+      SmallVector<const SCEV *, 4> Ops;
+      for (const auto *Op : SM->operands())
+        Ops.push_back(getZeroExtendExpr(Op, Ty, Depth + 1));
+      return getMulExpr(Ops, SCEV::FlagNUW, Depth + 1);
+    }
+
+    // zext(2^K * (trunc X to iN)) to iM ->
+    // 2^K * (zext(trunc X to i{N-K}) to iM)<nuw>
+    //
+    // Proof:
+    //
+    //     zext(2^K * (trunc X to iN)) to iM
+    //   = zext((trunc X to iN) << K) to iM
+    //   = zext((trunc X to i{N-K}) << K)<nuw> to iM
+    //     (because shl removes the top K bits)
+    //   = zext((2^K * (trunc X to i{N-K}))<nuw>) to iM
+    //   = (2^K * (zext(trunc X to i{N-K}) to iM))<nuw>.
+    //
+    if (SM->getNumOperands() == 2)
+      if (auto *MulLHS = dyn_cast<SCEVConstant>(SM->getOperand(0)))
+        if (MulLHS->getAPInt().isPowerOf2())
+          if (auto *TruncRHS = dyn_cast<SCEVTruncateExpr>(SM->getOperand(1))) {
+            int NewTruncBits = getTypeSizeInBits(TruncRHS->getType()) -
+                               MulLHS->getAPInt().logBase2();
+            Type *NewTruncTy = IntegerType::get(getContext(), NewTruncBits);
+            return getMulExpr(
+                getZeroExtendExpr(MulLHS, Ty),
+                getZeroExtendExpr(
+                    getTruncateExpr(TruncRHS->getOperand(), NewTruncTy), Ty),
+                SCEV::FlagNUW, Depth + 1);
+          }
   }
 
   // The cast wasn't folded; create an explicit cast node.
@@ -1839,24 +1953,7 @@ ScalarEvolution::getSignExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
       return getTruncateOrSignExtend(X, Ty);
   }
 
-  // sext(C1 + (C2 * x)) --> C1 + sext(C2 * x) if C1 < C2
   if (auto *SA = dyn_cast<SCEVAddExpr>(Op)) {
-    if (SA->getNumOperands() == 2) {
-      auto *SC1 = dyn_cast<SCEVConstant>(SA->getOperand(0));
-      auto *SMul = dyn_cast<SCEVMulExpr>(SA->getOperand(1));
-      if (SMul && SC1) {
-        if (auto *SC2 = dyn_cast<SCEVConstant>(SMul->getOperand(0))) {
-          const APInt &C1 = SC1->getAPInt();
-          const APInt &C2 = SC2->getAPInt();
-          if (C1.isStrictlyPositive() && C2.isStrictlyPositive() &&
-              C2.ugt(C1) && C2.isPowerOf2())
-            return getAddExpr(getSignExtendExpr(SC1, Ty, Depth + 1),
-                              getSignExtendExpr(SMul, Ty, Depth + 1),
-                              SCEV::FlagAnyWrap, Depth + 1);
-        }
-      }
-    }
-
     // sext((A + B + ...)<nsw>) --> (sext(A) + sext(B) + ...)<nsw>
     if (SA->hasNoSignedWrap()) {
       // If the addition does not sign overflow then we can, by definition,
@@ -1865,6 +1962,28 @@ ScalarEvolution::getSignExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
       for (const auto *Op : SA->operands())
         Ops.push_back(getSignExtendExpr(Op, Ty, Depth + 1));
       return getAddExpr(Ops, SCEV::FlagNSW, Depth + 1);
+    }
+
+    // sext(C + x + y + ...) --> (sext(D) + sext((C - D) + x + y + ...))
+    // if D + (C - D + x + y + ...) could be proven to not signed wrap
+    // where D maximizes the number of trailing zeros of (C - D + x + y + ...)
+    //
+    // For instance, this will bring two seemingly different expressions:
+    //     1 + sext(5 + 20 * %x + 24 * %y)  and
+    //         sext(6 + 20 * %x + 24 * %y)
+    // to the same form:
+    //     2 + sext(4 + 20 * %x + 24 * %y)
+    if (const auto *SC = dyn_cast<SCEVConstant>(SA->getOperand(0))) {
+      const APInt &D = extractConstantWithoutWrapping(*this, SC, SA);
+      if (D != 0) {
+        const SCEV *SSExtD = getSignExtendExpr(getConstant(D), Ty, Depth);
+        const SCEV *SResidual =
+            getAddExpr(getConstant(-D), SA, SCEV::FlagAnyWrap, Depth);
+        const SCEV *SSExtR = getSignExtendExpr(SResidual, Ty, Depth + 1);
+        return getAddExpr(SSExtD, SSExtR,
+                          (SCEV::NoWrapFlags)(SCEV::FlagNSW | SCEV::FlagNUW),
+                          Depth + 1);
+      }
     }
   }
   // If the input value is a chrec scev, and we can prove that the value
@@ -1995,21 +2114,20 @@ ScalarEvolution::getSignExtendExpr(const SCEV *Op, Type *Ty, unsigned Depth) {
         }
       }
 
-      // If Start and Step are constants, check if we can apply this
-      // transformation:
-      // sext{C1,+,C2} --> C1 + sext{0,+,C2} if C1 < C2
-      auto *SC1 = dyn_cast<SCEVConstant>(Start);
-      auto *SC2 = dyn_cast<SCEVConstant>(Step);
-      if (SC1 && SC2) {
-        const APInt &C1 = SC1->getAPInt();
-        const APInt &C2 = SC2->getAPInt();
-        if (C1.isStrictlyPositive() && C2.isStrictlyPositive() && C2.ugt(C1) &&
-            C2.isPowerOf2()) {
-          Start = getSignExtendExpr(Start, Ty, Depth + 1);
-          const SCEV *NewAR = getAddRecExpr(getZero(AR->getType()), Step, L,
-                                            AR->getNoWrapFlags());
-          return getAddExpr(Start, getSignExtendExpr(NewAR, Ty, Depth + 1),
-                            SCEV::FlagAnyWrap, Depth + 1);
+      // sext({C,+,Step}) --> (sext(D) + sext({C-D,+,Step}))<nuw><nsw>
+      // if D + (C - D + Step * n) could be proven to not signed wrap
+      // where D maximizes the number of trailing zeros of (C - D + Step * n)
+      if (const auto *SC = dyn_cast<SCEVConstant>(Start)) {
+        const APInt &C = SC->getAPInt();
+        const APInt &D = extractConstantWithoutWrapping(*this, C, Step);
+        if (D != 0) {
+          const SCEV *SSExtD = getSignExtendExpr(getConstant(D), Ty, Depth);
+          const SCEV *SResidual =
+              getAddRecExpr(getConstant(C - D), Step, L, AR->getNoWrapFlags());
+          const SCEV *SSExtR = getSignExtendExpr(SResidual, Ty, Depth + 1);
+          return getAddExpr(SSExtD, SSExtR,
+                            (SCEV::NoWrapFlags)(SCEV::FlagNSW | SCEV::FlagNUW),
+                            Depth + 1);
         }
       }
 
@@ -2205,22 +2323,35 @@ StrengthenNoWrapFlags(ScalarEvolution *SE, SCEVTypes Type,
 
   SignOrUnsignWrap = ScalarEvolution::maskFlags(Flags, SignOrUnsignMask);
 
-  if (SignOrUnsignWrap != SignOrUnsignMask && Type == scAddExpr &&
-      Ops.size() == 2 && isa<SCEVConstant>(Ops[0])) {
+  if (SignOrUnsignWrap != SignOrUnsignMask &&
+      (Type == scAddExpr || Type == scMulExpr) && Ops.size() == 2 &&
+      isa<SCEVConstant>(Ops[0])) {
 
-    // (A + C) --> (A + C)<nsw> if the addition does not sign overflow
-    // (A + C) --> (A + C)<nuw> if the addition does not unsign overflow
+    auto Opcode = [&] {
+      switch (Type) {
+      case scAddExpr:
+        return Instruction::Add;
+      case scMulExpr:
+        return Instruction::Mul;
+      default:
+        llvm_unreachable("Unexpected SCEV op.");
+      }
+    }();
 
     const APInt &C = cast<SCEVConstant>(Ops[0])->getAPInt();
+
+    // (A <opcode> C) --> (A <opcode> C)<nsw> if the op doesn't sign overflow.
     if (!(SignOrUnsignWrap & SCEV::FlagNSW)) {
       auto NSWRegion = ConstantRange::makeGuaranteedNoWrapRegion(
-          Instruction::Add, C, OBO::NoSignedWrap);
+          Opcode, C, OBO::NoSignedWrap);
       if (NSWRegion.contains(SE->getSignedRange(Ops[1])))
         Flags = ScalarEvolution::setFlags(Flags, SCEV::FlagNSW);
     }
+
+    // (A <opcode> C) --> (A <opcode> C)<nuw> if the op doesn't unsign overflow.
     if (!(SignOrUnsignWrap & SCEV::FlagNUW)) {
       auto NUWRegion = ConstantRange::makeGuaranteedNoWrapRegion(
-          Instruction::Add, C, OBO::NoUnsignedWrap);
+          Opcode, C, OBO::NoUnsignedWrap);
       if (NUWRegion.contains(SE->getUnsignedRange(Ops[1])))
         Flags = ScalarEvolution::setFlags(Flags, SCEV::FlagNUW);
     }
@@ -2361,7 +2492,7 @@ const SCEV *ScalarEvolution::getAddExpr(SmallVectorImpl<const SCEV *> &Ops,
     }
     if (Ok) {
       // Evaluate the expression in the larger type.
-      const SCEV *Fold = getAddExpr(LargeOps, Flags, Depth + 1);
+      const SCEV *Fold = getAddExpr(LargeOps, SCEV::FlagAnyWrap, Depth + 1);
       // If it folds to something simple, use it. Otherwise, don't.
       if (isa<SCEVConstant>(Fold) || isa<SCEVUnknown>(Fold))
         return getTruncateExpr(Fold, Ty);
@@ -2739,22 +2870,21 @@ const SCEV *ScalarEvolution::getMulExpr(SmallVectorImpl<const SCEV *> &Ops,
   unsigned Idx = 0;
   if (const SCEVConstant *LHSC = dyn_cast<SCEVConstant>(Ops[0])) {
 
-    // C1*(C2+V) -> C1*C2 + C1*V
     if (Ops.size() == 2)
-        if (const SCEVAddExpr *Add = dyn_cast<SCEVAddExpr>(Ops[1]))
-          // If any of Add's ops are Adds or Muls with a constant,
-          // apply this transformation as well.
-          if (Add->getNumOperands() == 2)
-            // TODO: There are some cases where this transformation is not
-            // profitable, for example:
-            // Add = (C0 + X) * Y + Z.
-            // Maybe the scope of this transformation should be narrowed down.
-            if (containsConstantInAddMulChain(Add))
-              return getAddExpr(getMulExpr(LHSC, Add->getOperand(0),
-                                           SCEV::FlagAnyWrap, Depth + 1),
-                                getMulExpr(LHSC, Add->getOperand(1),
-                                           SCEV::FlagAnyWrap, Depth + 1),
-                                SCEV::FlagAnyWrap, Depth + 1);
+      // C1*(C2+V) -> C1*C2 + C1*V
+      if (const SCEVAddExpr *Add = dyn_cast<SCEVAddExpr>(Ops[1]))
+        // If any of Add's ops are Adds or Muls with a constant, apply this
+        // transformation as well.
+        //
+        // TODO: There are some cases where this transformation is not
+        // profitable; for example, Add = (C0 + X) * Y + Z.  Maybe the scope of
+        // this transformation should be narrowed down.
+        if (Add->getNumOperands() == 2 && containsConstantInAddMulChain(Add))
+          return getAddExpr(getMulExpr(LHSC, Add->getOperand(0),
+                                       SCEV::FlagAnyWrap, Depth + 1),
+                            getMulExpr(LHSC, Add->getOperand(1),
+                                       SCEV::FlagAnyWrap, Depth + 1),
+                            SCEV::FlagAnyWrap, Depth + 1);
 
     ++Idx;
     while (const SCEVConstant *RHSC = dyn_cast<SCEVConstant>(Ops[Idx])) {
@@ -3066,6 +3196,21 @@ const SCEV *ScalarEvolution::getUDivExpr(const SCEV *LHS,
             }
           }
       }
+
+      // (A/B)/C --> A/(B*C) if safe and B*C can be folded.
+      if (const SCEVUDivExpr *OtherDiv = dyn_cast<SCEVUDivExpr>(LHS)) {
+        if (auto *DivisorConstant =
+                dyn_cast<SCEVConstant>(OtherDiv->getRHS())) {
+          bool Overflow = false;
+          APInt NewRHS =
+              DivisorConstant->getAPInt().umul_ov(RHSC->getAPInt(), Overflow);
+          if (Overflow) {
+            return getConstant(RHSC->getType(), 0, false);
+          }
+          return getUDivExpr(OtherDiv->getLHS(), getConstant(NewRHS));
+        }
+      }
+
       // (A+B)/C --> (A/C + B/C) if safe and A/C and B/C can be folded.
       if (const SCEVAddExpr *A = dyn_cast<SCEVAddExpr>(LHS)) {
         SmallVector<const SCEV *, 4> Operands;
@@ -3630,7 +3775,7 @@ const SCEV *ScalarEvolution::getUnknown(Value *V) {
 /// target-specific information.
 bool ScalarEvolution::isSCEVable(Type *Ty) const {
   // Integers and pointers are always SCEVable.
-  return Ty->isIntegerTy() || Ty->isPointerTy();
+  return Ty->isIntOrPtrTy();
 }
 
 /// Return the size in bits of the specified type, for which isSCEVable must
@@ -3875,8 +4020,7 @@ const SCEV *ScalarEvolution::getMinusSCEV(const SCEV *LHS, const SCEV *RHS,
 const SCEV *
 ScalarEvolution::getTruncateOrZeroExtend(const SCEV *V, Type *Ty) {
   Type *SrcTy = V->getType();
-  assert((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(SrcTy->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot truncate or zero extend with non-integer arguments!");
   if (getTypeSizeInBits(SrcTy) == getTypeSizeInBits(Ty))
     return V;  // No conversion
@@ -3889,8 +4033,7 @@ const SCEV *
 ScalarEvolution::getTruncateOrSignExtend(const SCEV *V,
                                          Type *Ty) {
   Type *SrcTy = V->getType();
-  assert((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(SrcTy->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot truncate or zero extend with non-integer arguments!");
   if (getTypeSizeInBits(SrcTy) == getTypeSizeInBits(Ty))
     return V;  // No conversion
@@ -3902,8 +4045,7 @@ ScalarEvolution::getTruncateOrSignExtend(const SCEV *V,
 const SCEV *
 ScalarEvolution::getNoopOrZeroExtend(const SCEV *V, Type *Ty) {
   Type *SrcTy = V->getType();
-  assert((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(SrcTy->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot noop or zero extend with non-integer arguments!");
   assert(getTypeSizeInBits(SrcTy) <= getTypeSizeInBits(Ty) &&
          "getNoopOrZeroExtend cannot truncate!");
@@ -3915,8 +4057,7 @@ ScalarEvolution::getNoopOrZeroExtend(const SCEV *V, Type *Ty) {
 const SCEV *
 ScalarEvolution::getNoopOrSignExtend(const SCEV *V, Type *Ty) {
   Type *SrcTy = V->getType();
-  assert((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(SrcTy->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot noop or sign extend with non-integer arguments!");
   assert(getTypeSizeInBits(SrcTy) <= getTypeSizeInBits(Ty) &&
          "getNoopOrSignExtend cannot truncate!");
@@ -3928,8 +4069,7 @@ ScalarEvolution::getNoopOrSignExtend(const SCEV *V, Type *Ty) {
 const SCEV *
 ScalarEvolution::getNoopOrAnyExtend(const SCEV *V, Type *Ty) {
   Type *SrcTy = V->getType();
-  assert((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(SrcTy->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot noop or any extend with non-integer arguments!");
   assert(getTypeSizeInBits(SrcTy) <= getTypeSizeInBits(Ty) &&
          "getNoopOrAnyExtend cannot truncate!");
@@ -3941,8 +4081,7 @@ ScalarEvolution::getNoopOrAnyExtend(const SCEV *V, Type *Ty) {
 const SCEV *
 ScalarEvolution::getTruncateOrNoop(const SCEV *V, Type *Ty) {
   Type *SrcTy = V->getType();
-  assert((SrcTy->isIntegerTy() || SrcTy->isPointerTy()) &&
-         (Ty->isIntegerTy() || Ty->isPointerTy()) &&
+  assert(SrcTy->isIntOrPtrTy() && Ty->isIntOrPtrTy() &&
          "Cannot truncate or noop with non-integer arguments!");
   assert(getTypeSizeInBits(SrcTy) >= getTypeSizeInBits(Ty) &&
          "getTruncateOrNoop cannot extend!");
@@ -4700,7 +4839,7 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
 
   // Construct the extended SCEV: (Ext ix (Trunc iy (Expr) to ix) to iy)
   // for each of StartVal and Accum
-  auto getExtendedExpr = [&](const SCEV *Expr, 
+  auto getExtendedExpr = [&](const SCEV *Expr,
                              bool CreateSignExtend) -> const SCEV * {
     assert(isLoopInvariant(Expr, L) && "Expr is expected to be invariant");
     const SCEV *TruncatedExpr = getTruncateExpr(Expr, TruncTy);
@@ -4796,11 +4935,11 @@ ScalarEvolution::createAddRecFromPHIWithCasts(const SCEVUnknown *SymbolicPHI) {
   return Rewrite;
 }
 
-// FIXME: This utility is currently required because the Rewriter currently 
-// does not rewrite this expression: 
-// {0, +, (sext ix (trunc iy to ix) to iy)} 
+// FIXME: This utility is currently required because the Rewriter currently
+// does not rewrite this expression:
+// {0, +, (sext ix (trunc iy to ix) to iy)}
 // into {0, +, %step},
-// even when the following Equal predicate exists: 
+// even when the following Equal predicate exists:
 // "%step == (sext ix (trunc iy to ix) to iy)".
 bool PredicatedScalarEvolution::areAddRecsEqualWithPreds(
     const SCEVAddRecExpr *AR1, const SCEVAddRecExpr *AR2) const {
@@ -6203,33 +6342,33 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
       }
       break;
 
-  case Instruction::Shl:
-    // Turn shift left of a constant amount into a multiply.
-    if (ConstantInt *SA = dyn_cast<ConstantInt>(BO->RHS)) {
-      uint32_t BitWidth = cast<IntegerType>(SA->getType())->getBitWidth();
+    case Instruction::Shl:
+      // Turn shift left of a constant amount into a multiply.
+      if (ConstantInt *SA = dyn_cast<ConstantInt>(BO->RHS)) {
+        uint32_t BitWidth = cast<IntegerType>(SA->getType())->getBitWidth();
 
-      // If the shift count is not less than the bitwidth, the result of
-      // the shift is undefined. Don't try to analyze it, because the
-      // resolution chosen here may differ from the resolution chosen in
-      // other parts of the compiler.
-      if (SA->getValue().uge(BitWidth))
-        break;
+        // If the shift count is not less than the bitwidth, the result of
+        // the shift is undefined. Don't try to analyze it, because the
+        // resolution chosen here may differ from the resolution chosen in
+        // other parts of the compiler.
+        if (SA->getValue().uge(BitWidth))
+          break;
 
-      // It is currently not resolved how to interpret NSW for left
-      // shift by BitWidth - 1, so we avoid applying flags in that
-      // case. Remove this check (or this comment) once the situation
-      // is resolved. See
-      // http://lists.llvm.org/pipermail/llvm-dev/2015-April/084195.html
-      // and http://reviews.llvm.org/D8890 .
-      auto Flags = SCEV::FlagAnyWrap;
-      if (BO->Op && SA->getValue().ult(BitWidth - 1))
-        Flags = getNoWrapFlagsFromUB(BO->Op);
+        // It is currently not resolved how to interpret NSW for left
+        // shift by BitWidth - 1, so we avoid applying flags in that
+        // case. Remove this check (or this comment) once the situation
+        // is resolved. See
+        // http://lists.llvm.org/pipermail/llvm-dev/2015-April/084195.html
+        // and http://reviews.llvm.org/D8890 .
+        auto Flags = SCEV::FlagAnyWrap;
+        if (BO->Op && SA->getValue().ult(BitWidth - 1))
+          Flags = getNoWrapFlagsFromUB(BO->Op);
 
-      Constant *X = ConstantInt::get(getContext(),
-        APInt::getOneBitSet(BitWidth, SA->getZExtValue()));
-      return getMulExpr(getSCEV(BO->LHS), getSCEV(X), Flags);
-    }
-    break;
+        Constant *X = ConstantInt::get(
+            getContext(), APInt::getOneBitSet(BitWidth, SA->getZExtValue()));
+        return getMulExpr(getSCEV(BO->LHS), getSCEV(X), Flags);
+      }
+      break;
 
     case Instruction::AShr: {
       // AShr X, C, where C is a constant.
@@ -8150,6 +8289,14 @@ const SCEV *ScalarEvolution::getSCEVAtScope(Value *V, const Loop *L) {
   return getSCEVAtScope(getSCEV(V), L);
 }
 
+const SCEV *ScalarEvolution::stripInjectiveFunctions(const SCEV *S) const {
+  if (const SCEVZeroExtendExpr *ZExt = dyn_cast<SCEVZeroExtendExpr>(S))
+    return stripInjectiveFunctions(ZExt->getOperand());
+  if (const SCEVSignExtendExpr *SExt = dyn_cast<SCEVSignExtendExpr>(S))
+    return stripInjectiveFunctions(SExt->getOperand());
+  return S;
+}
+
 /// Finds the minimum unsigned root of the following equation:
 ///
 ///     A * X = B (mod N)
@@ -8197,69 +8344,273 @@ static const SCEV *SolveLinEquationWithOverflow(const APInt &A, const SCEV *B,
   return SE.getUDivExactExpr(SE.getMulExpr(B, SE.getConstant(I)), D);
 }
 
-/// Find the roots of the quadratic equation for the given quadratic chrec
-/// {L,+,M,+,N}.  This returns either the two roots (which might be the same) or
-/// two SCEVCouldNotCompute objects.
-static Optional<std::pair<const SCEVConstant *,const SCEVConstant *>>
-SolveQuadraticEquation(const SCEVAddRecExpr *AddRec, ScalarEvolution &SE) {
+/// For a given quadratic addrec, generate coefficients of the corresponding
+/// quadratic equation, multiplied by a common value to ensure that they are
+/// integers.
+/// The returned value is a tuple { A, B, C, M, BitWidth }, where
+/// Ax^2 + Bx + C is the quadratic function, M is the value that A, B and C
+/// were multiplied by, and BitWidth is the bit width of the original addrec
+/// coefficients.
+/// This function returns None if the addrec coefficients are not compile-
+/// time constants.
+static Optional<std::tuple<APInt, APInt, APInt, APInt, unsigned>>
+GetQuadraticEquation(const SCEVAddRecExpr *AddRec) {
   assert(AddRec->getNumOperands() == 3 && "This is not a quadratic chrec!");
   const SCEVConstant *LC = dyn_cast<SCEVConstant>(AddRec->getOperand(0));
   const SCEVConstant *MC = dyn_cast<SCEVConstant>(AddRec->getOperand(1));
   const SCEVConstant *NC = dyn_cast<SCEVConstant>(AddRec->getOperand(2));
+  LLVM_DEBUG(dbgs() << __func__ << ": analyzing quadratic addrec: "
+                    << *AddRec << '\n');
 
   // We currently can only solve this if the coefficients are constants.
-  if (!LC || !MC || !NC)
-    return None;
-
-  uint32_t BitWidth = LC->getAPInt().getBitWidth();
-  const APInt &L = LC->getAPInt();
-  const APInt &M = MC->getAPInt();
-  const APInt &N = NC->getAPInt();
-  APInt Two(BitWidth, 2);
-
-  // Convert from chrec coefficients to polynomial coefficients AX^2+BX+C
-
-  // The A coefficient is N/2
-  APInt A = N.sdiv(Two);
-
-  // The B coefficient is M-N/2
-  APInt B = M;
-  B -= A; // A is the same as N/2.
-
-  // The C coefficient is L.
-  const APInt& C = L;
-
-  // Compute the B^2-4ac term.
-  APInt SqrtTerm = B;
-  SqrtTerm *= B;
-  SqrtTerm -= 4 * (A * C);
-
-  if (SqrtTerm.isNegative()) {
-    // The loop is provably infinite.
+  if (!LC || !MC || !NC) {
+    LLVM_DEBUG(dbgs() << __func__ << ": coefficients are not constant\n");
     return None;
   }
 
-  // Compute sqrt(B^2-4ac). This is guaranteed to be the nearest
-  // integer value or else APInt::sqrt() will assert.
-  APInt SqrtVal = SqrtTerm.sqrt();
+  APInt L = LC->getAPInt();
+  APInt M = MC->getAPInt();
+  APInt N = NC->getAPInt();
+  assert(!N.isNullValue() && "This is not a quadratic addrec");
 
-  // Compute the two solutions for the quadratic formula.
-  // The divisions must be performed as signed divisions.
-  APInt NegB = -std::move(B);
-  APInt TwoA = std::move(A);
-  TwoA <<= 1;
-  if (TwoA.isNullValue())
+  unsigned BitWidth = LC->getAPInt().getBitWidth();
+  unsigned NewWidth = BitWidth + 1;
+  LLVM_DEBUG(dbgs() << __func__ << ": addrec coeff bw: "
+                    << BitWidth << '\n');
+  // The sign-extension (as opposed to a zero-extension) here matches the
+  // extension used in SolveQuadraticEquationWrap (with the same motivation).
+  N = N.sext(NewWidth);
+  M = M.sext(NewWidth);
+  L = L.sext(NewWidth);
+
+  // The increments are M, M+N, M+2N, ..., so the accumulated values are
+  //   L+M, (L+M)+(M+N), (L+M)+(M+N)+(M+2N), ..., that is,
+  //   L+M, L+2M+N, L+3M+3N, ...
+  // After n iterations the accumulated value Acc is L + nM + n(n-1)/2 N.
+  //
+  // The equation Acc = 0 is then
+  //   L + nM + n(n-1)/2 N = 0,  or  2L + 2M n + n(n-1) N = 0.
+  // In a quadratic form it becomes:
+  //   N n^2 + (2M-N) n + 2L = 0.
+
+  APInt A = N;
+  APInt B = 2 * M - A;
+  APInt C = 2 * L;
+  APInt T = APInt(NewWidth, 2);
+  LLVM_DEBUG(dbgs() << __func__ << ": equation " << A << "x^2 + " << B
+                    << "x + " << C << ", coeff bw: " << NewWidth
+                    << ", multiplied by " << T << '\n');
+  return std::make_tuple(A, B, C, T, BitWidth);
+}
+
+/// Helper function to compare optional APInts:
+/// (a) if X and Y both exist, return min(X, Y),
+/// (b) if neither X nor Y exist, return None,
+/// (c) if exactly one of X and Y exists, return that value.
+static Optional<APInt> MinOptional(Optional<APInt> X, Optional<APInt> Y) {
+  if (X.hasValue() && Y.hasValue()) {
+    unsigned W = std::max(X->getBitWidth(), Y->getBitWidth());
+    APInt XW = X->sextOrSelf(W);
+    APInt YW = Y->sextOrSelf(W);
+    return XW.slt(YW) ? *X : *Y;
+  }
+  if (!X.hasValue() && !Y.hasValue())
+    return None;
+  return X.hasValue() ? *X : *Y;
+}
+
+/// Helper function to truncate an optional APInt to a given BitWidth.
+/// When solving addrec-related equations, it is preferable to return a value
+/// that has the same bit width as the original addrec's coefficients. If the
+/// solution fits in the original bit width, truncate it (except for i1).
+/// Returning a value of a different bit width may inhibit some optimizations.
+///
+/// In general, a solution to a quadratic equation generated from an addrec
+/// may require BW+1 bits, where BW is the bit width of the addrec's
+/// coefficients. The reason is that the coefficients of the quadratic
+/// equation are BW+1 bits wide (to avoid truncation when converting from
+/// the addrec to the equation).
+static Optional<APInt> TruncIfPossible(Optional<APInt> X, unsigned BitWidth) {
+  if (!X.hasValue())
+    return None;
+  unsigned W = X->getBitWidth();
+  if (BitWidth > 1 && BitWidth < W && X->isIntN(BitWidth))
+    return X->trunc(BitWidth);
+  return X;
+}
+
+/// Let c(n) be the value of the quadratic chrec {L,+,M,+,N} after n
+/// iterations. The values L, M, N are assumed to be signed, and they
+/// should all have the same bit widths.
+/// Find the least n >= 0 such that c(n) = 0 in the arithmetic modulo 2^BW,
+/// where BW is the bit width of the addrec's coefficients.
+/// If the calculated value is a BW-bit integer (for BW > 1), it will be
+/// returned as such, otherwise the bit width of the returned value may
+/// be greater than BW.
+///
+/// This function returns None if
+/// (a) the addrec coefficients are not constant, or
+/// (b) SolveQuadraticEquationWrap was unable to find a solution. For cases
+///     like x^2 = 5, no integer solutions exist, in other cases an integer
+///     solution may exist, but SolveQuadraticEquationWrap may fail to find it.
+static Optional<APInt>
+SolveQuadraticAddRecExact(const SCEVAddRecExpr *AddRec, ScalarEvolution &SE) {
+  APInt A, B, C, M;
+  unsigned BitWidth;
+  auto T = GetQuadraticEquation(AddRec);
+  if (!T.hasValue())
     return None;
 
-  LLVMContext &Context = SE.getContext();
+  std::tie(A, B, C, M, BitWidth) = *T;
+  LLVM_DEBUG(dbgs() << __func__ << ": solving for unsigned overflow\n");
+  Optional<APInt> X = APIntOps::SolveQuadraticEquationWrap(A, B, C, BitWidth+1);
+  if (!X.hasValue())
+    return None;
 
-  ConstantInt *Solution1 =
-    ConstantInt::get(Context, (NegB + SqrtVal).sdiv(TwoA));
-  ConstantInt *Solution2 =
-    ConstantInt::get(Context, (NegB - SqrtVal).sdiv(TwoA));
+  ConstantInt *CX = ConstantInt::get(SE.getContext(), *X);
+  ConstantInt *V = EvaluateConstantChrecAtConstant(AddRec, CX, SE);
+  if (!V->isZero())
+    return None;
 
-  return std::make_pair(cast<SCEVConstant>(SE.getConstant(Solution1)),
-                        cast<SCEVConstant>(SE.getConstant(Solution2)));
+  return TruncIfPossible(X, BitWidth);
+}
+
+/// Let c(n) be the value of the quadratic chrec {0,+,M,+,N} after n
+/// iterations. The values M, N are assumed to be signed, and they
+/// should all have the same bit widths.
+/// Find the least n such that c(n) does not belong to the given range,
+/// while c(n-1) does.
+///
+/// This function returns None if
+/// (a) the addrec coefficients are not constant, or
+/// (b) SolveQuadraticEquationWrap was unable to find a solution for the
+///     bounds of the range.
+static Optional<APInt>
+SolveQuadraticAddRecRange(const SCEVAddRecExpr *AddRec,
+                          const ConstantRange &Range, ScalarEvolution &SE) {
+  assert(AddRec->getOperand(0)->isZero() &&
+         "Starting value of addrec should be 0");
+  LLVM_DEBUG(dbgs() << __func__ << ": solving boundary crossing for range "
+                    << Range << ", addrec " << *AddRec << '\n');
+  // This case is handled in getNumIterationsInRange. Here we can assume that
+  // we start in the range.
+  assert(Range.contains(APInt(SE.getTypeSizeInBits(AddRec->getType()), 0)) &&
+         "Addrec's initial value should be in range");
+
+  APInt A, B, C, M;
+  unsigned BitWidth;
+  auto T = GetQuadraticEquation(AddRec);
+  if (!T.hasValue())
+    return None;
+
+  // Be careful about the return value: there can be two reasons for not
+  // returning an actual number. First, if no solutions to the equations
+  // were found, and second, if the solutions don't leave the given range.
+  // The first case means that the actual solution is "unknown", the second
+  // means that it's known, but not valid. If the solution is unknown, we
+  // cannot make any conclusions.
+  // Return a pair: the optional solution and a flag indicating if the
+  // solution was found.
+  auto SolveForBoundary = [&](APInt Bound) -> std::pair<Optional<APInt>,bool> {
+    // Solve for signed overflow and unsigned overflow, pick the lower
+    // solution.
+    LLVM_DEBUG(dbgs() << "SolveQuadraticAddRecRange: checking boundary "
+                      << Bound << " (before multiplying by " << M << ")\n");
+    Bound *= M; // The quadratic equation multiplier.
+
+    Optional<APInt> SO = None;
+    if (BitWidth > 1) {
+      LLVM_DEBUG(dbgs() << "SolveQuadraticAddRecRange: solving for "
+                           "signed overflow\n");
+      SO = APIntOps::SolveQuadraticEquationWrap(A, B, -Bound, BitWidth);
+    }
+    LLVM_DEBUG(dbgs() << "SolveQuadraticAddRecRange: solving for "
+                         "unsigned overflow\n");
+    Optional<APInt> UO = APIntOps::SolveQuadraticEquationWrap(A, B, -Bound,
+                                                              BitWidth+1);
+
+    auto LeavesRange = [&] (const APInt &X) {
+      ConstantInt *C0 = ConstantInt::get(SE.getContext(), X);
+      ConstantInt *V0 = EvaluateConstantChrecAtConstant(AddRec, C0, SE);
+      if (Range.contains(V0->getValue()))
+        return false;
+      // X should be at least 1, so X-1 is non-negative.
+      ConstantInt *C1 = ConstantInt::get(SE.getContext(), X-1);
+      ConstantInt *V1 = EvaluateConstantChrecAtConstant(AddRec, C1, SE);
+      if (Range.contains(V1->getValue()))
+        return true;
+      return false;
+    };
+
+    // If SolveQuadraticEquationWrap returns None, it means that there can
+    // be a solution, but the function failed to find it. We cannot treat it
+    // as "no solution".
+    if (!SO.hasValue() || !UO.hasValue())
+      return { None, false };
+
+    // Check the smaller value first to see if it leaves the range.
+    // At this point, both SO and UO must have values.
+    Optional<APInt> Min = MinOptional(SO, UO);
+    if (LeavesRange(*Min))
+      return { Min, true };
+    Optional<APInt> Max = Min == SO ? UO : SO;
+    if (LeavesRange(*Max))
+      return { Max, true };
+
+    // Solutions were found, but were eliminated, hence the "true".
+    return { None, true };
+  };
+
+  std::tie(A, B, C, M, BitWidth) = *T;
+  // Lower bound is inclusive, subtract 1 to represent the exiting value.
+  APInt Lower = Range.getLower().sextOrSelf(A.getBitWidth()) - 1;
+  APInt Upper = Range.getUpper().sextOrSelf(A.getBitWidth());
+  auto SL = SolveForBoundary(Lower);
+  auto SU = SolveForBoundary(Upper);
+  // If any of the solutions was unknown, no meaninigful conclusions can
+  // be made.
+  if (!SL.second || !SU.second)
+    return None;
+
+  // Claim: The correct solution is not some value between Min and Max.
+  //
+  // Justification: Assuming that Min and Max are different values, one of
+  // them is when the first signed overflow happens, the other is when the
+  // first unsigned overflow happens. Crossing the range boundary is only
+  // possible via an overflow (treating 0 as a special case of it, modeling
+  // an overflow as crossing k*2^W for some k).
+  //
+  // The interesting case here is when Min was eliminated as an invalid
+  // solution, but Max was not. The argument is that if there was another
+  // overflow between Min and Max, it would also have been eliminated if
+  // it was considered.
+  //
+  // For a given boundary, it is possible to have two overflows of the same
+  // type (signed/unsigned) without having the other type in between: this
+  // can happen when the vertex of the parabola is between the iterations
+  // corresponding to the overflows. This is only possible when the two
+  // overflows cross k*2^W for the same k. In such case, if the second one
+  // left the range (and was the first one to do so), the first overflow
+  // would have to enter the range, which would mean that either we had left
+  // the range before or that we started outside of it. Both of these cases
+  // are contradictions.
+  //
+  // Claim: In the case where SolveForBoundary returns None, the correct
+  // solution is not some value between the Max for this boundary and the
+  // Min of the other boundary.
+  //
+  // Justification: Assume that we had such Max_A and Min_B corresponding
+  // to range boundaries A and B and such that Max_A < Min_B. If there was
+  // a solution between Max_A and Min_B, it would have to be caused by an
+  // overflow corresponding to either A or B. It cannot correspond to B,
+  // since Min_B is the first occurrence of such an overflow. If it
+  // corresponded to A, it would have to be either a signed or an unsigned
+  // overflow that is larger than both eliminated overflows for A. But
+  // between the eliminated overflows and this overflow, the values would
+  // cover the entire value space, thus crossing the other boundary, which
+  // is a contradiction.
+
+  return TruncIfPossible(MinOptional(SL.first, SU.first), BitWidth);
 }
 
 ScalarEvolution::ExitLimit
@@ -8279,7 +8630,9 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
     return getCouldNotCompute();  // Otherwise it will loop infinitely.
   }
 
-  const SCEVAddRecExpr *AddRec = dyn_cast<SCEVAddRecExpr>(V);
+  const SCEVAddRecExpr *AddRec =
+      dyn_cast<SCEVAddRecExpr>(stripInjectiveFunctions(V));
+
   if (!AddRec && AllowPredicates)
     // Try to make this an AddRec using runtime tests, in the first X
     // iterations of this loop, where X is the SCEV expression found by the
@@ -8292,23 +8645,12 @@ ScalarEvolution::howFarToZero(const SCEV *V, const Loop *L, bool ControlsExit,
   // If this is a quadratic (3-term) AddRec {L,+,M,+,N}, find the roots of
   // the quadratic equation to solve it.
   if (AddRec->isQuadratic() && AddRec->getType()->isIntegerTy()) {
-    if (auto Roots = SolveQuadraticEquation(AddRec, *this)) {
-      const SCEVConstant *R1 = Roots->first;
-      const SCEVConstant *R2 = Roots->second;
-      // Pick the smallest positive root value.
-      if (ConstantInt *CB = dyn_cast<ConstantInt>(ConstantExpr::getICmp(
-              CmpInst::ICMP_ULT, R1->getValue(), R2->getValue()))) {
-        if (!CB->getZExtValue())
-          std::swap(R1, R2); // R1 is the minimum root now.
-
-        // We can only use this value if the chrec ends up with an exact zero
-        // value at this index.  When solving for "X*X != 5", for example, we
-        // should not accept a root of 2.
-        const SCEV *Val = AddRec->evaluateAtIteration(R1, *this);
-        if (Val->isZero())
-          // We found a quadratic root!
-          return ExitLimit(R1, R1, false, Predicates);
-      }
+    // We can only use this value if the chrec ends up with an exact zero
+    // value at this index.  When solving for "X*X != 5", for example, we
+    // should not accept a root of 2.
+    if (auto S = SolveQuadraticAddRecExact(AddRec, *this)) {
+      const auto *R = cast<SCEVConstant>(getConstant(S.getValue()));
+      return ExitLimit(R, R, false, Predicates);
     }
     return getCouldNotCompute();
   }
@@ -9646,8 +9988,9 @@ bool ScalarEvolution::isImpliedViaMerge(ICmpInst::Predicate Pred,
     // AddRec. It means that there is a loop which has both AddRec and Unknown
     // PHIs, for it we can compare incoming values of AddRec from above the loop
     // and latch with their respective incoming values of LPhi.
-    assert(LPhi->getNumIncomingValues() == 2 &&
-           "Phi node standing in loop header does not have exactly 2 inputs?");
+    // TODO: Generalize to handle loops with many inputs in a header.
+    if (LPhi->getNumIncomingValues() != 2) return false;
+
     auto *RLoop = RAR->getLoop();
     auto *Predecessor = RLoop->getLoopPredecessor();
     assert(Predecessor && "Loop with AddRec with no predecessor?");
@@ -10415,52 +10758,11 @@ const SCEV *SCEVAddRecExpr::getNumIterationsInRange(const ConstantRange &Range,
            ConstantInt::get(SE.getContext(), ExitVal - 1), SE)->getValue()) &&
            "Linear scev computation is off in a bad way!");
     return SE.getConstant(ExitValue);
-  } else if (isQuadratic()) {
-    // If this is a quadratic (3-term) AddRec {L,+,M,+,N}, find the roots of the
-    // quadratic equation to solve it.  To do this, we must frame our problem in
-    // terms of figuring out when zero is crossed, instead of when
-    // Range.getUpper() is crossed.
-    SmallVector<const SCEV *, 4> NewOps(op_begin(), op_end());
-    NewOps[0] = SE.getNegativeSCEV(SE.getConstant(Range.getUpper()));
-    const SCEV *NewAddRec = SE.getAddRecExpr(NewOps, getLoop(), FlagAnyWrap);
+  }
 
-    // Next, solve the constructed addrec
-    if (auto Roots =
-            SolveQuadraticEquation(cast<SCEVAddRecExpr>(NewAddRec), SE)) {
-      const SCEVConstant *R1 = Roots->first;
-      const SCEVConstant *R2 = Roots->second;
-      // Pick the smallest positive root value.
-      if (ConstantInt *CB = dyn_cast<ConstantInt>(ConstantExpr::getICmp(
-              ICmpInst::ICMP_ULT, R1->getValue(), R2->getValue()))) {
-        if (!CB->getZExtValue())
-          std::swap(R1, R2); // R1 is the minimum root now.
-
-        // Make sure the root is not off by one.  The returned iteration should
-        // not be in the range, but the previous one should be.  When solving
-        // for "X*X < 5", for example, we should not return a root of 2.
-        ConstantInt *R1Val =
-            EvaluateConstantChrecAtConstant(this, R1->getValue(), SE);
-        if (Range.contains(R1Val->getValue())) {
-          // The next iteration must be out of the range...
-          ConstantInt *NextVal =
-              ConstantInt::get(SE.getContext(), R1->getAPInt() + 1);
-
-          R1Val = EvaluateConstantChrecAtConstant(this, NextVal, SE);
-          if (!Range.contains(R1Val->getValue()))
-            return SE.getConstant(NextVal);
-          return SE.getCouldNotCompute(); // Something strange happened
-        }
-
-        // If R1 was not in the range, then it is a good return value.  Make
-        // sure that R1-1 WAS in the range though, just in case.
-        ConstantInt *NextVal =
-            ConstantInt::get(SE.getContext(), R1->getAPInt() - 1);
-        R1Val = EvaluateConstantChrecAtConstant(this, NextVal, SE);
-        if (Range.contains(R1Val->getValue()))
-          return R1;
-        return SE.getCouldNotCompute(); // Something strange happened
-      }
-    }
+  if (isQuadratic()) {
+    if (auto S = SolveQuadraticAddRecRange(this, Range, SE))
+      return SE.getConstant(S.getValue());
   }
 
   return SE.getCouldNotCompute();
@@ -12100,4 +12402,44 @@ void PredicatedScalarEvolution::print(raw_ostream &OS, unsigned Depth) const {
       OS.indent(Depth + 2) << *Expr << "\n";
       OS.indent(Depth + 2) << "--> " << *II->second.second << "\n";
     }
+}
+
+// Match the mathematical pattern A - (A / B) * B, where A and B can be
+// arbitrary expressions.
+// It's not always easy, as A and B can be folded (imagine A is X / 2, and B is
+// 4, A / B becomes X / 8).
+bool ScalarEvolution::matchURem(const SCEV *Expr, const SCEV *&LHS,
+                                const SCEV *&RHS) {
+  const auto *Add = dyn_cast<SCEVAddExpr>(Expr);
+  if (Add == nullptr || Add->getNumOperands() != 2)
+    return false;
+
+  const SCEV *A = Add->getOperand(1);
+  const auto *Mul = dyn_cast<SCEVMulExpr>(Add->getOperand(0));
+
+  if (Mul == nullptr)
+    return false;
+
+  const auto MatchURemWithDivisor = [&](const SCEV *B) {
+    // (SomeExpr + (-(SomeExpr / B) * B)).
+    if (Expr == getURemExpr(A, B)) {
+      LHS = A;
+      RHS = B;
+      return true;
+    }
+    return false;
+  };
+
+  // (SomeExpr + (-1 * (SomeExpr / B) * B)).
+  if (Mul->getNumOperands() == 3 && isa<SCEVConstant>(Mul->getOperand(0)))
+    return MatchURemWithDivisor(Mul->getOperand(1)) ||
+           MatchURemWithDivisor(Mul->getOperand(2));
+
+  // (SomeExpr + ((-SomeExpr / B) * B)) or (SomeExpr + ((SomeExpr / B) * -B)).
+  if (Mul->getNumOperands() == 2)
+    return MatchURemWithDivisor(Mul->getOperand(1)) ||
+           MatchURemWithDivisor(Mul->getOperand(0)) ||
+           MatchURemWithDivisor(getNegativeSCEV(Mul->getOperand(1))) ||
+           MatchURemWithDivisor(getNegativeSCEV(Mul->getOperand(0)));
+  return false;
 }

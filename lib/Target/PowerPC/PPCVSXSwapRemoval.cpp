@@ -443,7 +443,7 @@ bool PPCVSXSwapRemoval::gatherVectorInstructions() {
         // We can handle STXSDX and STXSSPX similarly to LXSDX and LXSSPX,
         // by adding special handling for narrowing copies as well as
         // widening ones.  However, I've experimented with this, and in
-        // practice we currently do not appear to use STXSDX fed by 
+        // practice we currently do not appear to use STXSDX fed by
         // a narrowing copy from a full vector register.  Since I can't
         // generate any useful test cases, I've left this alone for now.
       case PPC::STXSDX:
@@ -877,6 +877,12 @@ void PPCVSXSwapRemoval::handleSpecialSwappables(int EntryIdx) {
     unsigned Reg2 = MI->getOperand(2).getReg();
     MI->getOperand(1).setReg(Reg2);
     MI->getOperand(2).setReg(Reg1);
+
+    // We also need to swap kill flag associated with the register.
+    bool IsKill1 = MI->getOperand(1).isKill();
+    bool IsKill2 = MI->getOperand(2).isKill();
+    MI->getOperand(1).setIsKill(IsKill2);
+    MI->getOperand(2).setIsKill(IsKill1);
 
     LLVM_DEBUG(dbgs() << "  Into: ");
     LLVM_DEBUG(MI->dump());

@@ -39,6 +39,16 @@ inline char hexdigit(unsigned X, bool LowerCase = false) {
   return X < 10 ? '0' + X : HexChar + X - 10;
 }
 
+/// Given an array of c-style strings terminated by a null pointer, construct
+/// a vector of StringRefs representing the same strings without the terminating
+/// null string.
+inline std::vector<StringRef> toStringRefArray(const char *const *Strings) {
+  std::vector<StringRef> Result;
+  while (*Strings)
+    Result.push_back(*Strings++);
+  return Result;
+}
+
 /// Construct a string ref from a boolean.
 inline StringRef toStringRef(bool B) { return StringRef(B ? "true" : "false"); }
 
@@ -77,6 +87,26 @@ inline bool isAlpha(char C) {
 /// Checks whether character \p C is either a decimal digit or an uppercase or
 /// lowercase letter as classified by "C" locale.
 inline bool isAlnum(char C) { return isAlpha(C) || isDigit(C); }
+
+/// Checks whether character \p C is valid ASCII (high bit is zero).
+inline bool isASCII(char C) { return static_cast<unsigned char>(C) <= 127; }
+
+/// Checks whether all characters in S are ASCII.
+inline bool isASCII(llvm::StringRef S) {
+  for (char C : S)
+    if (LLVM_UNLIKELY(!isASCII(C)))
+      return false;
+  return true;
+}
+
+/// Checks whether character \p C is printable.
+///
+/// Locale-independent version of the C standard library isprint whose results
+/// may differ on different platforms.
+inline bool isPrint(char C) {
+  unsigned char UC = static_cast<unsigned char>(C);
+  return (0x20 <= UC) && (UC <= 0x7E);
+}
 
 /// Returns the corresponding lowercase character if \p x is uppercase.
 inline char toLower(char x) {

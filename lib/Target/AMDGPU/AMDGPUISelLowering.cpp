@@ -30,6 +30,7 @@
 #include "SIInstrInfo.h"
 #include "SIMachineFunctionInfo.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
+#include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -39,18 +40,6 @@
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/Support/KnownBits.h"
 using namespace llvm;
-
-static bool allocateKernArg(unsigned ValNo, MVT ValVT, MVT LocVT,
-                            CCValAssign::LocInfo LocInfo,
-                            ISD::ArgFlagsTy ArgFlags, CCState &State) {
-  MachineFunction &MF = State.getMachineFunction();
-  AMDGPUMachineFunction *MFI = MF.getInfo<AMDGPUMachineFunction>();
-
-  uint64_t Offset = MFI->allocateKernArg(LocVT.getStoreSize(),
-                                         ArgFlags.getOrigAlign());
-  State.addLoc(CCValAssign::getCustomMem(ValNo, ValVT, Offset, LocVT, LocInfo));
-  return true;
-}
 
 static bool allocateCCRegs(unsigned ValNo, MVT ValVT, MVT LocVT,
                            CCValAssign::LocInfo LocInfo,
@@ -73,7 +62,9 @@ static bool allocateSGPRTuple(unsigned ValNo, MVT ValVT, MVT LocVT,
   case MVT::i64:
   case MVT::f64:
   case MVT::v2i32:
-  case MVT::v2f32: {
+  case MVT::v2f32:
+  case MVT::v4i16:
+  case MVT::v4f16: {
     // Up to SGPR0-SGPR39
     return allocateCCRegs(ValNo, ValVT, LocVT, LocInfo, ArgFlags, State,
                           &AMDGPU::SGPR_64RegClass, 20);
@@ -94,7 +85,9 @@ static bool allocateVGPRTuple(unsigned ValNo, MVT ValVT, MVT LocVT,
   case MVT::i64:
   case MVT::f64:
   case MVT::v2i32:
-  case MVT::v2f32: {
+  case MVT::v2f32:
+  case MVT::v4i16:
+  case MVT::v4f16: {
     return allocateCCRegs(ValNo, ValVT, LocVT, LocInfo, ArgFlags, State,
                           &AMDGPU::VReg_64RegClass, 31);
   }
@@ -326,20 +319,12 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::FLOG, MVT::f32, Custom);
   setOperationAction(ISD::FLOG10, MVT::f32, Custom);
 
-  if (Subtarget->has16BitInsts()) {
-    setOperationAction(ISD::FLOG, MVT::f16, Custom);
-    setOperationAction(ISD::FLOG10, MVT::f16, Custom);
-  }
 
   setOperationAction(ISD::FNEARBYINT, MVT::f32, Custom);
   setOperationAction(ISD::FNEARBYINT, MVT::f64, Custom);
 
   setOperationAction(ISD::FREM, MVT::f32, Custom);
   setOperationAction(ISD::FREM, MVT::f64, Custom);
-
-  // v_mad_f32 does not support denormals according to some sources.
-  if (!Subtarget->hasFP32Denormals())
-    setOperationAction(ISD::FMAD, MVT::f32, Legal);
 
   // Expand to fneg + fadd.
   setOperationAction(ISD::FSUB, MVT::f64, Expand);
@@ -354,19 +339,6 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v4i32, Custom);
   setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v8f32, Custom);
   setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v8i32, Custom);
-
-  if (Subtarget->getGeneration() < AMDGPUSubtarget::SEA_ISLANDS) {
-    setOperationAction(ISD::FCEIL, MVT::f64, Custom);
-    setOperationAction(ISD::FTRUNC, MVT::f64, Custom);
-    setOperationAction(ISD::FRINT, MVT::f64, Custom);
-    setOperationAction(ISD::FFLOOR, MVT::f64, Custom);
-  }
-
-  if (!Subtarget->hasBFI()) {
-    // fcopysign can be done in a single instruction with BFI.
-    setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
-    setOperationAction(ISD::FCOPYSIGN, MVT::f64, Expand);
-  }
 
   setOperationAction(ISD::FP16_TO_FP, MVT::f64, Expand);
   setOperationAction(ISD::FP_TO_FP16, MVT::f64, Custom);
@@ -399,12 +371,6 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::SUBE, VT, Legal);
   }
 
-  if (!Subtarget->hasBCNT(32))
-    setOperationAction(ISD::CTPOP, MVT::i32, Expand);
-
-  if (!Subtarget->hasBCNT(64))
-    setOperationAction(ISD::CTPOP, MVT::i64, Expand);
-
   // The hardware supports 32-bit ROTR, but not ROTL.
   setOperationAction(ISD::ROTL, MVT::i32, Expand);
   setOperationAction(ISD::ROTL, MVT::i64, Expand);
@@ -424,27 +390,10 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SMAX, MVT::i32, Legal);
   setOperationAction(ISD::UMAX, MVT::i32, Legal);
 
-  if (Subtarget->hasFFBH())
-    setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
-
-  if (Subtarget->hasFFBL())
-    setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
-
   setOperationAction(ISD::CTTZ, MVT::i64, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i64, Custom);
   setOperationAction(ISD::CTLZ, MVT::i64, Custom);
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i64, Custom);
-
-  // We only really have 32-bit BFE instructions (and 16-bit on VI).
-  //
-  // On SI+ there are 64-bit BFEs, but they are scalar only and there isn't any
-  // effort to match them now. We want this to be false for i64 cases when the
-  // extraction isn't restricted to the upper or lower half. Ideally we would
-  // have some pass reduce 64-bit extracts to 32-bit if possible. Extracts that
-  // span the midpoint are probably relatively rare, so don't worry about them
-  // for now.
-  if (Subtarget->hasBFE())
-    setHasExtractBitsInsn(true);
 
   static const MVT::SimpleValueType VectorIntTypes[] = {
     MVT::v2i32, MVT::v4i32
@@ -550,11 +499,6 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   // vector compares until that is fixed.
   setHasMultipleConditionRegisters(true);
 
-  // SI at least has hardware support for floating point exceptions, but no way
-  // of using or handling them is implemented. They are also optional in OpenCL
-  // (Section 7.3)
-  setHasFloatingPointExceptions(Subtarget->hasFPExceptions());
-
   PredictableSelectIsExpensive = false;
 
   // We want to find all load dependencies for long chains of stores to enable
@@ -610,8 +554,10 @@ static bool fnegFoldsIntoOp(unsigned Opc) {
   case ISD::FTRUNC:
   case ISD::FRINT:
   case ISD::FNEARBYINT:
+  case ISD::FCANONICALIZE:
   case AMDGPUISD::RCP:
   case AMDGPUISD::RCP_LEGACY:
+  case AMDGPUISD::RCP_IFLAG:
   case AMDGPUISD::SIN_HW:
   case AMDGPUISD::FMUL_LEGACY:
   case AMDGPUISD::FMIN_LEGACY:
@@ -776,81 +722,12 @@ bool AMDGPUTargetLowering::isSDNodeAlwaysUniform(const SDNode * N) const {
     {
       const LoadSDNode * L = dyn_cast<LoadSDNode>(N);
       if (L->getMemOperand()->getAddrSpace()
-      == Subtarget->getAMDGPUAS().CONSTANT_ADDRESS_32BIT)
+      == AMDGPUASI.CONSTANT_ADDRESS_32BIT)
         return true;
       return false;
     }
     break;
   }
-}
-
-bool AMDGPUTargetLowering::isSDNodeSourceOfDivergence(const SDNode * N,
-  FunctionLoweringInfo * FLI, DivergenceAnalysis * DA) const
-{
-  switch (N->getOpcode()) {
-    case ISD::Register:
-    case ISD::CopyFromReg:
-    {
-      const RegisterSDNode *R = nullptr;
-      if (N->getOpcode() == ISD::Register) {
-        R = dyn_cast<RegisterSDNode>(N);
-      }
-      else {
-        R = dyn_cast<RegisterSDNode>(N->getOperand(1));
-      }
-      if (R)
-      {
-        const MachineFunction * MF = FLI->MF;
-        const SISubtarget &ST = MF->getSubtarget<SISubtarget>();
-        const MachineRegisterInfo &MRI = MF->getRegInfo();
-        const SIRegisterInfo &TRI = ST.getInstrInfo()->getRegisterInfo();
-        unsigned Reg = R->getReg();
-        if (TRI.isPhysicalRegister(Reg))
-          return TRI.isVGPR(MRI, Reg);
-
-        if (MRI.isLiveIn(Reg)) {
-          // workitem.id.x workitem.id.y workitem.id.z
-          // Any VGPR formal argument is also considered divergent
-          if ((MRI.getLiveInPhysReg(Reg) == AMDGPU::T0_X) ||
-              (MRI.getLiveInPhysReg(Reg) == AMDGPU::T0_Y) ||
-              (MRI.getLiveInPhysReg(Reg) == AMDGPU::T0_Z) ||
-              (TRI.isVGPR(MRI, Reg)))
-              return true;
-          // Formal arguments of non-entry functions
-          // are conservatively considered divergent
-          else if (!AMDGPU::isEntryFunctionCC(FLI->Fn->getCallingConv()))
-            return true;
-        }
-        return !DA || DA->isDivergent(FLI->getValueFromVirtualReg(Reg));
-      }
-    }
-    break;
-    case ISD::LOAD: {
-      const LoadSDNode *L = dyn_cast<LoadSDNode>(N);
-      if (L->getMemOperand()->getAddrSpace() ==
-          Subtarget->getAMDGPUAS().PRIVATE_ADDRESS)
-        return true;
-    } break;
-    case ISD::CALLSEQ_END:
-    return true;
-    break;
-    case ISD::INTRINSIC_WO_CHAIN:
-    {
-
-    }
-      return AMDGPU::isIntrinsicSourceOfDivergence(
-      cast<ConstantSDNode>(N->getOperand(0))->getZExtValue());
-    case ISD::INTRINSIC_W_CHAIN:
-      return AMDGPU::isIntrinsicSourceOfDivergence(
-      cast<ConstantSDNode>(N->getOperand(1))->getZExtValue());
-    // In some cases intrinsics that are a source of divergence have been
-    // lowered to AMDGPUISD so we also need to check those too.
-    case AMDGPUISD::INTERP_MOV:
-    case AMDGPUISD::INTERP_P1:
-    case AMDGPUISD::INTERP_P2:
-      return true;
-  }
-  return false;
 }
 
 //===---------------------------------------------------------------------===//
@@ -956,7 +833,7 @@ CCAssignFn *AMDGPUCallLowering::CCAssignFnForCall(CallingConv::ID CC,
   switch (CC) {
   case CallingConv::AMDGPU_KERNEL:
   case CallingConv::SPIR_KERNEL:
-    return CC_AMDGPU_Kernel;
+    llvm_unreachable("kernels should not be handled here");
   case CallingConv::AMDGPU_VS:
   case CallingConv::AMDGPU_GS:
   case CallingConv::AMDGPU_PS:
@@ -979,7 +856,7 @@ CCAssignFn *AMDGPUCallLowering::CCAssignFnForReturn(CallingConv::ID CC,
   switch (CC) {
   case CallingConv::AMDGPU_KERNEL:
   case CallingConv::SPIR_KERNEL:
-    return CC_AMDGPU_Kernel;
+    llvm_unreachable("kernels should not be handled here");
   case CallingConv::AMDGPU_VS:
   case CallingConv::AMDGPU_GS:
   case CallingConv::AMDGPU_PS:
@@ -1023,74 +900,113 @@ CCAssignFn *AMDGPUCallLowering::CCAssignFnForReturn(CallingConv::ID CC,
 /// for each individual part is i8.  We pass the memory type as LocVT to the
 /// calling convention analysis function and the register type (Ins[x].VT) as
 /// the ValVT.
-void AMDGPUTargetLowering::analyzeFormalArgumentsCompute(CCState &State,
-                             const SmallVectorImpl<ISD::InputArg> &Ins) const {
-  for (unsigned i = 0, e = Ins.size(); i != e; ++i) {
-    const ISD::InputArg &In = Ins[i];
-    EVT MemVT;
+void AMDGPUTargetLowering::analyzeFormalArgumentsCompute(
+  CCState &State,
+  const SmallVectorImpl<ISD::InputArg> &Ins) const {
+  const MachineFunction &MF = State.getMachineFunction();
+  const Function &Fn = MF.getFunction();
+  LLVMContext &Ctx = Fn.getParent()->getContext();
+  const AMDGPUSubtarget &ST = AMDGPUSubtarget::get(MF);
+  const unsigned ExplicitOffset = ST.getExplicitKernelArgOffset(Fn);
+  CallingConv::ID CC = Fn.getCallingConv();
 
-    unsigned NumRegs = getNumRegisters(State.getContext(), In.ArgVT);
+  unsigned MaxAlign = 1;
+  uint64_t ExplicitArgOffset = 0;
+  const DataLayout &DL = Fn.getParent()->getDataLayout();
 
-    if (!Subtarget->isAmdHsaOS() &&
-        (In.ArgVT == MVT::i16 || In.ArgVT == MVT::i8 || In.ArgVT == MVT::f16)) {
-      // The ABI says the caller will extend these values to 32-bits.
-      MemVT = In.ArgVT.isInteger() ? MVT::i32 : MVT::f32;
-    } else if (NumRegs == 1) {
-      // This argument is not split, so the IR type is the memory type.
-      assert(!In.Flags.isSplit());
-      if (In.ArgVT.isExtended()) {
-        // We have an extended type, like i24, so we should just use the register type
-        MemVT = In.VT;
+  unsigned InIndex = 0;
+
+  for (const Argument &Arg : Fn.args()) {
+    Type *BaseArgTy = Arg.getType();
+    unsigned Align = DL.getABITypeAlignment(BaseArgTy);
+    MaxAlign = std::max(Align, MaxAlign);
+    unsigned AllocSize = DL.getTypeAllocSize(BaseArgTy);
+
+    uint64_t ArgOffset = alignTo(ExplicitArgOffset, Align) + ExplicitOffset;
+    ExplicitArgOffset = alignTo(ExplicitArgOffset, Align) + AllocSize;
+
+    // We're basically throwing away everything passed into us and starting over
+    // to get accurate in-memory offsets. The "PartOffset" is completely useless
+    // to us as computed in Ins.
+    //
+    // We also need to figure out what type legalization is trying to do to get
+    // the correct memory offsets.
+
+    SmallVector<EVT, 16> ValueVTs;
+    SmallVector<uint64_t, 16> Offsets;
+    ComputeValueVTs(*this, DL, BaseArgTy, ValueVTs, &Offsets, ArgOffset);
+
+    for (unsigned Value = 0, NumValues = ValueVTs.size();
+         Value != NumValues; ++Value) {
+      uint64_t BasePartOffset = Offsets[Value];
+
+      EVT ArgVT = ValueVTs[Value];
+      EVT MemVT = ArgVT;
+      MVT RegisterVT = getRegisterTypeForCallingConv(Ctx, CC, ArgVT);
+      unsigned NumRegs = getNumRegistersForCallingConv(Ctx, CC, ArgVT);
+
+      if (NumRegs == 1) {
+        // This argument is not split, so the IR type is the memory type.
+        if (ArgVT.isExtended()) {
+          // We have an extended type, like i24, so we should just use the
+          // register type.
+          MemVT = RegisterVT;
+        } else {
+          MemVT = ArgVT;
+        }
+      } else if (ArgVT.isVector() && RegisterVT.isVector() &&
+                 ArgVT.getScalarType() == RegisterVT.getScalarType()) {
+        assert(ArgVT.getVectorNumElements() > RegisterVT.getVectorNumElements());
+        // We have a vector value which has been split into a vector with
+        // the same scalar type, but fewer elements.  This should handle
+        // all the floating-point vector types.
+        MemVT = RegisterVT;
+      } else if (ArgVT.isVector() &&
+                 ArgVT.getVectorNumElements() == NumRegs) {
+        // This arg has been split so that each element is stored in a separate
+        // register.
+        MemVT = ArgVT.getScalarType();
+      } else if (ArgVT.isExtended()) {
+        // We have an extended type, like i65.
+        MemVT = RegisterVT;
       } else {
-        MemVT = In.ArgVT;
+        unsigned MemoryBits = ArgVT.getStoreSizeInBits() / NumRegs;
+        assert(ArgVT.getStoreSizeInBits() % NumRegs == 0);
+        if (RegisterVT.isInteger()) {
+          MemVT = EVT::getIntegerVT(State.getContext(), MemoryBits);
+        } else if (RegisterVT.isVector()) {
+          assert(!RegisterVT.getScalarType().isFloatingPoint());
+          unsigned NumElements = RegisterVT.getVectorNumElements();
+          assert(MemoryBits % NumElements == 0);
+          // This vector type has been split into another vector type with
+          // a different elements size.
+          EVT ScalarVT = EVT::getIntegerVT(State.getContext(),
+                                           MemoryBits / NumElements);
+          MemVT = EVT::getVectorVT(State.getContext(), ScalarVT, NumElements);
+        } else {
+          llvm_unreachable("cannot deduce memory type.");
+        }
       }
-    } else if (In.ArgVT.isVector() && In.VT.isVector() &&
-               In.ArgVT.getScalarType() == In.VT.getScalarType()) {
-      assert(In.ArgVT.getVectorNumElements() > In.VT.getVectorNumElements());
-      // We have a vector value which has been split into a vector with
-      // the same scalar type, but fewer elements.  This should handle
-      // all the floating-point vector types.
-      MemVT = In.VT;
-    } else if (In.ArgVT.isVector() &&
-               In.ArgVT.getVectorNumElements() == NumRegs) {
-      // This arg has been split so that each element is stored in a separate
-      // register.
-      MemVT = In.ArgVT.getScalarType();
-    } else if (In.ArgVT.isExtended()) {
-      // We have an extended type, like i65.
-      MemVT = In.VT;
-    } else {
-      unsigned MemoryBits = In.ArgVT.getStoreSizeInBits() / NumRegs;
-      assert(In.ArgVT.getStoreSizeInBits() % NumRegs == 0);
-      if (In.VT.isInteger()) {
-        MemVT = EVT::getIntegerVT(State.getContext(), MemoryBits);
-      } else if (In.VT.isVector()) {
-        assert(!In.VT.getScalarType().isFloatingPoint());
-        unsigned NumElements = In.VT.getVectorNumElements();
-        assert(MemoryBits % NumElements == 0);
-        // This vector type has been split into another vector type with
-        // a different elements size.
-        EVT ScalarVT = EVT::getIntegerVT(State.getContext(),
-                                         MemoryBits / NumElements);
-        MemVT = EVT::getVectorVT(State.getContext(), ScalarVT, NumElements);
-      } else {
-        llvm_unreachable("cannot deduce memory type.");
+
+      // Convert one element vectors to scalar.
+      if (MemVT.isVector() && MemVT.getVectorNumElements() == 1)
+        MemVT = MemVT.getScalarType();
+
+      if (MemVT.isExtended()) {
+        // This should really only happen if we have vec3 arguments
+        assert(MemVT.isVector() && MemVT.getVectorNumElements() == 3);
+        MemVT = MemVT.getPow2VectorType(State.getContext());
+      }
+
+      unsigned PartOffset = 0;
+      for (unsigned i = 0; i != NumRegs; ++i) {
+        State.addLoc(CCValAssign::getCustomMem(InIndex++, RegisterVT,
+                                               BasePartOffset + PartOffset,
+                                               MemVT.getSimpleVT(),
+                                               CCValAssign::Full));
+        PartOffset += MemVT.getStoreSize();
       }
     }
-
-    // Convert one element vectors to scalar.
-    if (MemVT.isVector() && MemVT.getVectorNumElements() == 1)
-      MemVT = MemVT.getScalarType();
-
-    if (MemVT.isExtended()) {
-      // This should really only happen if we have vec3 arguments
-      assert(MemVT.isVector() && MemVT.getVectorNumElements() == 3);
-      MemVT = MemVT.getPow2VectorType(State.getContext());
-    }
-
-    assert(MemVT.isSimple());
-    allocateKernArg(i, In.VT, MemVT.getSimpleVT(), CCValAssign::Full, In.Flags,
-                    State);
   }
 }
 
@@ -1272,7 +1188,15 @@ SDValue AMDGPUTargetLowering::LowerGlobalAddress(AMDGPUMachineFunction* MFI,
   GlobalAddressSDNode *G = cast<GlobalAddressSDNode>(Op);
   const GlobalValue *GV = G->getGlobal();
 
-  if  (G->getAddressSpace() == AMDGPUASI.LOCAL_ADDRESS) {
+  if (G->getAddressSpace() == AMDGPUASI.LOCAL_ADDRESS ||
+      G->getAddressSpace() == AMDGPUASI.REGION_ADDRESS) {
+    if (!MFI->isEntryFunction()) {
+      const Function &Fn = DAG.getMachineFunction().getFunction();
+      DiagnosticInfoUnsupported BadLDSDecl(
+        Fn, "local memory global used by non-kernel function", SDLoc(Op).getDebugLoc());
+      DAG.getContext()->diagnose(BadLDSDecl);
+    }
+
     // XXX: What does the value of G->getOffset() mean?
     assert(G->getOffset() == 0 &&
          "Do not know what to do with an non-zero offset");
@@ -1294,6 +1218,16 @@ SDValue AMDGPUTargetLowering::LowerGlobalAddress(AMDGPUMachineFunction* MFI,
 SDValue AMDGPUTargetLowering::LowerCONCAT_VECTORS(SDValue Op,
                                                   SelectionDAG &DAG) const {
   SmallVector<SDValue, 8> Args;
+
+  EVT VT = Op.getValueType();
+  if (VT == MVT::v4i16 || VT == MVT::v4f16) {
+    SDLoc SL(Op);
+    SDValue Lo = DAG.getNode(ISD::BITCAST, SL, MVT::i32, Op.getOperand(0));
+    SDValue Hi = DAG.getNode(ISD::BITCAST, SL, MVT::i32, Op.getOperand(1));
+
+    SDValue BV = DAG.getBuildVector(MVT::v2i32, SL, { Lo, Hi });
+    return DAG.getNode(ISD::BITCAST, SL, VT, BV);
+  }
 
   for (const SDUse &U : Op->ops())
     DAG.ExtractVectorElements(U.get(), Args);
@@ -3116,7 +3050,7 @@ SDValue AMDGPUTargetLowering::performTruncateCombine(
   // Equivalent of above for accessing the high element of a vector as an
   // integer operation.
   // trunc (srl (bitcast (build_vector x, y))), 16 -> trunc (bitcast y)
-  if (Src.getOpcode() == ISD::SRL) {
+  if (Src.getOpcode() == ISD::SRL && !VT.isVector()) {
     if (auto K = isConstOrConstSplat(Src.getOperand(1))) {
       if (2 * K->getZExtValue() == Src.getValueType().getScalarSizeInBits()) {
         SDValue BV = stripBitcast(Src.getOperand(0));
@@ -3662,8 +3596,10 @@ SDValue AMDGPUTargetLowering::performFNegCombine(SDNode *N,
   case ISD::FRINT:
   case ISD::FNEARBYINT: // XXX - Should fround be handled?
   case ISD::FSIN:
+  case ISD::FCANONICALIZE:
   case AMDGPUISD::RCP:
   case AMDGPUISD::RCP_LEGACY:
+  case AMDGPUISD::RCP_IFLAG:
   case AMDGPUISD::SIN_HW: {
     SDValue CvtSrc = N0.getOperand(0);
     if (CvtSrc.getOpcode() == ISD::FNEG) {
@@ -3738,6 +3674,18 @@ SDValue AMDGPUTargetLowering::performFAbsCombine(SDNode *N,
   default:
     return SDValue();
   }
+}
+
+SDValue AMDGPUTargetLowering::performRcpCombine(SDNode *N,
+                                                DAGCombinerInfo &DCI) const {
+  const auto *CFP = dyn_cast<ConstantFPSDNode>(N->getOperand(0));
+  if (!CFP)
+    return SDValue();
+
+  // XXX - Should this flush denormals?
+  const APFloat &Val = CFP->getValueAPF();
+  APFloat One(Val.getSemantics(), "1.0");
+  return DCI.DAG.getConstantFP(One / Val, SDLoc(N), N->getValueType(0));
 }
 
 SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
@@ -3940,16 +3888,9 @@ SDValue AMDGPUTargetLowering::PerformDAGCombine(SDNode *N,
     return performLoadCombine(N, DCI);
   case ISD::STORE:
     return performStoreCombine(N, DCI);
-  case AMDGPUISD::RCP: {
-    if (const auto *CFP = dyn_cast<ConstantFPSDNode>(N->getOperand(0))) {
-      // XXX - Should this flush denormals?
-      const APFloat &Val = CFP->getValueAPF();
-      APFloat One(Val.getSemantics(), "1.0");
-      return DAG.getConstantFP(One / Val, SDLoc(N), N->getValueType(0));
-    }
-
-    break;
-  }
+  case AMDGPUISD::RCP:
+  case AMDGPUISD::RCP_IFLAG:
+    return performRcpCombine(N, DCI);
   case ISD::AssertZext:
   case ISD::AssertSext:
     return performAssertSZExtCombine(N, DCI);
@@ -4026,9 +3967,14 @@ SDValue AMDGPUTargetLowering::loadInputValue(SelectionDAG &DAG,
 }
 
 uint32_t AMDGPUTargetLowering::getImplicitParameterOffset(
-    const AMDGPUMachineFunction *MFI, const ImplicitParameter Param) const {
-  unsigned Alignment = Subtarget->getAlignmentForImplicitArgPtr();
-  uint64_t ArgOffset = alignTo(MFI->getABIArgOffset(), Alignment);
+    const MachineFunction &MF, const ImplicitParameter Param) const {
+  const AMDGPUMachineFunction *MFI = MF.getInfo<AMDGPUMachineFunction>();
+  const AMDGPUSubtarget &ST =
+      AMDGPUSubtarget::get(getTargetMachine(), MF.getFunction());
+  unsigned ExplicitArgOffset = ST.getExplicitKernelArgOffset(MF.getFunction());
+  unsigned Alignment = ST.getAlignmentForImplicitArgPtr();
+  uint64_t ArgOffset = alignTo(MFI->getExplicitKernArgSize(), Alignment) +
+                       ExplicitArgOffset;
   switch (Param) {
   case GRID_DIM:
     return ArgOffset;
@@ -4077,6 +4023,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(FMED3)
   NODE_NAME_CASE(SMED3)
   NODE_NAME_CASE(UMED3)
+  NODE_NAME_CASE(FDOT2)
   NODE_NAME_CASE(URECIP)
   NODE_NAME_CASE(DIV_SCALE)
   NODE_NAME_CASE(DIV_FMAS)
@@ -4087,6 +4034,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(RSQ)
   NODE_NAME_CASE(RCP_LEGACY)
   NODE_NAME_CASE(RSQ_LEGACY)
+  NODE_NAME_CASE(RCP_IFLAG)
   NODE_NAME_CASE(FMUL_LEGACY)
   NODE_NAME_CASE(RSQ_CLAMP)
   NODE_NAME_CASE(LDEXP)
@@ -4111,6 +4059,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(MAD_I24)
   NODE_NAME_CASE(MAD_I64_I32)
   NODE_NAME_CASE(MAD_U64_U32)
+  NODE_NAME_CASE(PERM)
   NODE_NAME_CASE(TEXTURE_FETCH)
   NODE_NAME_CASE(EXPORT)
   NODE_NAME_CASE(EXPORT_DONE)
@@ -4176,82 +4125,6 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(BUFFER_ATOMIC_OR)
   NODE_NAME_CASE(BUFFER_ATOMIC_XOR)
   NODE_NAME_CASE(BUFFER_ATOMIC_CMPSWAP)
-  NODE_NAME_CASE(IMAGE_LOAD)
-  NODE_NAME_CASE(IMAGE_LOAD_MIP)
-  NODE_NAME_CASE(IMAGE_STORE)
-  NODE_NAME_CASE(IMAGE_STORE_MIP)
-  // Basic sample.
-  NODE_NAME_CASE(IMAGE_SAMPLE)
-  NODE_NAME_CASE(IMAGE_SAMPLE_CL)
-  NODE_NAME_CASE(IMAGE_SAMPLE_D)
-  NODE_NAME_CASE(IMAGE_SAMPLE_D_CL)
-  NODE_NAME_CASE(IMAGE_SAMPLE_L)
-  NODE_NAME_CASE(IMAGE_SAMPLE_B)
-  NODE_NAME_CASE(IMAGE_SAMPLE_B_CL)
-  NODE_NAME_CASE(IMAGE_SAMPLE_LZ)
-  NODE_NAME_CASE(IMAGE_SAMPLE_CD)
-  NODE_NAME_CASE(IMAGE_SAMPLE_CD_CL)
-  // Sample with comparison.
-  NODE_NAME_CASE(IMAGE_SAMPLE_C)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_CL)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_D)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_D_CL)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_L)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_B)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_B_CL)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_LZ)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_CD)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_CD_CL)
-  // Sample with offsets.
-  NODE_NAME_CASE(IMAGE_SAMPLE_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_CL_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_D_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_D_CL_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_L_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_B_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_B_CL_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_LZ_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_CD_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_CD_CL_O)
-  // Sample with comparison and offsets.
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_CL_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_D_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_D_CL_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_L_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_B_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_B_CL_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_LZ_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_CD_O)
-  NODE_NAME_CASE(IMAGE_SAMPLE_C_CD_CL_O)
-  // Basic gather4.
-  NODE_NAME_CASE(IMAGE_GATHER4)
-  NODE_NAME_CASE(IMAGE_GATHER4_CL)
-  NODE_NAME_CASE(IMAGE_GATHER4_L)
-  NODE_NAME_CASE(IMAGE_GATHER4_B)
-  NODE_NAME_CASE(IMAGE_GATHER4_B_CL)
-  NODE_NAME_CASE(IMAGE_GATHER4_LZ)
-  // Gather4 with comparison.
-  NODE_NAME_CASE(IMAGE_GATHER4_C)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_CL)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_L)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_B)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_B_CL)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_LZ)
-  // Gather4 with offsets.
-  NODE_NAME_CASE(IMAGE_GATHER4_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_CL_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_L_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_B_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_B_CL_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_LZ_O)
-  // Gather4 with comparison and offsets.
-  NODE_NAME_CASE(IMAGE_GATHER4_C_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_CL_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_L_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_B_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_B_CL_O)
-  NODE_NAME_CASE(IMAGE_GATHER4_C_LZ_O)
 
   case AMDGPUISD::LAST_AMDGPU_ISD_NUMBER: break;
   }
@@ -4366,14 +4239,45 @@ void AMDGPUTargetLowering::computeKnownBitsForTargetNode(
       Known.Zero.setHighBits(32 - MaxValBits);
     break;
   }
+  case AMDGPUISD::PERM: {
+    ConstantSDNode *CMask = dyn_cast<ConstantSDNode>(Op.getOperand(2));
+    if (!CMask)
+      return;
+
+    KnownBits LHSKnown, RHSKnown;
+    DAG.computeKnownBits(Op.getOperand(0), LHSKnown, Depth + 1);
+    DAG.computeKnownBits(Op.getOperand(1), RHSKnown, Depth + 1);
+    unsigned Sel = CMask->getZExtValue();
+
+    for (unsigned I = 0; I < 32; I += 8) {
+      unsigned SelBits = Sel & 0xff;
+      if (SelBits < 4) {
+        SelBits *= 8;
+        Known.One |= ((RHSKnown.One.getZExtValue() >> SelBits) & 0xff) << I;
+        Known.Zero |= ((RHSKnown.Zero.getZExtValue() >> SelBits) & 0xff) << I;
+      } else if (SelBits < 7) {
+        SelBits = (SelBits & 3) * 8;
+        Known.One |= ((LHSKnown.One.getZExtValue() >> SelBits) & 0xff) << I;
+        Known.Zero |= ((LHSKnown.Zero.getZExtValue() >> SelBits) & 0xff) << I;
+      } else if (SelBits == 0x0c) {
+        Known.Zero |= 0xff << I;
+      } else if (SelBits > 0x0c) {
+        Known.One |= 0xff << I;
+      }
+      Sel >>= 8;
+    }
+    break;
+  }
   case ISD::INTRINSIC_WO_CHAIN: {
     unsigned IID = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
     switch (IID) {
     case Intrinsic::amdgcn_mbcnt_lo:
     case Intrinsic::amdgcn_mbcnt_hi: {
+      const GCNSubtarget &ST =
+          DAG.getMachineFunction().getSubtarget<GCNSubtarget>();
       // These return at most the wavefront size - 1.
       unsigned Size = Op.getValueType().getSizeInBits();
-      Known.Zero.setHighBits(Size - Subtarget->getWavefrontSizeLog2());
+      Known.Zero.setHighBits(Size - ST.getWavefrontSizeLog2());
       break;
     }
     default:
@@ -4414,5 +4318,92 @@ unsigned AMDGPUTargetLowering::ComputeNumSignBitsForTargetNode(
     return 16;
   default:
     return 1;
+  }
+}
+
+bool AMDGPUTargetLowering::isKnownNeverNaNForTargetNode(SDValue Op,
+                                                        const SelectionDAG &DAG,
+                                                        bool SNaN,
+                                                        unsigned Depth) const {
+  unsigned Opcode = Op.getOpcode();
+  switch (Opcode) {
+  case AMDGPUISD::FMIN_LEGACY:
+  case AMDGPUISD::FMAX_LEGACY: {
+    if (SNaN)
+      return true;
+
+    // TODO: Can check no nans on one of the operands for each one, but which
+    // one?
+    return false;
+  }
+  case AMDGPUISD::FMUL_LEGACY:
+  case AMDGPUISD::CVT_PKRTZ_F16_F32: {
+    if (SNaN)
+      return true;
+    return DAG.isKnownNeverNaN(Op.getOperand(0), SNaN, Depth + 1) &&
+           DAG.isKnownNeverNaN(Op.getOperand(1), SNaN, Depth + 1);
+  }
+  case AMDGPUISD::FMED3:
+  case AMDGPUISD::FMIN3:
+  case AMDGPUISD::FMAX3:
+  case AMDGPUISD::FMAD_FTZ: {
+    if (SNaN)
+      return true;
+    return DAG.isKnownNeverNaN(Op.getOperand(0), SNaN, Depth + 1) &&
+           DAG.isKnownNeverNaN(Op.getOperand(1), SNaN, Depth + 1) &&
+           DAG.isKnownNeverNaN(Op.getOperand(2), SNaN, Depth + 1);
+  }
+  case AMDGPUISD::CVT_F32_UBYTE0:
+  case AMDGPUISD::CVT_F32_UBYTE1:
+  case AMDGPUISD::CVT_F32_UBYTE2:
+  case AMDGPUISD::CVT_F32_UBYTE3:
+    return true;
+
+  case AMDGPUISD::RCP:
+  case AMDGPUISD::RSQ:
+  case AMDGPUISD::RCP_LEGACY:
+  case AMDGPUISD::RSQ_LEGACY:
+  case AMDGPUISD::RSQ_CLAMP: {
+    if (SNaN)
+      return true;
+
+    // TODO: Need is known positive check.
+    return false;
+  }
+  case AMDGPUISD::LDEXP:
+  case AMDGPUISD::FRACT: {
+    if (SNaN)
+      return true;
+    return DAG.isKnownNeverNaN(Op.getOperand(0), SNaN, Depth + 1);
+  }
+  case AMDGPUISD::DIV_SCALE:
+  case AMDGPUISD::DIV_FMAS:
+  case AMDGPUISD::DIV_FIXUP:
+  case AMDGPUISD::TRIG_PREOP:
+    // TODO: Refine on operands.
+    return SNaN;
+  case AMDGPUISD::SIN_HW:
+  case AMDGPUISD::COS_HW: {
+    // TODO: Need check for infinity
+    return SNaN;
+  }
+  case ISD::INTRINSIC_WO_CHAIN: {
+    unsigned IntrinsicID
+      = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
+    // TODO: Handle more intrinsics
+    switch (IntrinsicID) {
+    case Intrinsic::amdgcn_cubeid:
+      return true;
+
+    case Intrinsic::amdgcn_frexp_mant:
+      if (SNaN)
+        return true;
+      return DAG.isKnownNeverNaN(Op.getOperand(1), SNaN, Depth + 1);
+    default:
+      return false;
+    }
+  }
+  default:
+    return false;
   }
 }

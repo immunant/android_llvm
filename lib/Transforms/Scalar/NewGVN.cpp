@@ -77,7 +77,7 @@
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -861,7 +861,7 @@ private:
 
   // Debug counter info.  When verifying, we have to reset the value numbering
   // debug counter to the same state it started in to get the same results.
-  std::pair<int, int> StartingVNCounter;
+  int64_t StartingVNCounter;
 };
 
 } // end anonymous namespace
@@ -1259,7 +1259,7 @@ bool NewGVN::someEquivalentDominates(const Instruction *Inst,
    // This must be an instruction because we are only called from phi nodes
   // in the case that the value it needs to check against is an instruction.
 
-  // The most likely candiates for dominance are the leader and the next leader.
+  // The most likely candidates for dominance are the leader and the next leader.
   // The leader or nextleader will dominate in all cases where there is an
   // equivalent that is higher up in the dom tree.
   // We can't *only* check them, however, because the
@@ -1624,7 +1624,7 @@ NewGVN::performSymbolicPredicateInfoEvaluation(Instruction *I) const {
 const Expression *NewGVN::performSymbolicCallEvaluation(Instruction *I) const {
   auto *CI = cast<CallInst>(I);
   if (auto *II = dyn_cast<IntrinsicInst>(I)) {
-    // Instrinsics with the returned attribute are copies of arguments.
+    // Intrinsics with the returned attribute are copies of arguments.
     if (auto *ReturnedValue = II->getReturnedArgOperand()) {
       if (II->getIntrinsicID() == Intrinsic::ssa_copy)
         if (const auto *Result = performSymbolicPredicateInfoEvaluation(I))
@@ -2007,7 +2007,7 @@ NewGVN::performSymbolicEvaluation(Value *V,
     case Instruction::Load:
       E = performSymbolicLoadEvaluation(I);
       break;
-    case Instruction::BitCast: 
+    case Instruction::BitCast:
       E = createExpression(I);
       break;
     case Instruction::ICmp:
@@ -2217,7 +2217,7 @@ void NewGVN::moveMemoryToNewCongruenceClass(Instruction *I,
                                             MemoryAccess *InstMA,
                                             CongruenceClass *OldClass,
                                             CongruenceClass *NewClass) {
-  // If the leader is I, and we had a represenative MemoryAccess, it should
+  // If the leader is I, and we had a representative MemoryAccess, it should
   // be the MemoryAccess of OldClass.
   assert((!InstMA || !OldClass->getMemoryLeader() ||
           OldClass->getLeader() != I ||
@@ -3697,37 +3697,6 @@ void NewGVN::convertClassToLoadsAndStores(
   }
 }
 
-static void patchReplacementInstruction(Instruction *I, Value *Repl) {
-  auto *ReplInst = dyn_cast<Instruction>(Repl);
-  if (!ReplInst)
-    return;
-
-  // Patch the replacement so that it is not more restrictive than the value
-  // being replaced.
-  // Note that if 'I' is a load being replaced by some operation,
-  // for example, by an arithmetic operation, then andIRFlags()
-  // would just erase all math flags from the original arithmetic
-  // operation, which is clearly not wanted and not needed.
-  if (!isa<LoadInst>(I))
-    ReplInst->andIRFlags(I);
-
-  // FIXME: If both the original and replacement value are part of the
-  // same control-flow region (meaning that the execution of one
-  // guarantees the execution of the other), then we can combine the
-  // noalias scopes here and do better than the general conservative
-  // answer used in combineMetadata().
-
-  // In general, GVN unifies expressions over different control-flow
-  // regions, and so we need a conservative combination of the noalias
-  // scopes.
-  static const unsigned KnownIDs[] = {
-      LLVMContext::MD_tbaa,           LLVMContext::MD_alias_scope,
-      LLVMContext::MD_noalias,        LLVMContext::MD_range,
-      LLVMContext::MD_fpmath,         LLVMContext::MD_invariant_load,
-      LLVMContext::MD_invariant_group};
-  combineMetadata(ReplInst, I, KnownIDs);
-}
-
 static void patchAndReplaceAllUsesWith(Instruction *I, Value *Repl) {
   patchReplacementInstruction(I, Repl);
   I->replaceAllUsesWith(Repl);
@@ -4124,7 +4093,7 @@ bool NewGVN::eliminateInstructions(Function &F) {
           // It's about to be alive again.
           if (LeaderUseCount == 0 && isa<Instruction>(DominatingLeader))
             ProbablyDead.erase(cast<Instruction>(DominatingLeader));
-          // Copy instructions, however, are still dead beacuse we use their
+          // Copy instructions, however, are still dead because we use their
           // operand as the leader.
           if (LeaderUseCount == 0 && isSSACopy)
             ProbablyDead.insert(II);

@@ -73,11 +73,17 @@ public:
                              StringRef MethodName);
   void expandCheckIsRegOperand(formatted_raw_ostream &OS, int OpIndex);
   void expandCheckIsImmOperand(formatted_raw_ostream &OS, int OpIndex);
+  void expandCheckInvalidRegOperand(formatted_raw_ostream &OS, int OpIndex);
   void expandCheckFunctionPredicate(formatted_raw_ostream &OS,
                                     StringRef MCInstFn,
                                     StringRef MachineInstrFn);
   void expandCheckNonPortable(formatted_raw_ostream &OS, StringRef CodeBlock);
   void expandPredicate(formatted_raw_ostream &OS, const Record *Rec);
+  void expandReturnStatement(formatted_raw_ostream &OS, const Record *Rec);
+  void expandOpcodeSwitchCase(formatted_raw_ostream &OS, const Record *Rec);
+  void expandOpcodeSwitchStatement(formatted_raw_ostream &OS,
+                                   const RecVec &Cases, const Record *Default);
+  void expandStatement(formatted_raw_ostream &OS, const Record *Rec);
 };
 
 } // namespace llvm

@@ -167,7 +167,7 @@ private:
                           SDValue NewIntValue) const;
   SDValue ExpandFCOPYSIGN(SDNode *Node) const;
   SDValue ExpandFABS(SDNode *Node) const;
-  SDValue ExpandLegalINT_TO_FP(bool isSigned, SDValue LegalOp, EVT DestVT,
+  SDValue ExpandLegalINT_TO_FP(bool isSigned, SDValue Op0, EVT DestVT,
                                const SDLoc &dl);
   SDValue PromoteLegalINT_TO_FP(SDValue LegalOp, EVT DestVT, bool isSigned,
                                 const SDLoc &dl);
@@ -1012,8 +1012,7 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
   case ISD::SETCC:
   case ISD::BR_CC: {
     unsigned CCOperand = Node->getOpcode() == ISD::SELECT_CC ? 4 :
-                         Node->getOpcode() == ISD::SETCC ? 2 :
-                         Node->getOpcode() == ISD::SETCCE ? 3 : 1;
+                         Node->getOpcode() == ISD::SETCC ? 2 : 1;
     unsigned CompareOperand = Node->getOpcode() == ISD::BR_CC ? 2 : 0;
     MVT OpVT = Node->getOperand(CompareOperand).getSimpleValueType();
     ISD::CondCode CCCode =
@@ -1091,6 +1090,10 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
       return;
     }
     break;
+  case ISD::STRICT_FADD:
+  case ISD::STRICT_FSUB:
+  case ISD::STRICT_FMUL:
+  case ISD::STRICT_FDIV:
   case ISD::STRICT_FSQRT:
   case ISD::STRICT_FMA:
   case ISD::STRICT_FPOW:
@@ -1486,24 +1489,20 @@ SDValue SelectionDAGLegalize::ExpandFCOPYSIGN(SDNode *Node) const {
 
   // Get the signbit at the right position for MagAsInt.
   int ShiftAmount = SignAsInt.SignBit - MagAsInt.SignBit;
-  if (SignBit.getValueSizeInBits() > ClearedSign.getValueSizeInBits()) {
-    if (ShiftAmount > 0) {
-      SDValue ShiftCnst = DAG.getConstant(ShiftAmount, DL, IntVT);
-      SignBit = DAG.getNode(ISD::SRL, DL, IntVT, SignBit, ShiftCnst);
-    } else if (ShiftAmount < 0) {
-      SDValue ShiftCnst = DAG.getConstant(-ShiftAmount, DL, IntVT);
-      SignBit = DAG.getNode(ISD::SHL, DL, IntVT, SignBit, ShiftCnst);
-    }
-    SignBit = DAG.getNode(ISD::TRUNCATE, DL, MagVT, SignBit);
-  } else if (SignBit.getValueSizeInBits() < ClearedSign.getValueSizeInBits()) {
+  EVT ShiftVT = IntVT;
+  if (SignBit.getValueSizeInBits() < ClearedSign.getValueSizeInBits()) {
     SignBit = DAG.getNode(ISD::ZERO_EXTEND, DL, MagVT, SignBit);
-    if (ShiftAmount > 0) {
-      SDValue ShiftCnst = DAG.getConstant(ShiftAmount, DL, MagVT);
-      SignBit = DAG.getNode(ISD::SRL, DL, MagVT, SignBit, ShiftCnst);
-    } else if (ShiftAmount < 0) {
-      SDValue ShiftCnst = DAG.getConstant(-ShiftAmount, DL, MagVT);
-      SignBit = DAG.getNode(ISD::SHL, DL, MagVT, SignBit, ShiftCnst);
-    }
+    ShiftVT = MagVT;
+  }
+  if (ShiftAmount > 0) {
+    SDValue ShiftCnst = DAG.getConstant(ShiftAmount, DL, ShiftVT);
+    SignBit = DAG.getNode(ISD::SRL, DL, ShiftVT, SignBit, ShiftCnst);
+  } else if (ShiftAmount < 0) {
+    SDValue ShiftCnst = DAG.getConstant(-ShiftAmount, DL, ShiftVT);
+    SignBit = DAG.getNode(ISD::SHL, DL, ShiftVT, SignBit, ShiftCnst);
+  }
+  if (SignBit.getValueSizeInBits() > ClearedSign.getValueSizeInBits()) {
+    SignBit = DAG.getNode(ISD::TRUNCATE, DL, MagVT, SignBit);
   }
 
   // Store the part with the modified sign and convert back to float.
@@ -3900,6 +3899,46 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     ReplaceNode(SDValue(Node, 0), Result);
     break;
   }
+  case ISD::ROTL:
+  case ISD::ROTR: {
+    bool IsLeft = Node->getOpcode() == ISD::ROTL;
+    SDValue Op0 = Node->getOperand(0), Op1 = Node->getOperand(1);
+    EVT ResVT = Node->getValueType(0);
+    EVT OpVT = Op0.getValueType();
+    assert(OpVT == ResVT &&
+           "The result and the operand types of rotate should match");
+    EVT ShVT = Op1.getValueType();
+    SDValue Width = DAG.getConstant(OpVT.getScalarSizeInBits(), dl, ShVT);
+
+    // If a rotate in the other direction is legal, use it.
+    unsigned RevRot = IsLeft ? ISD::ROTR : ISD::ROTL;
+    if (TLI.isOperationLegal(RevRot, ResVT)) {
+      SDValue Sub = DAG.getNode(ISD::SUB, dl, ShVT, Width, Op1);
+      Results.push_back(DAG.getNode(RevRot, dl, ResVT, Op0, Sub));
+      break;
+    }
+
+    // Otherwise,
+    //   (rotl x, c) -> (or (shl x, (and c, w-1)), (srl x, (and w-c, w-1)))
+    //   (rotr x, c) -> (or (srl x, (and c, w-1)), (shl x, (and w-c, w-1)))
+    //
+    assert(isPowerOf2_32(OpVT.getScalarSizeInBits()) &&
+           "Expecting the type bitwidth to be a power of 2");
+    unsigned ShOpc = IsLeft ? ISD::SHL : ISD::SRL;
+    unsigned HsOpc = IsLeft ? ISD::SRL : ISD::SHL;
+    SDValue Width1 = DAG.getNode(ISD::SUB, dl, ShVT,
+                                 Width, DAG.getConstant(1, dl, ShVT));
+    SDValue NegOp1 = DAG.getNode(ISD::SUB, dl, ShVT, Width, Op1);
+    SDValue And0 = DAG.getNode(ISD::AND, dl, ShVT, Op1, Width1);
+    SDValue And1 = DAG.getNode(ISD::AND, dl, ShVT, NegOp1, Width1);
+
+    SDValue Or = DAG.getNode(ISD::OR, dl, ResVT,
+                             DAG.getNode(ShOpc, dl, ResVT, Op0, And0),
+                             DAG.getNode(HsOpc, dl, ResVT, Op0, And1));
+    Results.push_back(Or);
+    break;
+  }
+
   case ISD::GLOBAL_OFFSET_TABLE:
   case ISD::GlobalAddress:
   case ISD::GlobalTLSAddress:

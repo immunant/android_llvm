@@ -921,11 +921,12 @@ void BranchFolder::mergeCommonTails(unsigned commonTailIndex) {
   if (UpdateLiveIns) {
     LivePhysRegs NewLiveIns(*TRI);
     computeLiveIns(NewLiveIns, *MBB);
+    LiveRegs.init(*TRI);
 
     // The flag merging may lead to some register uses no longer using the
     // <undef> flag, add IMPLICIT_DEFs in the predecessors as necessary.
     for (MachineBasicBlock *Pred : MBB->predecessors()) {
-      LiveRegs.init(*TRI);
+      LiveRegs.clear();
       LiveRegs.addLiveOuts(*Pred);
       MachineBasicBlock::iterator InsertBefore = Pred->getFirstTerminator();
       for (unsigned Reg : NewLiveIns) {
@@ -2007,7 +2008,6 @@ bool BranchFolder::HoistCommonCodeInSuccs(MachineBasicBlock *MBB) {
     return false;
 
   bool HasDups = false;
-  SmallVector<unsigned, 4> LocalDefs, LocalKills;
   SmallSet<unsigned, 4> ActiveDefsSet, AllDefsSet;
   MachineBasicBlock::iterator TIB = TBB->begin();
   MachineBasicBlock::iterator FIB = FBB->begin();
@@ -2090,7 +2090,6 @@ bool BranchFolder::HoistCommonCodeInSuccs(MachineBasicBlock *MBB) {
       if (!Reg)
         continue;
       if (!AllDefsSet.count(Reg)) {
-        LocalKills.push_back(Reg);
         continue;
       }
       if (TargetRegisterInfo::isPhysicalRegister(Reg)) {
@@ -2108,7 +2107,6 @@ bool BranchFolder::HoistCommonCodeInSuccs(MachineBasicBlock *MBB) {
       unsigned Reg = MO.getReg();
       if (!Reg || TargetRegisterInfo::isVirtualRegister(Reg))
         continue;
-      LocalDefs.push_back(Reg);
       addRegAndItsAliases(Reg, TRI, ActiveDefsSet);
       addRegAndItsAliases(Reg, TRI, AllDefsSet);
     }
@@ -2124,25 +2122,9 @@ bool BranchFolder::HoistCommonCodeInSuccs(MachineBasicBlock *MBB) {
   MBB->splice(Loc, TBB, TBB->begin(), TIB);
   FBB->erase(FBB->begin(), FIB);
 
-  // Update livein's.
-  bool ChangedLiveIns = false;
-  for (unsigned i = 0, e = LocalDefs.size(); i != e; ++i) {
-    unsigned Def = LocalDefs[i];
-    if (ActiveDefsSet.count(Def)) {
-      TBB->addLiveIn(Def);
-      FBB->addLiveIn(Def);
-      ChangedLiveIns = true;
-    }
-  }
-  for (unsigned K : LocalKills) {
-    TBB->removeLiveIn(K);
-    FBB->removeLiveIn(K);
-    ChangedLiveIns = true;
-  }
-
-  if (ChangedLiveIns) {
-    TBB->sortUniqueLiveIns();
-    FBB->sortUniqueLiveIns();
+  if (UpdateLiveIns) {
+    recomputeLiveIns(*TBB);
+    recomputeLiveIns(*FBB);
   }
 
   ++NumHoist;

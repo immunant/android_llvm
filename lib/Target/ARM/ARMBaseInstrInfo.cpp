@@ -935,8 +935,9 @@ void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     Mov->addRegisterKilled(SrcReg, TRI);
 }
 
-bool ARMBaseInstrInfo::isCopyInstr(const MachineInstr &MI, MachineOperand &Src,
-                                   MachineOperand &Dest) const {
+bool ARMBaseInstrInfo::isCopyInstr(const MachineInstr &MI,
+                                   const MachineOperand *&Src,
+                                   const MachineOperand *&Dest) const {
   // VMOVRRD is also a copy instruction but it requires
   // special way of handling. It is more complex copy version
   // and since that we are not considering it. For recognition
@@ -948,8 +949,8 @@ bool ARMBaseInstrInfo::isCopyInstr(const MachineInstr &MI, MachineOperand &Src,
       (MI.getOpcode() == ARM::VORRq &&
        MI.getOperand(1).getReg() != MI.getOperand(2).getReg()))
     return false;
-  Dest = MI.getOperand(0);
-  Src = MI.getOperand(1);
+  Dest = &MI.getOperand(0);
+  Src = &MI.getOperand(1);
   return true;
 }
 
@@ -4309,12 +4310,30 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
     case ARM::VLD2DUPd8wb_register:
     case ARM::VLD2DUPd16wb_register:
     case ARM::VLD2DUPd32wb_register:
+    case ARM::VLD2DUPq8EvenPseudo:
+    case ARM::VLD2DUPq8OddPseudo:
+    case ARM::VLD2DUPq16EvenPseudo:
+    case ARM::VLD2DUPq16OddPseudo:
+    case ARM::VLD2DUPq32EvenPseudo:
+    case ARM::VLD2DUPq32OddPseudo:
+    case ARM::VLD3DUPq8EvenPseudo:
+    case ARM::VLD3DUPq8OddPseudo:
+    case ARM::VLD3DUPq16EvenPseudo:
+    case ARM::VLD3DUPq16OddPseudo:
+    case ARM::VLD3DUPq32EvenPseudo:
+    case ARM::VLD3DUPq32OddPseudo:
     case ARM::VLD4DUPd8Pseudo:
     case ARM::VLD4DUPd16Pseudo:
     case ARM::VLD4DUPd32Pseudo:
     case ARM::VLD4DUPd8Pseudo_UPD:
     case ARM::VLD4DUPd16Pseudo_UPD:
     case ARM::VLD4DUPd32Pseudo_UPD:
+    case ARM::VLD4DUPq8EvenPseudo:
+    case ARM::VLD4DUPq8OddPseudo:
+    case ARM::VLD4DUPq16EvenPseudo:
+    case ARM::VLD4DUPq16OddPseudo:
+    case ARM::VLD4DUPq32EvenPseudo:
+    case ARM::VLD4DUPq32OddPseudo:
     case ARM::VLD1LNq8Pseudo:
     case ARM::VLD1LNq16Pseudo:
     case ARM::VLD1LNq32Pseudo:

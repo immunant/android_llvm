@@ -22,7 +22,7 @@
 # ALL-NEXT:   [3]: RThroughput
 # ALL-NEXT:   [4]: MayLoad
 # ALL-NEXT:   [5]: MayStore
-# ALL-NEXT:   [6]: HasSideEffects
+# ALL-NEXT:   [6]: HasSideEffects (U)
 
 # ALL:        [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 
@@ -35,4 +35,3 @@
 # INTEL-NEXT:  1      1     0.50                        mov	ebx, 255
 # INTEL-NEXT:  2      3     1.00                        imul	esi, edi
 # INTEL-NEXT:  1      1     0.50                        lea	eax, [rsi + rdi]
-

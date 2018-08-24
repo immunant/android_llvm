@@ -2,10 +2,6 @@
 
 cmake_minimum_required(VERSION 3.4.3)
 
-cmake_policy(SET CMP0022 NEW)
-
-cmake_policy(SET CMP0048 NEW)
-
 # CMake 3.1 and higher include generator expressions of the form
 # $<TARGETLIB:obj> in the SOURCES property.  These need to be
 # stripped everywhere that access the SOURCES property, so we just
@@ -13,17 +9,13 @@ cmake_policy(SET CMP0048 NEW)
 # in the output for now.
 cmake_policy(SET CMP0051 OLD)
 
-cmake_policy(SET CMP0056 NEW)
-
-cmake_policy(SET CMP0057 NEW)
-
 if(POLICY CMP0068)
   cmake_policy(SET CMP0068 NEW)
   set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 endif()
 
 if(NOT DEFINED LLVM_VERSION_MAJOR)
-  set(LLVM_VERSION_MAJOR 7)
+  set(LLVM_VERSION_MAJOR 8)
 endif()
 if(NOT DEFINED LLVM_VERSION_MINOR)
   set(LLVM_VERSION_MINOR 0)
@@ -92,7 +84,7 @@ if(CMAKE_HOST_APPLE AND APPLE)
 
     foreach(lang ${languages})
       set(CMAKE_${lang}_CREATE_STATIC_LIBRARY
-        "${CMAKE_LIBTOOL} -static ${LIBTOOL_NO_WARNING_FLAG} -o <TARGET> \
+        "\"${CMAKE_LIBTOOL}\" -static ${LIBTOOL_NO_WARNING_FLAG} -o <TARGET> \
         <LINK_FLAGS> <OBJECTS> ")
     endforeach()
   endif()
@@ -231,10 +223,6 @@ if(WIN32 AND NOT UNIX)
   set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}\\\\cmake\\\\nsis_icon.ico")
   set(CPACK_NSIS_MODIFY_PATH "ON")
   set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL "ON")
-  set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
-    "ExecWait '$INSTDIR/tools/msbuild/install.bat'")
-  set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS
-    "ExecWait '$INSTDIR/tools/msbuild/uninstall.bat'")
   if( CMAKE_CL_64 )
     set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
   endif()
@@ -429,12 +417,25 @@ option(LLVM_USE_OPROFILE
 option(LLVM_EXTERNALIZE_DEBUGINFO
   "Generate dSYM files and strip executables and libraries (Darwin Only)" OFF)
 
+option(LLVM_CODESIGNING_IDENTITY
+  "Sign executables and dylibs with the given identity (Darwin Only)" OFF)
+
 # If enabled, verify we are on a platform that supports oprofile.
 if( LLVM_USE_OPROFILE )
   if( NOT CMAKE_SYSTEM_NAME MATCHES "Linux" )
     message(FATAL_ERROR "OProfile support is available on Linux only.")
   endif( NOT CMAKE_SYSTEM_NAME MATCHES "Linux" )
 endif( LLVM_USE_OPROFILE )
+
+option(LLVM_USE_PERF
+  "Use perf JIT interface to inform perf about JIT code" OFF)
+
+# If enabled, verify we are on a platform that supports perf.
+if( LLVM_USE_PERF )
+  if( NOT CMAKE_SYSTEM_NAME MATCHES "Linux" )
+    message(FATAL_ERROR "perf support is available on Linux only.")
+  endif( NOT CMAKE_SYSTEM_NAME MATCHES "Linux" )
+endif( LLVM_USE_PERF )
 
 set(LLVM_USE_SANITIZER "" CACHE STRING
   "Define the sanitizer used to build binaries and tests.")
@@ -541,14 +542,16 @@ if(NOT DEFINED LLVM_DYLIB_COMPONENTS)
     "Semicolon-separated list of components to include in libLLVM, or \"all\".")
 endif()
 option(LLVM_LINK_LLVM_DYLIB "Link tools against the libllvm dynamic library" OFF)
-option(LLVM_BUILD_LLVM_C_DYLIB "Build libllvm-c re-export library (Darwin Only)" OFF)
+if(MSVC)
+  option(LLVM_BUILD_LLVM_C_DYLIB "Build LLVM-C.dll (Windows only)" OFF)
+else()
+  option(LLVM_BUILD_LLVM_C_DYLIB "Build libllvm-c re-export library (Darwin only)" OFF)
+endif()
 set(LLVM_BUILD_LLVM_DYLIB_default OFF)
-if(LLVM_LINK_LLVM_DYLIB OR LLVM_BUILD_LLVM_C_DYLIB)
+if(LLVM_LINK_LLVM_DYLIB OR (LLVM_BUILD_LLVM_C_DYLIB AND NOT MSVC))
   set(LLVM_BUILD_LLVM_DYLIB_default ON)
 endif()
 option(LLVM_BUILD_LLVM_DYLIB "Build libllvm dynamic library" ${LLVM_BUILD_LLVM_DYLIB_default})
-
-option(LLVM_DYLIB_SYMBOL_VERSIONING OFF)
 
 option(LLVM_OPTIMIZED_TABLEGEN "Force TableGen to be built with optimization" OFF)
 if(CMAKE_CROSSCOMPILING OR (LLVM_OPTIMIZED_TABLEGEN AND (LLVM_ENABLE_ASSERTIONS OR CMAKE_CONFIGURATION_TYPES)))
@@ -583,6 +586,9 @@ endif()
 # Override the default target with an environment variable named by LLVM_TARGET_TRIPLE_ENV.
 set(LLVM_TARGET_TRIPLE_ENV CACHE STRING "The name of environment variable to override default target. Disabled by blank.")
 mark_as_advanced(LLVM_TARGET_TRIPLE_ENV)
+
+set(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR OFF CACHE BOOL
+  "Enable per-target runtimes directory")
 
 # All options referred to from HandleLLVMOptions have to be specified
 # BEFORE this include, otherwise options will not be correctly set on
@@ -631,7 +637,7 @@ endif()
 #  - We generate the library table used by llvm-config.
 #
 #  - We generate the dependencies for the CMake fragment, so that we will
-#    automatically reconfigure outselves.
+#    automatically reconfigure ourselves.
 
 set(LLVMBUILDTOOL "${LLVM_MAIN_SRC_DIR}/utils/llvm-build/llvm-build")
 set(LLVMCONFIGLIBRARYDEPENDENCIESINC
@@ -646,6 +652,9 @@ endif (LLVM_USE_INTEL_JITEVENTS)
 if (LLVM_USE_OPROFILE)
   set(LLVMOPTIONALCOMPONENTS ${LLVMOPTIONALCOMPONENTS} OProfileJIT)
 endif (LLVM_USE_OPROFILE)
+if (LLVM_USE_PERF)
+  set(LLVMOPTIONALCOMPONENTS ${LLVMOPTIONALCOMPONENTS} PerfJITEvents)
+endif (LLVM_USE_PERF)
 
 message(STATUS "Constructing LLVMBuild project information")
 execute_process(
@@ -985,6 +994,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
 
   if (NOT CMAKE_CONFIGURATION_TYPES)
     add_llvm_install_targets(install-llvm-headers
+                             DEPENDS llvm-headers
                              COMPONENT llvm-headers)
   endif()
 endif()
@@ -1023,6 +1033,6 @@ if(LLVM_DISTRIBUTION_COMPONENTS)
 endif()
 
 # This allows us to deploy the Universal CRT DLLs by passing -DCMAKE_INSTALL_UCRT_LIBRARIES=ON to CMake
-if (MSVC AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+if (MSVC AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_INSTALL_UCRT_LIBRARIES)
   include(InstallRequiredSystemLibraries)
 endif()

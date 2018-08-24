@@ -216,9 +216,16 @@ static Error readSection(WasmSection &Section,
     return make_error<StringError>("Section too large",
                                    object_error::parse_failed);
   if (Section.Type == wasm::WASM_SEC_CUSTOM) {
-    const uint8_t *NameStart = Ctx.Ptr;
-    Section.Name = readString(Ctx);
-    Size -= Ctx.Ptr - NameStart;
+    WasmObjectFile::ReadContext SectionCtx;
+    SectionCtx.Start = Ctx.Ptr;
+    SectionCtx.Ptr = Ctx.Ptr;
+    SectionCtx.End = Ctx.Ptr + Size;
+
+    Section.Name = readString(SectionCtx);
+
+    uint32_t SectionNameSize = SectionCtx.Ptr - SectionCtx.Start;
+    Ctx.Ptr += SectionNameSize;
+    Size -= SectionNameSize;
   }
   Section.Content = ArrayRef<uint8_t>(Ctx.Ptr, Size);
   Ctx.Ptr += Size;
@@ -975,7 +982,7 @@ Error WasmObjectFile::parseDataSection(ReadContext &Ctx) {
     if (Error Err = readInitExpr(Segment.Data.Offset, Ctx))
       return Err;
     uint32_t Size = readVaruint32(Ctx);
-    if (Size > Ctx.End - Ctx.Ptr)
+    if (Size > (size_t)(Ctx.End - Ctx.Ptr))
       return make_error<GenericBinaryError>("Invalid segment size",
                                             object_error::parse_failed);
     Segment.Data.Content = ArrayRef<uint8_t>(Ctx.Ptr, Size);

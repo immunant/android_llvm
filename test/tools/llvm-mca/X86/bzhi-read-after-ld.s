@@ -36,7 +36,7 @@ bzhil	%esi, (%rdi), %eax
 # ALL-NEXT:     [3]: RThroughput
 # ALL-NEXT:     [4]: MayLoad
 # ALL-NEXT:     [5]: MayStore
-# ALL-NEXT:     [6]: HasSideEffects
+# ALL-NEXT:     [6]: HasSideEffects (U)
 
 # ALL:          [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # ALL-NEXT:      1      1     0.25                        addl	%edi, %esi
@@ -74,4 +74,3 @@ bzhil	%esi, (%rdi), %eax
 # ALL:                [0]    [1]    [2]    [3]
 # ALL-NEXT:     0.     1     1.0    1.0    0.0       addl	%edi, %esi
 # ALL-NEXT:     1.     1     1.0    0.0    0.0       bzhil	%esi, (%rdi), %eax
-

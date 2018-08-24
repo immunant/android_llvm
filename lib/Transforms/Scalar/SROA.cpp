@@ -42,7 +42,7 @@
 #include "llvm/Analysis/GlobalsModRef.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/PtrUseVisitor.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
@@ -3730,7 +3730,7 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
                          PartPtrTy, BasePtr->getName() + "."),
           getAdjustedAlignment(LI, PartOffset, DL), /*IsVolatile*/ false,
           LI->getName());
-      PLoad->copyMetadata(*LI, LLVMContext::MD_mem_parallel_loop_access); 
+      PLoad->copyMetadata(*LI, LLVMContext::MD_mem_parallel_loop_access);
 
       // Append this load onto the list of split loads so we can find it later
       // to rewrite the stores.
@@ -4029,6 +4029,8 @@ AllocaInst *SROA::rewritePartition(AllocaInst &AI, AllocaSlices &AS,
     NewAI = new AllocaInst(
       SliceTy, AI.getType()->getAddressSpace(), nullptr, Alignment,
         AI.getName() + ".sroa." + Twine(P.begin() - AS.begin()), &AI);
+    // Copy the old AI debug location over to the new one.
+    NewAI->setDebugLoc(AI.getDebugLoc());
     ++NumNewAllocas;
   }
 
@@ -4210,7 +4212,7 @@ bool SROA::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
 
   // Migrate debug information from the old alloca to the new alloca(s)
   // and the individual partitions.
-  TinyPtrVector<DbgInfoIntrinsic *> DbgDeclares = FindDbgAddrUses(&AI);
+  TinyPtrVector<DbgVariableIntrinsic *> DbgDeclares = FindDbgAddrUses(&AI);
   if (!DbgDeclares.empty()) {
     auto *Var = DbgDeclares.front()->getVariable();
     auto *Expr = DbgDeclares.front()->getExpression();
@@ -4262,7 +4264,7 @@ bool SROA::splitAlloca(AllocaInst &AI, AllocaSlices &AS) {
       }
 
       // Remove any existing intrinsics describing the same alloca.
-      for (DbgInfoIntrinsic *OldDII : FindDbgAddrUses(Fragment.Alloca))
+      for (DbgVariableIntrinsic *OldDII : FindDbgAddrUses(Fragment.Alloca))
         OldDII->eraseFromParent();
 
       DIB.insertDeclare(Fragment.Alloca, Var, FragmentExpr,
@@ -4377,7 +4379,7 @@ bool SROA::deleteDeadInstructions(
     // not be able to find it.
     if (AllocaInst *AI = dyn_cast<AllocaInst>(I)) {
       DeletedAllocas.insert(AI);
-      for (DbgInfoIntrinsic *OldDII : FindDbgAddrUses(AI))
+      for (DbgVariableIntrinsic *OldDII : FindDbgAddrUses(AI))
         OldDII->eraseFromParent();
     }
 

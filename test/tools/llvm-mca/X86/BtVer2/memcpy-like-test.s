@@ -23,7 +23,7 @@ vmovaps %xmm0, 48(%rdi)
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      5     1.00    *                   vmovaps	(%rsi), %xmm0
@@ -94,4 +94,3 @@ vmovaps %xmm0, 48(%rdi)
 # CHECK-NEXT: 5.     1     6.0    0.0    0.0       vmovaps	%xmm0, 32(%rdi)
 # CHECK-NEXT: 6.     1     1.0    1.0    0.0       vmovaps	48(%rsi), %xmm0
 # CHECK-NEXT: 7.     1     6.0    0.0    0.0       vmovaps	%xmm0, 48(%rdi)
-

@@ -44,6 +44,7 @@ class WebAssemblyTargetLowering final : public TargetLowering {
   /// right decision when generating code for different targets.
   const WebAssemblySubtarget *Subtarget;
 
+  AtomicExpansionKind shouldExpandAtomicRMWInIR(AtomicRMWInst *) const override;
   FastISel *createFastISel(FunctionLoweringInfo &FuncInfo,
                            const TargetLibraryInfo *LibInfo) const override;
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
@@ -63,6 +64,12 @@ class WebAssemblyTargetLowering final : public TargetLowering {
   bool allowsMisalignedMemoryAccesses(EVT, unsigned AddrSpace, unsigned Align,
                                       bool *Fast) const override;
   bool isIntDivCheap(EVT VT, AttributeList Attr) const override;
+
+  EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
+                         EVT VT) const override;
+  bool getTgtMemIntrinsic(IntrinsicInfo &Info, const CallInst &I,
+                          MachineFunction &MF,
+                          unsigned Intrinsic) const override;
 
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;

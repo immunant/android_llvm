@@ -13,7 +13,7 @@
 // an instruction. Each MCInstPredicate class has a well-known semantic, and it
 // is used by a PredicateExpander to generate code for MachineInstr and/or
 // MCInst.
-// 
+//
 // MCInstPredicate definitions can be used to construct MCSchedPredicate
 // definitions. An MCSchedPredicate can be used in place of a SchedPredicate
 // when defining SchedReadVariant and SchedWriteVariant used by a processor
@@ -63,7 +63,7 @@
 //
 // New MCInstPredicate classes must be added to this file. For each new class
 // XYZ, an "expandXYZ" method must be added to the PredicateExpander.
-// 
+//
 //===----------------------------------------------------------------------===//
 
 // Forward declarations.
@@ -110,6 +110,9 @@ class CheckSameRegOperand<int First, int Second> : MCInstPredicate {
 class CheckRegOperand<int Index, Register R> : MCOperandPredicate<Index> {
   Register Reg = R;
 }
+
+// Check if register operand at index `Index` is the invalid register.
+class CheckInvalidRegOperand<int Index> : MCOperandPredicate<Index>;
 
 // Check that the operand at position `Index` is immediate `Imm`.
 class CheckImmOperand<int Index, int Imm> : MCOperandPredicate<Index> {
@@ -166,6 +169,35 @@ class CheckAll<list<MCInstPredicate> Sequence>
 class CheckAny<list<MCInstPredicate> Sequence>
     : CheckPredicateSequence<Sequence>;
 
+
+// Used to expand the body of a function predicate. See the definition of
+// TIIPredicate below.
+class MCStatement;
+
+// Expands to a return statement. The return expression is a boolean expression
+// described by a MCInstPredicate.
+class MCReturnStatement<MCInstPredicate predicate> : MCStatement {
+  MCInstPredicate Pred = predicate;
+}
+
+// Used to automatically construct cases of a switch statement where the switch
+// variable is an instruction opcode. There is a 'case' for every opcode in the
+// `opcodes` list, and each case is associated with MCStatement `caseStmt`.
+class MCOpcodeSwitchCase<list<Instruction> opcodes, MCStatement caseStmt> {
+  list<Instruction> Opcodes = opcodes;
+  MCStatement CaseStmt = caseStmt;
+}
+
+// Expands to a switch statement. The switch variable is an instruction opcode.
+// The auto-generated switch is populated by a number of cases based on the
+// `cases` list in input. A default case is automatically generated, and it
+// evaluates to `default`.
+class MCOpcodeSwitchStatement<list<MCOpcodeSwitchCase> cases,
+                              MCStatement default> : MCStatement {
+  list<MCOpcodeSwitchCase> Cases = cases;
+  MCStatement DefaultCase = default;
+}
+
 // Check that a call to method `Name` in class "XXXGenInstrInfo" (where XXX is
 // the `Target` name) returns true.
 //
@@ -173,10 +205,11 @@ class CheckAny<list<MCInstPredicate> Sequence>
 // InstrInfo. A TIIPredicate is treated specially by the InstrInfoEmitter
 // tablegen backend, which will use it to automatically generate a definition in
 // the target specific `GenInstrInfo` class.
-class TIIPredicate<string Target, string Name, MCInstPredicate P> : MCInstPredicate {
+class TIIPredicate<string Target, string Name, MCStatement body>
+    : MCInstPredicate {
   string TargetName = Target;
   string FunctionName = Name;
-  MCInstPredicate Pred = P;
+  MCStatement Body = body;
 }
 
 // A function predicate that takes as input a machine instruction, and returns

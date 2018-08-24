@@ -16,7 +16,7 @@
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      1     1.00                        b	t
@@ -55,4 +55,3 @@
 
 # CHECK:            [0]    [1]    [2]    [3]
 # CHECK-NEXT: 0.     4     2.3    2.3    0.0       b	t
-

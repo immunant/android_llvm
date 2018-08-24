@@ -33,7 +33,9 @@ class FormattedBytes;
 
 namespace sys {
 namespace fs {
+enum FileAccess : unsigned;
 enum OpenFlags : unsigned;
+enum CreationDisposition : unsigned;
 } // end namespace fs
 } // end namespace sys
 
@@ -218,7 +220,7 @@ public:
   raw_ostream &write_uuid(const uuid_t UUID);
 
   /// Output \p Str, turning '\\', '\t', '\n', '"', and anything that doesn't
-  /// satisfy std::isprint into an escape sequence.
+  /// satisfy llvm::isPrint into an escape sequence.
   raw_ostream &write_escaped(StringRef Str, bool UseHexEscapes = false);
 
   raw_ostream &write(unsigned char C);
@@ -397,7 +399,15 @@ public:
   /// As a special case, if Filename is "-", then the stream will use
   /// STDOUT_FILENO instead of opening a file. This will not close the stdout
   /// descriptor.
+  raw_fd_ostream(StringRef Filename, std::error_code &EC);
   raw_fd_ostream(StringRef Filename, std::error_code &EC,
+                 sys::fs::CreationDisposition Disp);
+  raw_fd_ostream(StringRef Filename, std::error_code &EC,
+                 sys::fs::FileAccess Access);
+  raw_fd_ostream(StringRef Filename, std::error_code &EC,
+                 sys::fs::OpenFlags Flags);
+  raw_fd_ostream(StringRef Filename, std::error_code &EC,
+                 sys::fs::CreationDisposition Disp, sys::fs::FileAccess Access,
                  sys::fs::OpenFlags Flags);
 
   /// FD is the file descriptor that this writes to.  If ShouldClose is true,

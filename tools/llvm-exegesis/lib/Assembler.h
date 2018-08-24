@@ -33,15 +33,20 @@
 
 namespace exegesis {
 
+class ExegesisTarget;
+
 // Gather the set of reserved registers (depends on function's calling
 // convention and target machine).
 llvm::BitVector getFunctionReservedRegs(const llvm::TargetMachine &TM);
 
-// Creates a temporary `void foo()` function containing the provided
+// Creates a temporary `void foo(char*)` function containing the provided
 // Instructions. Runs a set of llvm Passes to provide correct prologue and
 // epilogue. Once the MachineFunction is ready, it is assembled for TM to
 // AsmStream, the temporary function is eventually discarded.
-void assembleToStream(std::unique_ptr<llvm::LLVMTargetMachine> TM,
+void assembleToStream(const ExegesisTarget &ET,
+                      std::unique_ptr<llvm::LLVMTargetMachine> TM,
+                      llvm::ArrayRef<unsigned> LiveIns,
+                      llvm::ArrayRef<unsigned> RegsToDef,
                       llvm::ArrayRef<llvm::MCInst> Instructions,
                       llvm::raw_pwrite_stream &AsmStream);
 
@@ -55,7 +60,7 @@ getObjectFromBuffer(llvm::StringRef Buffer);
 llvm::object::OwningBinary<llvm::object::ObjectFile>
 getObjectFromFile(llvm::StringRef Filename);
 
-// Consumes an ObjectFile containing a `void foo()` function and make it
+// Consumes an ObjectFile containing a `void foo(char*)` function and make it
 // executable.
 struct ExecutableFunction {
   explicit ExecutableFunction(
@@ -66,7 +71,9 @@ struct ExecutableFunction {
   llvm::StringRef getFunctionBytes() const { return FunctionBytes; }
 
   // Executes the function.
-  void operator()() const { ((void (*)())(intptr_t)FunctionBytes.data())(); }
+  void operator()(char *Memory) const {
+    ((void (*)(char *))(intptr_t)FunctionBytes.data())(Memory);
+  }
 
   std::unique_ptr<llvm::LLVMContext> Context;
   std::unique_ptr<llvm::ExecutionEngine> ExecEngine;

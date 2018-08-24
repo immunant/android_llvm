@@ -115,6 +115,7 @@ static ld_plugin_add_input_file add_input_file = nullptr;
 static ld_plugin_set_extra_library_path set_extra_library_path = nullptr;
 static ld_plugin_get_view get_view = nullptr;
 static bool IsExecutable = false;
+static bool SplitSections = true;
 static Optional<Reloc::Model> RelocationModel = None;
 static std::string output_name = "";
 static std::list<claimed_file> Modules;
@@ -324,6 +325,7 @@ ld_plugin_status onload(ld_plugin_tv *tv) {
       switch (tv->tv_u.tv_val) {
       case LDPO_REL: // .o
         IsExecutable = false;
+        SplitSections = false;
         break;
       case LDPO_DYN: // .so
         IsExecutable = false;
@@ -787,7 +789,7 @@ static int getOutputFileName(StringRef InFilename, bool TempOutFile,
     if (TaskID > 0)
       NewFilename += utostr(TaskID);
     std::error_code EC =
-        sys::fs::openFileForWrite(NewFilename, FD, sys::fs::F_None);
+        sys::fs::openFileForWrite(NewFilename, FD, sys::fs::CD_CreateAlways);
     if (EC)
       message(LDPL_FATAL, "Could not open file %s: %s", NewFilename.c_str(),
               EC.message().c_str());
@@ -834,12 +836,13 @@ static std::unique_ptr<LTO> createLTO(IndexWriteCallback OnIndexWrite,
   // FIXME: Check the gold version or add a new option to enable them.
   Conf.Options.RelaxELFRelocations = false;
 
-  // Enable function/data sections by default.
-  Conf.Options.FunctionSections = true;
-  Conf.Options.DataSections = true;
+  // Toggle function/data sections.
+  Conf.Options.FunctionSections = SplitSections;
+  Conf.Options.DataSections = SplitSections;
 
   Conf.MAttrs = MAttrs;
   Conf.RelocModel = RelocationModel;
+  Conf.CodeModel = getCodeModel();
   Conf.CGOptLevel = getCGOptLevel();
   Conf.DisableVerify = options::DisableVerify;
   Conf.OptLevel = options::OptLevel;
@@ -927,7 +930,7 @@ static void writeEmptyDistributedBuildOutputs(const std::string &ModulePath,
               (NewModulePath + ".thinlto.bc").c_str(), EC.message().c_str());
 
     if (SkipModule) {
-      ModuleSummaryIndex Index(false);
+      ModuleSummaryIndex Index(/*HaveGVs*/ false);
       Index.setSkipModuleByDistributedBackend();
       WriteIndexToFile(Index, OS, nullptr);
     }

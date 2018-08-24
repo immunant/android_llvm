@@ -57,7 +57,7 @@
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Analysis/TargetFolder.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
@@ -1417,25 +1417,16 @@ Instruction *InstCombiner::foldShuffledBinop(BinaryOperator &Inst) {
       }
     }
     if (MayChange) {
-      // It's not safe to use a vector with undef elements because the entire
-      // instruction can be folded to undef (for example, div/rem divisors).
-      // Replace undef lanes with the first non-undef element. Vector demanded
-      // elements can change those back to undef values if that is safe.
-      Constant *SafeDummyConstant = nullptr;
-      for (unsigned i = 0; i < VWidth; ++i) {
-        if (!isa<UndefValue>(NewVecC[i])) {
-          SafeDummyConstant = NewVecC[i];
-          break;
-        }
-      }
-      assert(SafeDummyConstant && "Undef constant vector was not simplified?");
-      for (unsigned i = 0; i < VWidth; ++i)
-        if (isa<UndefValue>(NewVecC[i]))
-          NewVecC[i] = SafeDummyConstant;
+      Constant *NewC = ConstantVector::get(NewVecC);
+      // It may not be safe to execute a binop on a vector with undef elements
+      // because the entire instruction can be folded to undef or create poison
+      // that did not exist in the original code.
+      bool ConstOp1 = isa<Constant>(Inst.getOperand(1));
+      if (Inst.isIntDivRem() || (Inst.isShift() && ConstOp1))
+        NewC = getSafeVectorConstantForBinop(Inst.getOpcode(), NewC, ConstOp1);
 
       // Op(shuffle(V1, Mask), C) -> shuffle(Op(V1, NewC), Mask)
       // Op(C, shuffle(V1, Mask)) -> shuffle(Op(NewC, V1), Mask)
-      Constant *NewC = ConstantVector::get(NewVecC);
       Value *NewLHS = isa<Constant>(LHS) ? NewC : V1;
       Value *NewRHS = isa<Constant>(LHS) ? V1 : NewC;
       return createBinOpShuffle(NewLHS, NewRHS, Mask);
@@ -2153,7 +2144,7 @@ Instruction *InstCombiner::visitAllocSite(Instruction &MI) {
 
   // If we are removing an alloca with a dbg.declare, insert dbg.value calls
   // before each store.
-  TinyPtrVector<DbgInfoIntrinsic *> DIIs;
+  TinyPtrVector<DbgVariableIntrinsic *> DIIs;
   std::unique_ptr<DIBuilder> DIB;
   if (isa<AllocaInst>(MI)) {
     DIIs = FindDbgAddrUses(&MI);
@@ -2943,7 +2934,7 @@ static bool TryToSinkInstruction(Instruction *I, BasicBlock *DestBlock) {
 
   // Also sink all related debug uses from the source basic block. Otherwise we
   // get debug use before the def.
-  SmallVector<DbgInfoIntrinsic *, 1> DbgUsers;
+  SmallVector<DbgVariableIntrinsic *, 1> DbgUsers;
   findDbgUsers(DbgUsers, I);
   for (auto *DII : DbgUsers) {
     if (DII->getParent() == SrcBlock) {

@@ -43,7 +43,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -781,7 +781,7 @@ bool ConstantHoistingPass::runImpl(Function &Fn, TargetTransformInfo &TTI,
   this->TTI = &TTI;
   this->DT = &DT;
   this->BFI = BFI;
-  this->Entry = &Entry;  
+  this->Entry = &Entry;
   // Collect all constant candidates.
   collectConstantCandidates(Fn);
 

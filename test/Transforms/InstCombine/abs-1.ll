@@ -73,6 +73,21 @@ define <2 x i8> @abs_canonical_2(<2 x i8> %x) {
   ret <2 x i8> %abs
 }
 
+; Even if a constant has undef elements.
+
+define <2 x i8> @abs_canonical_2_vec_undef_elts(<2 x i8> %x) {
+; CHECK-LABEL: @abs_canonical_2_vec_undef_elts(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt <2 x i8> [[X:%.*]], zeroinitializer
+; CHECK-NEXT:    [[NEG:%.*]] = sub <2 x i8> zeroinitializer, [[X]]
+; CHECK-NEXT:    [[ABS:%.*]] = select <2 x i1> [[CMP]], <2 x i8> [[NEG]], <2 x i8> [[X]]
+; CHECK-NEXT:    ret <2 x i8> [[ABS]]
+;
+  %cmp = icmp sgt <2 x i8> %x, <i8 undef, i8 -1>
+  %neg = sub <2 x i8> zeroinitializer, %x
+  %abs = select <2 x i1> %cmp, <2 x i8> %x, <2 x i8> %neg
+  ret <2 x i8> %abs
+}
+
 ; NSW should not change.
 
 define i8 @abs_canonical_3(i8 %x) {
@@ -99,6 +114,97 @@ define i8 @abs_canonical_4(i8 %x) {
   %neg = sub i8 0, %x
   %abs = select i1 %cmp, i8 %neg, i8 %x
   ret i8 %abs
+}
+
+define i32 @abs_canonical_5(i8 %x) {
+; CHECK-LABEL: @abs_canonical_5(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i8 [[X:%.*]], 0
+; CHECK-NEXT:    [[CONV:%.*]] = sext i8 [[X]] to i32
+; CHECK-NEXT:    [[NEG:%.*]] = sub nsw i32 0, [[CONV]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[NEG]], i32 [[CONV]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %cmp = icmp sgt i8 %x, 0
+  %conv = sext i8 %x to i32
+  %neg = sub i32 0, %conv
+  %abs = select i1 %cmp, i32 %conv, i32 %neg
+  ret i32 %abs
+}
+
+define i32 @abs_canonical_6(i32 %a, i32 %b) {
+; CHECK-LABEL: @abs_canonical_6(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[TMP1]], 0
+; CHECK-NEXT:    [[TMP2:%.*]] = sub i32 0, [[TMP1]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[TMP2]], i32 [[TMP1]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %tmp1 = sub i32 %a, %b
+  %cmp = icmp sgt i32 %tmp1, -1
+  %tmp2 = sub i32 %b, %a
+  %abs = select i1 %cmp, i32 %tmp1, i32 %tmp2
+  ret i32 %abs
+}
+
+define <2 x i8> @abs_canonical_7(<2 x i8> %a, <2 x i8 > %b) {
+; CHECK-LABEL: @abs_canonical_7(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub <2 x i8> [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt <2 x i8> [[TMP1]], zeroinitializer
+; CHECK-NEXT:    [[TMP2:%.*]] = sub <2 x i8> zeroinitializer, [[TMP1]]
+; CHECK-NEXT:    [[ABS:%.*]] = select <2 x i1> [[CMP]], <2 x i8> [[TMP2]], <2 x i8> [[TMP1]]
+; CHECK-NEXT:    ret <2 x i8> [[ABS]]
+;
+
+  %tmp1 = sub <2 x i8> %a, %b
+  %cmp = icmp sgt <2 x i8> %tmp1, <i8 -1, i8 -1>
+  %tmp2 = sub <2 x i8> %b, %a
+  %abs = select <2 x i1> %cmp, <2 x i8> %tmp1, <2 x i8> %tmp2
+  ret <2 x i8> %abs
+}
+
+define i32 @abs_canonical_8(i32 %a) {
+; CHECK-LABEL: @abs_canonical_8(
+; CHECK-NEXT:    [[TMP:%.*]] = sub i32 0, [[A:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[A]], 0
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[TMP]], i32 [[A]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %tmp = sub i32 0, %a
+  %cmp = icmp slt i32 %tmp, 0
+  %abs = select i1 %cmp, i32 %a, i32 %tmp
+  ret i32 %abs
+}
+
+define i32 @abs_canonical_9(i32 %a, i32 %b) {
+; CHECK-LABEL: @abs_canonical_9(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP1]], -1
+; CHECK-NEXT:    [[TMP2:%.*]] = sub i32 [[B]], [[A]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[TMP1]], i32 [[TMP2]]
+; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[ABS]], [[TMP2]]
+; CHECK-NEXT:    ret i32 [[ADD]]
+;
+  %tmp1 = sub i32 %a, %b
+  %cmp = icmp sgt i32 %tmp1, -1
+  %tmp2 = sub i32 %b, %a
+  %abs = select i1 %cmp, i32 %tmp1, i32 %tmp2
+  %add = add i32 %abs, %tmp2 ; increase use count for %tmp2.
+  ret i32 %add
+}
+
+define i32 @abs_canonical_10(i32 %a, i32 %b) {
+; CHECK-LABEL: @abs_canonical_10(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[TMP1]], 0
+; CHECK-NEXT:    [[NEGTMP:%.*]] = sub i32 0, [[TMP1]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[NEGTMP]], i32 [[TMP1]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %tmp2 = sub i32 %b, %a
+  %tmp1 = sub i32 %a, %b
+  %cmp = icmp sgt i32 %tmp1, -1
+  %abs = select i1 %cmp, i32 %tmp1, i32 %tmp2
+  ret i32 %abs
 }
 
 ; We have a canonical form of nabs to make CSE easier.
@@ -131,6 +237,21 @@ define <2 x i8> @nabs_canonical_2(<2 x i8> %x) {
   ret <2 x i8> %abs
 }
 
+; Even if a constant has undef elements.
+
+define <2 x i8> @nabs_canonical_2_vec_undef_elts(<2 x i8> %x) {
+; CHECK-LABEL: @nabs_canonical_2_vec_undef_elts(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt <2 x i8> [[X:%.*]], zeroinitializer
+; CHECK-NEXT:    [[NEG:%.*]] = sub <2 x i8> zeroinitializer, [[X]]
+; CHECK-NEXT:    [[ABS:%.*]] = select <2 x i1> [[CMP]], <2 x i8> [[X]], <2 x i8> [[NEG]]
+; CHECK-NEXT:    ret <2 x i8> [[ABS]]
+;
+  %cmp = icmp sgt <2 x i8> %x, <i8 -1, i8 undef>
+  %neg = sub <2 x i8> zeroinitializer, %x
+  %abs = select <2 x i1> %cmp, <2 x i8> %neg, <2 x i8> %x
+  ret <2 x i8> %abs
+}
+
 ; NSW should not change.
 
 define i8 @nabs_canonical_3(i8 %x) {
@@ -157,6 +278,96 @@ define i8 @nabs_canonical_4(i8 %x) {
   %neg = sub i8 0, %x
   %abs = select i1 %cmp, i8 %x, i8 %neg
   ret i8 %abs
+}
+
+define i32 @nabs_canonical_5(i8 %x) {
+; CHECK-LABEL: @nabs_canonical_5(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i8 [[X:%.*]], 0
+; CHECK-NEXT:    [[CONV:%.*]] = sext i8 [[X]] to i32
+; CHECK-NEXT:    [[NEG:%.*]] = sub nsw i32 0, [[CONV]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[CONV]], i32 [[NEG]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %cmp = icmp sgt i8 %x, 0
+  %conv = sext i8 %x to i32
+  %neg = sub i32 0, %conv
+  %abs = select i1 %cmp, i32 %neg, i32 %conv
+  ret i32 %abs
+}
+
+define i32 @nabs_canonical_6(i32 %a, i32 %b) {
+; CHECK-LABEL: @nabs_canonical_6(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[TMP1]], 0
+; CHECK-NEXT:    [[TMP2:%.*]] = sub i32 0, [[TMP1]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[TMP1]], i32 [[TMP2]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %tmp1 = sub i32 %a, %b
+  %cmp = icmp sgt i32 %tmp1, -1
+  %tmp2 = sub i32 %b, %a
+  %abs = select i1 %cmp, i32 %tmp2, i32 %tmp1
+  ret i32 %abs
+}
+
+define <2 x i8> @nabs_canonical_7(<2 x i8> %a, <2 x i8 > %b) {
+; CHECK-LABEL: @nabs_canonical_7(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub <2 x i8> [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt <2 x i8> [[TMP1]], zeroinitializer
+; CHECK-NEXT:    [[TMP2:%.*]] = sub <2 x i8> zeroinitializer, [[TMP1]]
+; CHECK-NEXT:    [[ABS:%.*]] = select <2 x i1> [[CMP]], <2 x i8> [[TMP1]], <2 x i8> [[TMP2]]
+; CHECK-NEXT:    ret <2 x i8> [[ABS]]
+;
+  %tmp1 = sub <2 x i8> %a, %b
+  %cmp = icmp sgt <2 x i8> %tmp1, <i8 -1, i8 -1>
+  %tmp2 = sub <2 x i8> %b, %a
+  %abs = select <2 x i1> %cmp, <2 x i8> %tmp2, <2 x i8> %tmp1
+  ret <2 x i8> %abs
+}
+
+define i32 @nabs_canonical_8(i32 %a) {
+; CHECK-LABEL: @nabs_canonical_8(
+; CHECK-NEXT:    [[TMP:%.*]] = sub i32 0, [[A:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[A]], 0
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[A]], i32 [[TMP]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %tmp = sub i32 0, %a
+  %cmp = icmp slt i32 %tmp, 0
+  %abs = select i1 %cmp, i32 %tmp, i32 %a
+  ret i32 %abs
+}
+
+define i32 @nabs_canonical_9(i32 %a, i32 %b) {
+; CHECK-LABEL: @nabs_canonical_9(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp sgt i32 [[TMP1]], -1
+; CHECK-NEXT:    [[TMP2:%.*]] = sub i32 [[B]], [[A]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[TMP2]], i32 [[TMP1]]
+; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[TMP2]], [[ABS]]
+; CHECK-NEXT:    ret i32 [[ADD]]
+;
+  %tmp1 = sub i32 %a, %b
+  %cmp = icmp sgt i32 %tmp1, -1
+  %tmp2 = sub i32 %b, %a
+  %abs = select i1 %cmp, i32 %tmp2, i32 %tmp1
+  %add = add i32 %tmp2, %abs ; increase use count for %tmp2
+  ret i32 %add
+}
+
+define i32 @nabs_canonical_10(i32 %a, i32 %b) {
+; CHECK-LABEL: @nabs_canonical_10(
+; CHECK-NEXT:    [[TMP1:%.*]] = sub i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp slt i32 [[TMP1]], 0
+; CHECK-NEXT:    [[NEGTMP:%.*]] = sub i32 0, [[TMP1]]
+; CHECK-NEXT:    [[ABS:%.*]] = select i1 [[CMP]], i32 [[TMP1]], i32 [[NEGTMP]]
+; CHECK-NEXT:    ret i32 [[ABS]]
+;
+  %tmp2 = sub i32 %b, %a
+  %tmp1 = sub i32 %a, %b
+  %cmp = icmp slt i32 %tmp1, 1
+  %abs = select i1 %cmp, i32 %tmp1, i32 %tmp2
+  ret i32 %abs
 }
 
 ; The following 5 tests use a shift+add+xor to implement abs():
@@ -266,6 +477,59 @@ define i8 @shifty_abs_too_many_uses(i8 %x) {
   ret i8 %abs
 }
 
+; There's another way to make abs() using shift, xor, and subtract.
+; PR36036 - https://bugs.llvm.org/show_bug.cgi?id=36036
+
+define i8 @shifty_sub(i8 %x) {
+; CHECK-LABEL: @shifty_sub(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp slt i8 [[X:%.*]], 0
+; CHECK-NEXT:    [[TMP2:%.*]] = sub i8 0, [[X]]
+; CHECK-NEXT:    [[R:%.*]] = select i1 [[TMP1]], i8 [[TMP2]], i8 [[X]]
+; CHECK-NEXT:    ret i8 [[R]]
+;
+  %sh = ashr i8 %x, 7
+  %xor = xor i8 %x, %sh
+  %r = sub i8 %xor, %sh
+  ret i8 %r
+}
+
+define i8 @shifty_sub_nsw_commute(i8 %x) {
+; CHECK-LABEL: @shifty_sub_nsw_commute(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp slt i8 [[X:%.*]], 0
+; CHECK-NEXT:    [[TMP2:%.*]] = sub nsw i8 0, [[X]]
+; CHECK-NEXT:    [[R:%.*]] = select i1 [[TMP1]], i8 [[TMP2]], i8 [[X]]
+; CHECK-NEXT:    ret i8 [[R]]
+;
+  %sh = ashr i8 %x, 7
+  %xor = xor i8 %sh, %x
+  %r = sub nsw i8 %xor, %sh
+  ret i8 %r
+}
+
+define <4 x i32> @shifty_sub_nuw_vec_commute(<4 x i32> %x) {
+; CHECK-LABEL: @shifty_sub_nuw_vec_commute(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp sgt <4 x i32> [[X:%.*]], zeroinitializer
+; CHECK-NEXT:    [[R:%.*]] = select <4 x i1> [[TMP1]], <4 x i32> [[X]], <4 x i32> zeroinitializer
+; CHECK-NEXT:    ret <4 x i32> [[R]]
+;
+  %sh = ashr <4 x i32> %x, <i32 31, i32 31, i32 31, i32 31>
+  %xor = xor <4 x i32> %sh, %x
+  %r = sub nuw <4 x i32> %xor, %sh
+  ret <4 x i32> %r
+}
+
+define i12 @shifty_sub_nsw_nuw(i12 %x) {
+; CHECK-LABEL: @shifty_sub_nsw_nuw(
+; CHECK-NEXT:    [[TMP1:%.*]] = icmp sgt i12 [[X:%.*]], 0
+; CHECK-NEXT:    [[R:%.*]] = select i1 [[TMP1]], i12 [[X]], i12 0
+; CHECK-NEXT:    ret i12 [[R]]
+;
+  %sh = ashr i12 %x, 11
+  %xor = xor i12 %x, %sh
+  %r = sub nsw nuw i12 %xor, %sh
+  ret i12 %r
+}
+
 define i8 @negate_abs(i8 %x) {
 ; CHECK-LABEL: @negate_abs(
 ; CHECK-NEXT:    [[N:%.*]] = sub i8 0, [[X:%.*]]
@@ -304,3 +568,4 @@ define i1 @abs_must_be_positive(i32 %x) {
   %c2 = icmp sge i32 %sel, 0
   ret i1 %c2
 }
+

@@ -17,7 +17,7 @@ add  %rsi, %rsi
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      7     1.00    *                   vmulps	(%rsi), %xmm0, %xmm0
@@ -57,4 +57,3 @@ add  %rsi, %rsi
 # CHECK-NEXT: [0]    [1]    [2]    [3]    [4]    [5]    [6]    [7]    [8]    [9]    [10]   [11]   [12]   [13]   Instructions:
 # CHECK-NEXT:  -      -      -      -     1.00    -     1.00   1.00    -      -      -      -      -      -     vmulps	(%rsi), %xmm0, %xmm0
 # CHECK-NEXT:  -     1.00    -      -      -      -      -      -      -      -      -      -      -      -     addq	%rsi, %rsi
-

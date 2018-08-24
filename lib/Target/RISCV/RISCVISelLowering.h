@@ -25,6 +25,9 @@ namespace RISCVISD {
 enum NodeType : unsigned {
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
   RET_FLAG,
+  URET_FLAG,
+  SRET_FLAG,
+  MRET_FLAG,
   CALL,
   SELECT_CC,
   BuildPairF64,
@@ -65,6 +68,14 @@ public:
 
   EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Context,
                          EVT VT) const override;
+
+  bool shouldInsertFencesForAtomic(const Instruction *I) const override {
+    return isa<LoadInst>(I) || isa<StoreInst>(I);
+  }
+  Instruction *emitLeadingFence(IRBuilder<> &Builder, Instruction *Inst,
+                                AtomicOrdering Ord) const override;
+  Instruction *emitTrailingFence(IRBuilder<> &Builder, Instruction *Inst,
+                                 AtomicOrdering Ord) const override;
 
 private:
   void analyzeInputArgs(MachineFunction &MF, CCState &CCInfo,

@@ -298,6 +298,9 @@ static bool isREX(struct InternalInstruction *insn, uint8_t prefix) {
 static void setPrefixPresent(struct InternalInstruction *insn, uint8_t prefix) {
   uint8_t nextByte;
   switch (prefix) {
+  case 0xf0:
+    insn->hasLockPrefix = true;
+    break;
   case 0xf2:
   case 0xf3:
     if (lookAtByte(insn, &nextByte))
@@ -1773,7 +1776,7 @@ static int readOperands(struct InternalInstruction* insn) {
 
       // If sibIndex was set to SIB_INDEX_NONE, index offset is 4.
       if (insn->sibIndex == SIB_INDEX_NONE)
-        insn->sibIndex = (SIBIndex)4;
+        insn->sibIndex = (SIBIndex)(insn->sibIndexBase + 4);
 
       // If EVEX.v2 is set this is one of the 16-31 registers.
       if (insn->vectorExtensionType == TYPE_EVEX && insn->mode == MODE_64BIT &&

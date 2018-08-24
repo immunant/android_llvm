@@ -1,12 +1,12 @@
-; RUN: llc -amdgpu-scalarize-global-loads=false -mtriple=amdgcn-amd-amdhsa -mcpu=kaveri -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefixes=GCN,SI %s
-; RUN: llc -amdgpu-scalarize-global-loads=false -mtriple=amdgcn-amd-amdhsa -mcpu=tonga -verify-machineinstrs < %s | FileCheck -enable-var-scope -check-prefixes=GCN,VI %s
+; RUN: llc -amdgpu-scalarize-global-loads=false -mtriple=amdgcn-amd-amdhsa -mcpu=kaveri -verify-machineinstrs < %s | FileCheck -allow-deprecated-dag-overlap -enable-var-scope -check-prefixes=GCN,SI %s
+; RUN: llc -amdgpu-scalarize-global-loads=false -mtriple=amdgcn-amd-amdhsa -mcpu=tonga -verify-machineinstrs < %s | FileCheck -allow-deprecated-dag-overlap -enable-var-scope -check-prefixes=GCN,VI %s
 
 ; half args should be promoted to float for SI and lower.
 
 ; GCN-LABEL: {{^}}load_f16_arg:
-; GCN: flat_load_ushort [[ARG:v[0-9]+]]
-; GCN-NOT: [[ARG]]
-; GCN: flat_store_short v{{\[[0-9]+:[0-9]+\]}}, [[ARG]]
+; GCN: s_load_dword [[ARG:s[0-9]+]]
+; GCN: v_mov_b32_e32 [[V_ARG:v[0-9]+]], [[ARG]]
+; GCN: flat_store_short v{{\[[0-9]+:[0-9]+\]}}, [[V_ARG]]
 define amdgpu_kernel void @load_f16_arg(half addrspace(1)* %out, half %arg) #0 {
   store half %arg, half addrspace(1)* %out
   ret void
@@ -22,13 +22,15 @@ define amdgpu_kernel void @load_v2f16_arg(<2 x half> addrspace(1)* %out, <2 x ha
 }
 
 ; GCN-LABEL: {{^}}load_v3f16_arg:
-; GCN: flat_load_ushort
-; GCN: s_load_dword s
+; GCN: s_load_dwordx2
+; GCN: s_load_dwordx2
+; GCN-NOT: {buffer|flat|global}}_load_
 
-; GCN-NOT: _load
-; GCN-DAG: _store_dword
-; GCN-DAG: _store_short
-; GCN-NOT: _store
+
+; GCN-NOT: {{flat|global}}_load
+; GCN-DAG: {{flat|global}}_store_dword
+; GCN-DAG: {{flat|global}}_store_short
+; GCN-NOT: {{flat|global}}_store
 ; GCN: s_endpgm
 define amdgpu_kernel void @load_v3f16_arg(<3 x half> addrspace(1)* %out, <3 x half> %arg) #0 {
   store <3 x half> %arg, <3 x half> addrspace(1)* %out
@@ -38,10 +40,9 @@ define amdgpu_kernel void @load_v3f16_arg(<3 x half> addrspace(1)* %out, <3 x ha
 
 ; FIXME: Why not one load?
 ; GCN-LABEL: {{^}}load_v4f16_arg:
-; GCN-DAG: s_load_dword [[ARG0_LO:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, {{0x2|0x8}}
-; GCN-DAG: s_load_dword [[ARG0_HI:s[0-9]+]], s{{\[[0-9]+:[0-9]+\]}}, {{0x3|0xc}}
-; GCN-DAG: v_mov_b32_e32 v[[V_ARG0_LO:[0-9]+]], [[ARG0_LO]]
-; GCN-DAG: v_mov_b32_e32 v[[V_ARG0_HI:[0-9]+]], [[ARG0_HI]]
+; GCN-DAG: s_load_dwordx2 s{{\[}}[[ARG0_LO:[0-9]+]]:[[ARG0_HI:[0-9]+]]{{\]}}, s{{\[[0-9]+:[0-9]+\]}}, {{0x2|0x8}}
+; GCN-DAG: v_mov_b32_e32 v[[V_ARG0_LO:[0-9]+]], s[[ARG0_LO]]
+; GCN-DAG: v_mov_b32_e32 v[[V_ARG0_HI:[0-9]+]], s[[ARG0_HI]]
 ; GCN: flat_store_dwordx2 v{{\[[0-9]+:[0-9]+\]}}, v{{\[}}[[V_ARG0_LO]]:[[V_ARG0_HI]]{{\]}}
 define amdgpu_kernel void @load_v4f16_arg(<4 x half> addrspace(1)* %out, <4 x half> %arg) #0 {
   store <4 x half> %arg, <4 x half> addrspace(1)* %out
@@ -76,10 +77,9 @@ define amdgpu_kernel void @extload_v2f16_to_v2f32_arg(<2 x float> addrspace(1)* 
 }
 
 ; GCN-LABEL: {{^}}extload_v3f16_to_v3f32_arg:
-; GCN: flat_load_ushort
-; GCN: flat_load_ushort
-; GCN: flat_load_ushort
-; GCN-NOT: {{buffer|flat|global}}_load
+; GCN: s_load_dwordx2 s
+; GCN: s_load_dwordx2 s
+; GCN-NOT: _load
 ; GCN: v_cvt_f32_f16_e32
 ; GCN: v_cvt_f32_f16_e32
 ; GCN: v_cvt_f32_f16_e32
@@ -101,20 +101,7 @@ define amdgpu_kernel void @extload_v4f16_to_v4f32_arg(<4 x float> addrspace(1)* 
 }
 
 ; GCN-LABEL: {{^}}extload_v8f16_to_v8f32_arg:
-; SI: flat_load_ushort
-; SI: flat_load_ushort
-; SI: flat_load_ushort
-; SI: flat_load_ushort
-; SI: flat_load_ushort
-; SI: flat_load_ushort
-; SI: flat_load_ushort
-; SI: flat_load_ushort
-
-
-; VI: s_load_dword s
-; VI: s_load_dword s
-; VI: s_load_dword s
-; VI: s_load_dword s
+; GCN: s_load_dwordx4
 
 ; GCN: v_cvt_f32_f16_e32
 ; GCN: v_cvt_f32_f16_e32
@@ -134,7 +121,7 @@ define amdgpu_kernel void @extload_v8f16_to_v8f32_arg(<8 x float> addrspace(1)* 
 }
 
 ; GCN-LABEL: {{^}}extload_f16_to_f64_arg:
-; GCN: flat_load_ushort [[ARG:v[0-9]+]]
+; GCN: s_load_dword [[ARG:s[0-9]+]]
 ; GCN: v_cvt_f32_f16_e32 v[[ARG_F32:[0-9]+]], [[ARG]]
 ; GCN: v_cvt_f64_f32_e32 [[RESULT:v\[[0-9]+:[0-9]+\]]], v[[ARG_F32]]
 ; GCN: flat_store_dwordx2 v{{\[[0-9]+:[0-9]+\]}}, [[RESULT]]
@@ -145,11 +132,8 @@ define amdgpu_kernel void @extload_f16_to_f64_arg(double addrspace(1)* %out, hal
 }
 
 ; GCN-LABEL: {{^}}extload_v2f16_to_v2f64_arg:
-; SI-DAG: flat_load_ushort v
-; SI-DAG: flat_load_ushort v
-
-; VI-DAG: s_load_dword s
-; VI: s_lshr_b32
+; GCN-DAG: s_load_dword s
+; GCN: s_lshr_b32
 
 ; GCN-DAG: v_cvt_f32_f16_e32
 ; GCN-DAG: v_cvt_f32_f16_e32
@@ -163,9 +147,8 @@ define amdgpu_kernel void @extload_v2f16_to_v2f64_arg(<2 x double> addrspace(1)*
 }
 
 ; GCN-LABEL: {{^}}extload_v3f16_to_v3f64_arg:
-; GCN-DAG: flat_load_ushort v
-; GCN-DAG: flat_load_ushort v
-; GCN-DAG: flat_load_ushort v
+; GCN: s_load_dwordx2 s
+; GCN: s_load_dwordx2 s
 ; GCN-DAG: v_cvt_f32_f16_e32
 ; GCN-DAG: v_cvt_f32_f16_e32
 ; GCN-DAG: v_cvt_f32_f16_e32
@@ -180,22 +163,17 @@ define amdgpu_kernel void @extload_v3f16_to_v3f64_arg(<3 x double> addrspace(1)*
 }
 
 ; GCN-LABEL: {{^}}extload_v4f16_to_v4f64_arg:
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
+; GCN: s_load_dwordx2 s
+; GCN: s_load_dwordx2 s
 
-; VI: s_load_dword s
-; VI: s_load_dword s
-
-; GCN-DAG: v_cvt_f32_f16_e32
-; GCN-DAG: v_cvt_f32_f16_e32
-; GCN-DAG: v_cvt_f32_f16_e32
-; GCN-DAG: v_cvt_f32_f16_e32
-; GCN-DAG: v_cvt_f64_f32_e32
-; GCN-DAG: v_cvt_f64_f32_e32
-; GCN-DAG: v_cvt_f64_f32_e32
-; GCN-DAG: v_cvt_f64_f32_e32
+; GCN: v_cvt_f32_f16_e32
+; GCN: v_cvt_f32_f16_e32
+; GCN: v_cvt_f32_f16_e32
+; GCN: v_cvt_f32_f16_e32
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
 ; GCN: s_endpgm
 define amdgpu_kernel void @extload_v4f16_to_v4f64_arg(<4 x double> addrspace(1)* %out, <4 x half> %arg) #0 {
   %ext = fpext <4 x half> %arg to <4 x double>
@@ -204,23 +182,8 @@ define amdgpu_kernel void @extload_v4f16_to_v4f64_arg(<4 x double> addrspace(1)*
 }
 
 ; GCN-LABEL: {{^}}extload_v8f16_to_v8f64_arg:
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-; SI: flat_load_ushort v
-
-
-; VI: s_load_dword s
-; VI: s_load_dword s
-; VI: s_load_dword s
-; VI: s_load_dword s
-
-
+; GCN: s_load_dwordx2 s
+; GCN: s_load_dwordx4 s
 
 ; GCN-DAG: v_cvt_f32_f16_e32
 ; GCN-DAG: v_cvt_f32_f16_e32
@@ -237,10 +200,10 @@ define amdgpu_kernel void @extload_v4f16_to_v4f64_arg(<4 x double> addrspace(1)*
 ; GCN-DAG: v_cvt_f64_f32_e32
 ; GCN-DAG: v_cvt_f64_f32_e32
 
-; GCN-DAG: v_cvt_f64_f32_e32
-; GCN-DAG: v_cvt_f64_f32_e32
-; GCN-DAG: v_cvt_f64_f32_e32
-; GCN-DAG: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
 
 ; GCN: s_endpgm
 define amdgpu_kernel void @extload_v8f16_to_v8f64_arg(<8 x double> addrspace(1)* %out, <8 x half> %arg) #0 {
@@ -300,12 +263,13 @@ define amdgpu_kernel void @global_extload_f16_to_f32(float addrspace(1)* %out, h
 ; GCN-LABEL: {{^}}global_extload_v2f16_to_v2f32:
 ; GCN: flat_load_dword [[LOAD:v[0-9]+]],
 
-; SI: v_lshrrev_b32_e32 [[HI:v[0-9]+]], 16, [[LOAD]]
-; SI: v_cvt_f32_f16_e32 v[[CVT0:[0-9]+]], [[LOAD]]
+; SI-DAG: v_cvt_f32_f16_e32 v[[CVT0:[0-9]+]], [[LOAD]]
+; SI-DAG: v_lshrrev_b32_e32 [[HI:v[0-9]+]], 16, [[LOAD]]
+
 ; SI: v_cvt_f32_f16_e32 v[[CVT1:[0-9]+]], [[HI]]
 
-; VI: v_cvt_f32_f16_sdwa v[[CVT1:[0-9]+]], [[LOAD]] dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1
 ; VI: v_cvt_f32_f16_e32 v[[CVT0:[0-9]+]], [[LOAD]]
+; VI: v_cvt_f32_f16_sdwa v[[CVT1:[0-9]+]], [[LOAD]] dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1
 
 ; GCN: flat_store_dwordx2 v{{\[[0-9]+:[0-9]+\]}}, v{{\[}}[[CVT0]]:[[CVT1]]{{\]}}
 ; GCN: s_endpgm
@@ -349,10 +313,10 @@ define amdgpu_kernel void @global_extload_v8f16_to_v8f32(<8 x float> addrspace(1
 ; SI: v_cvt_f32_f16_e32
 ; SI: v_cvt_f32_f16_e32
 ; SI: v_cvt_f32_f16_e32
+; SI: v_cvt_f32_f16_e32
 
 ; GCN: flat_store_dwordx4
 
-; SI: v_cvt_f32_f16_e32
 ; SI: v_cvt_f32_f16_e32
 ; SI: v_cvt_f32_f16_e32
 ; SI: v_cvt_f32_f16_e32
@@ -431,19 +395,19 @@ define amdgpu_kernel void @global_extload_v2f16_to_v2f64(<2 x double> addrspace(
 ; XVI-NOT: v_cvt_f32_f16
 
 ; GCN: flat_load_dwordx2 v{{\[}}[[IN_LO:[0-9]+]]:[[IN_HI:[0-9]+]]
-; GCN-DAG: v_cvt_f32_f16_e32 [[Z32:v[0-9]+]], v[[IN_HI]]
-; GCN-DAG: v_cvt_f32_f16_e32 [[X32:v[0-9]+]], v[[IN_LO]]
-; SI-DAG:      v_lshrrev_b32_e32 [[Y16:v[0-9]+]], 16, v[[IN_LO]]
-; SI-DAG:  v_cvt_f32_f16_e32 [[Y32:v[0-9]+]], [[Y16]]
-; VI-DAG:  v_cvt_f32_f16_sdwa [[Y32:v[0-9]+]], v[[IN_LO]] dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_1
+; GCN: v_cvt_f32_f16_e32
+; GCN: v_cvt_f32_f16_e32
+; SI: v_cvt_f32_f16_e32
+; VI: v_cvt_f32_f16_sdwa
+; GCN-NOT: v_cvt_f32_f16
 
-; GCN-DAG: v_cvt_f64_f32_e32 [[Z:v\[[0-9]+:[0-9]+\]]], [[Z32]]
-; GCN-DAG: v_cvt_f64_f32_e32 v{{\[}}[[XLO:[0-9]+]]:{{[0-9]+}}], [[X32]]
-; GCN-DAG: v_cvt_f64_f32_e32 v[{{[0-9]+}}:[[YHI:[0-9]+]]{{\]}}, [[Y32]]
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
+; GCN: v_cvt_f64_f32_e32
 ; GCN-NOT: v_cvt_f64_f32_e32
 
-; GCN-DAG: flat_store_dwordx4 v{{\[[0-9]+:[0-9]+\]}}, v{{\[}}[[XLO]]:[[YHI]]{{\]}}
-; GCN-DAG: flat_store_dwordx2 v{{\[[0-9]+:[0-9]+\]}}, [[Z]]
+; GCN-DAG: flat_store_dwordx4
+; GCN-DAG: flat_store_dwordx2
 ; GCN: s_endpgm
 define amdgpu_kernel void @global_extload_v3f16_to_v3f64(<3 x double> addrspace(1)* %out, <3 x half> addrspace(1)* %in) #0 {
   %val = load <3 x half>, <3 x half> addrspace(1)* %in

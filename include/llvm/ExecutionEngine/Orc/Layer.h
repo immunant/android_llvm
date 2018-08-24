@@ -16,22 +16,10 @@
 
 #include "llvm/ExecutionEngine/Orc/Core.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/MemoryBuffer.h"
 
 namespace llvm {
 namespace orc {
-
-/// Mangles symbol names then uniques them in the context of an
-/// ExecutionSession.
-//
-// FIXME: This may be more at home in Core.h.
-class MangleAndInterner {
-public:
-  MangleAndInterner(ExecutionSession &ES, const DataLayout &DL);
-  SymbolStringPtr operator()(StringRef Name);
-private:
-  ExecutionSession &ES;
-  const DataLayout &DL;
-};
 
 /// Interface for layers that accept LLVM IR.
 class IRLayer {
@@ -119,15 +107,15 @@ private:
 /// instance) by calling 'emit' on the given ObjectLayer.
 class BasicObjectLayerMaterializationUnit : public MaterializationUnit {
 public:
+  static Expected<std::unique_ptr<BasicObjectLayerMaterializationUnit>>
+  Create(ObjectLayer &L, VModuleKey K, std::unique_ptr<MemoryBuffer> O);
 
-
-  /// The MemoryBuffer should represent a valid object file.
-  /// If there is any chance that the file is invalid it should be validated
-  /// prior to constructing a BasicObjectLayerMaterializationUnit.
   BasicObjectLayerMaterializationUnit(ObjectLayer &L, VModuleKey K,
-                                      std::unique_ptr<MemoryBuffer> O);
+                                      std::unique_ptr<MemoryBuffer> O,
+                                      SymbolFlagsMap SymbolFlags);
 
 private:
+
   void materialize(MaterializationResponsibility R) override;
   void discard(const VSO &V, SymbolStringPtr Name) override;
 
@@ -135,6 +123,12 @@ private:
   VModuleKey K;
   std::unique_ptr<MemoryBuffer> O;
 };
+
+/// Returns a SymbolFlagsMap for the object file represented by the given
+/// buffer, or an error if the buffer does not contain a valid object file.
+// FIXME: Maybe move to Core.h?
+Expected<SymbolFlagsMap> getObjectSymbolFlags(ExecutionSession &ES,
+                                              MemoryBufferRef ObjBuffer);
 
 } // End namespace orc
 } // End namespace llvm

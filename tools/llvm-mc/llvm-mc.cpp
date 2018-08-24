@@ -152,6 +152,11 @@ static cl::opt<std::string>
 DebugCompilationDir("fdebug-compilation-dir",
                     cl::desc("Specifies the debug info's compilation dir"));
 
+static cl::list<std::string>
+DebugPrefixMap("fdebug-prefix-map",
+               cl::desc("Map file source paths in debug info"),
+               cl::value_desc("= separated key-value pairs"));
+
 static cl::opt<std::string>
 MainFileName("main-file-name",
              cl::desc("Specifies the name we should consider the input file"));
@@ -308,7 +313,6 @@ int main(int argc, char **argv) {
 
   cl::ParseCommandLineOptions(argc, argv, "llvm machine code playground\n");
   MCTargetOptions MCOptions = InitMCTargetOptionsFromFlags();
-  TripleName = Triple::normalize(TripleName);
   setDwarfDebugFlags(argc, argv);
 
   setDwarfDebugProducer();
@@ -387,9 +391,13 @@ int main(int argc, char **argv) {
     if (!sys::fs::current_path(CWD))
       Ctx.setCompilationDir(CWD);
   }
+  for (const auto &Arg : DebugPrefixMap) {
+    const auto &KV = StringRef(Arg).split('=');
+    Ctx.addDebugPrefixMapEntry(KV.first, KV.second);
+  }
   if (!MainFileName.empty())
     Ctx.setMainFileName(MainFileName);
-  if (DwarfVersion >= 5) {
+  if (GenDwarfForAssembly && DwarfVersion >= 5) {
     // DWARF v5 needs the root file as well as the compilation directory.
     // If we find a '.file 0' directive that will supersede these values.
     MD5 Hash;

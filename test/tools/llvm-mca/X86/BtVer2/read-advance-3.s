@@ -18,7 +18,7 @@
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      1     0.50                        addq	%rdi, %rsi
@@ -42,4 +42,3 @@
 # CHECK-NEXT: 0.     1     1.0    1.0    0.0       addq	%rdi, %rsi
 # CHECK-NEXT: 1.     1     1.0    0.0    0.0       addq	(%rsp), %rsi
 # CHECK-NEXT: 2.     1     2.0    2.0    2.0       addq	%rdx, %r8
-

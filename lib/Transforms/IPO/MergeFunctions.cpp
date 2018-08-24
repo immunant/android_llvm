@@ -27,7 +27,7 @@
 // -- We define Function* container class with custom "operator<" (FunctionPtr).
 // -- "FunctionPtr" instances are stored in std::set collection, so every
 //    std::set::insert operation will give you result in log(N) time.
-// 
+//
 // As an optimization, a hash of the function structure is calculated first, and
 // two functions are only compared if they have the same hash. This hash is
 // cheap to compute, and has the property that if function F == G according to
@@ -90,7 +90,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Argument.h"
@@ -383,7 +383,7 @@ bool MergeFunctions::runOnModule(Module &M) {
   for (Function &Func : M) {
     if (!Func.isDeclaration() && !Func.hasAvailableExternallyLinkage()) {
       HashedFuncs.push_back({FunctionComparator::functionHash(Func), &Func});
-    } 
+    }
   }
 
   std::stable_sort(
@@ -402,7 +402,7 @@ bool MergeFunctions::runOnModule(Module &M) {
       Deferred.push_back(WeakTrackingVH(I->second));
     }
   }
-  
+
   do {
     std::vector<WeakTrackingVH> Worklist;
     Deferred.swap(Worklist);
@@ -802,11 +802,11 @@ void MergeFunctions::replaceFunctionInTree(const FunctionNode &FN,
   Function *F = FN.getFunc();
   assert(FunctionComparator(F, G, &GlobalNumbers).compare() == 0 &&
          "The two functions must be equal");
-  
+
   auto I = FNodesInTree.find(F);
   assert(I != FNodesInTree.end() && "F should be in FNodesInTree");
   assert(FNodesInTree.count(G) == 0 && "FNodesInTree should not contain G");
-  
+
   FnTreeType::iterator IterToFNInFnTree = I->second;
   assert(&(*IterToFNInFnTree) == &FN && "F should map to FN in FNodesInTree.");
   // Remove F -> FN and insert G -> FN
@@ -874,7 +874,7 @@ void MergeFunctions::remove(Function *F) {
 void MergeFunctions::removeUsers(Value *V) {
   std::vector<Value *> Worklist;
   Worklist.push_back(V);
-  SmallSet<Value*, 8> Visited;
+  SmallPtrSet<Value*, 8> Visited;
   Visited.insert(V);
   while (!Worklist.empty()) {
     Value *V = Worklist.back();

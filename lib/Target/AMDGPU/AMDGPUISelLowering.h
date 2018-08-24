@@ -28,6 +28,8 @@ struct ArgDescriptor;
 
 class AMDGPUTargetLowering : public TargetLowering {
 private:
+  const AMDGPUSubtarget *Subtarget;
+
   /// \returns AMDGPUISD::FFBH_U32 node if the incoming \p Op may have been
   /// legalized from a smaller type VT. Need to match pre-legalized type because
   /// the generic legalization inserts the add/sub between the select and
@@ -39,7 +41,6 @@ public:
   static unsigned numBitsSigned(SDValue Op, SelectionDAG &DAG);
 
 protected:
-  const AMDGPUSubtarget *Subtarget;
   AMDGPUAS AMDGPUASI;
 
   SDValue LowerEXTRACT_SUBVECTOR(SDValue Op, SelectionDAG &DAG) const;
@@ -96,6 +97,7 @@ protected:
   SDValue performSelectCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performFNegCombine(SDNode *N, DAGCombinerInfo &DCI) const;
   SDValue performFAbsCombine(SDNode *N, DAGCombinerInfo &DCI) const;
+  SDValue performRcpCombine(SDNode *N, DAGCombinerInfo &DCI) const;
 
   static EVT getEquivalentMemType(LLVMContext &Context, EVT VT);
 
@@ -120,8 +122,11 @@ protected:
   SDValue LowerDIVREM24(SDValue Op, SelectionDAG &DAG, bool sign) const;
   void LowerUDIVREM64(SDValue Op, SelectionDAG &DAG,
                                     SmallVectorImpl<SDValue> &Results) const;
-  void analyzeFormalArgumentsCompute(CCState &State,
-                              const SmallVectorImpl<ISD::InputArg> &Ins) const;
+
+  void analyzeFormalArgumentsCompute(
+    CCState &State,
+    const SmallVectorImpl<ISD::InputArg> &Ins) const;
+
 public:
   AMDGPUTargetLowering(const TargetMachine &TM, const AMDGPUSubtarget &STI);
 
@@ -171,8 +176,6 @@ public:
   bool isCheapToSpeculateCttz() const override;
   bool isCheapToSpeculateCtlz() const override;
 
-  bool isSDNodeSourceOfDivergence(const SDNode *N,
-    FunctionLoweringInfo *FLI, DivergenceAnalysis *DA) const override;
   bool isSDNodeAlwaysUniform(const SDNode *N) const override;
   static CCAssignFn *CCAssignFnForCall(CallingConv::ID CC, bool IsVarArg);
   static CCAssignFn *CCAssignFnForReturn(CallingConv::ID CC, bool IsVarArg);
@@ -243,6 +246,11 @@ public:
                                            const SelectionDAG &DAG,
                                            unsigned Depth = 0) const override;
 
+  bool isKnownNeverNaNForTargetNode(SDValue Op,
+                                    const SelectionDAG &DAG,
+                                    bool SNaN = false,
+                                    unsigned Depth = 0) const override;
+
   /// Helper function that adds Reg to the LiveIn list of the DAG's
   /// MachineFunction.
   ///
@@ -293,7 +301,7 @@ public:
 
   /// Helper function that returns the byte offset of the given
   /// type of implicit parameter.
-  uint32_t getImplicitParameterOffset(const AMDGPUMachineFunction *MFI,
+  uint32_t getImplicitParameterOffset(const MachineFunction &MF,
                                       const ImplicitParameter Param) const;
 
   AMDGPUAS getAMDGPUAS() const {
@@ -363,6 +371,7 @@ enum NodeType : unsigned {
   FMED3,
   SMED3,
   UMED3,
+  FDOT2,
   URECIP,
   DIV_SCALE,
   DIV_FMAS,
@@ -378,6 +387,7 @@ enum NodeType : unsigned {
   RSQ,
   RCP_LEGACY,
   RSQ_LEGACY,
+  RCP_IFLAG,
   FMUL_LEGACY,
   RSQ_CLAMP,
   LDEXP,
@@ -402,6 +412,7 @@ enum NodeType : unsigned {
   MAD_I64_I32,
   MUL_LOHI_I24,
   MUL_LOHI_U24,
+  PERM,
   TEXTURE_FETCH,
   EXPORT, // exp on SI+
   EXPORT_DONE, // exp on SI+ with done bit set
@@ -487,90 +498,6 @@ enum NodeType : unsigned {
   BUFFER_ATOMIC_OR,
   BUFFER_ATOMIC_XOR,
   BUFFER_ATOMIC_CMPSWAP,
-  IMAGE_LOAD,
-  IMAGE_LOAD_MIP,
-  IMAGE_STORE,
-  IMAGE_STORE_MIP,
-
-  // Basic sample.
-  IMAGE_SAMPLE,
-  IMAGE_SAMPLE_CL,
-  IMAGE_SAMPLE_D,
-  IMAGE_SAMPLE_D_CL,
-  IMAGE_SAMPLE_L,
-  IMAGE_SAMPLE_B,
-  IMAGE_SAMPLE_B_CL,
-  IMAGE_SAMPLE_LZ,
-  IMAGE_SAMPLE_CD,
-  IMAGE_SAMPLE_CD_CL,
-
-  // Sample with comparison.
-  IMAGE_SAMPLE_C,
-  IMAGE_SAMPLE_C_CL,
-  IMAGE_SAMPLE_C_D,
-  IMAGE_SAMPLE_C_D_CL,
-  IMAGE_SAMPLE_C_L,
-  IMAGE_SAMPLE_C_B,
-  IMAGE_SAMPLE_C_B_CL,
-  IMAGE_SAMPLE_C_LZ,
-  IMAGE_SAMPLE_C_CD,
-  IMAGE_SAMPLE_C_CD_CL,
-
-  // Sample with offsets.
-  IMAGE_SAMPLE_O,
-  IMAGE_SAMPLE_CL_O,
-  IMAGE_SAMPLE_D_O,
-  IMAGE_SAMPLE_D_CL_O,
-  IMAGE_SAMPLE_L_O,
-  IMAGE_SAMPLE_B_O,
-  IMAGE_SAMPLE_B_CL_O,
-  IMAGE_SAMPLE_LZ_O,
-  IMAGE_SAMPLE_CD_O,
-  IMAGE_SAMPLE_CD_CL_O,
-
-  // Sample with comparison and offsets.
-  IMAGE_SAMPLE_C_O,
-  IMAGE_SAMPLE_C_CL_O,
-  IMAGE_SAMPLE_C_D_O,
-  IMAGE_SAMPLE_C_D_CL_O,
-  IMAGE_SAMPLE_C_L_O,
-  IMAGE_SAMPLE_C_B_O,
-  IMAGE_SAMPLE_C_B_CL_O,
-  IMAGE_SAMPLE_C_LZ_O,
-  IMAGE_SAMPLE_C_CD_O,
-  IMAGE_SAMPLE_C_CD_CL_O,
-
-  // Basic gather4.
-  IMAGE_GATHER4,
-  IMAGE_GATHER4_CL,
-  IMAGE_GATHER4_L,
-  IMAGE_GATHER4_B,
-  IMAGE_GATHER4_B_CL,
-  IMAGE_GATHER4_LZ,
-
-  // Gather4 with comparison.
-  IMAGE_GATHER4_C,
-  IMAGE_GATHER4_C_CL,
-  IMAGE_GATHER4_C_L,
-  IMAGE_GATHER4_C_B,
-  IMAGE_GATHER4_C_B_CL,
-  IMAGE_GATHER4_C_LZ,
-
-  // Gather4 with offsets.
-  IMAGE_GATHER4_O,
-  IMAGE_GATHER4_CL_O,
-  IMAGE_GATHER4_L_O,
-  IMAGE_GATHER4_B_O,
-  IMAGE_GATHER4_B_CL_O,
-  IMAGE_GATHER4_LZ_O,
-
-  // Gather4 with comparison and offsets.
-  IMAGE_GATHER4_C_O,
-  IMAGE_GATHER4_C_CL_O,
-  IMAGE_GATHER4_C_L_O,
-  IMAGE_GATHER4_C_B_O,
-  IMAGE_GATHER4_C_B_CL_O,
-  IMAGE_GATHER4_C_LZ_O,
 
   LAST_AMDGPU_ISD_NUMBER
 };

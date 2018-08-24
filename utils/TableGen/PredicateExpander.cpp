@@ -22,14 +22,14 @@ void PredicateExpander::expandFalse(formatted_raw_ostream &OS) {
 
 void PredicateExpander::expandCheckImmOperand(formatted_raw_ostream &OS,
                                               int OpIndex, int ImmVal) {
-  OS << "MI.getOperand(" << OpIndex << ").getImm() "
-     << (shouldNegate() ? "!= " : "== ") << ImmVal;
+  OS << "MI" << (isByRef() ? "." : "->") << "getOperand(" << OpIndex
+     << ").getImm() " << (shouldNegate() ? "!= " : "== ") << ImmVal;
 }
 
 void PredicateExpander::expandCheckImmOperand(formatted_raw_ostream &OS,
                                               int OpIndex, StringRef ImmVal) {
-  OS << "MI.getOperand(" << OpIndex << ").getImm() "
-     << (shouldNegate() ? "!= " : "== ") << ImmVal;
+  OS << "MI" << (isByRef() ? "." : "->") << "getOperand(" << OpIndex
+     << ").getImm() " << (shouldNegate() ? "!= " : "== ") << ImmVal;
 }
 
 void PredicateExpander::expandCheckRegOperand(formatted_raw_ostream &OS,
@@ -42,6 +42,12 @@ void PredicateExpander::expandCheckRegOperand(formatted_raw_ostream &OS,
   if (!Str.empty())
     OS << Str << "::";
   OS << Reg->getName();
+}
+
+void PredicateExpander::expandCheckInvalidRegOperand(formatted_raw_ostream &OS,
+                                                     int OpIndex) {
+  OS << "MI" << (isByRef() ? "." : "->") << "getOperand(" << OpIndex
+     << ").getReg() " << (shouldNegate() ? "!= " : "== ") << "0";
 }
 
 void PredicateExpander::expandCheckSameRegOperand(formatted_raw_ostream &OS,
@@ -170,6 +176,72 @@ void PredicateExpander::expandCheckNonPortable(formatted_raw_ostream &OS,
   OS << '(' << Code << ')';
 }
 
+void PredicateExpander::expandReturnStatement(formatted_raw_ostream &OS,
+                                              const Record *Rec) {
+  OS << "return ";
+  expandPredicate(OS, Rec);
+  OS << ";";
+}
+
+void PredicateExpander::expandOpcodeSwitchCase(formatted_raw_ostream &OS,
+                                               const Record *Rec) {
+  const RecVec &Opcodes = Rec->getValueAsListOfDefs("Opcodes");
+  for (const Record *Opcode : Opcodes) {
+    OS.PadToColumn(getIndentLevel() * 2);
+    OS << "case " << Opcode->getValueAsString("Namespace")
+       << "::" << Opcode->getName() << " :\n";
+  }
+
+  increaseIndentLevel();
+  expandStatement(OS, Rec->getValueAsDef("CaseStmt"));
+  decreaseIndentLevel();
+}
+
+void PredicateExpander::expandOpcodeSwitchStatement(formatted_raw_ostream &OS,
+                                                    const RecVec &Cases,
+                                                    const Record *Default) {
+  OS << "switch(MI" << (isByRef() ? "." : "->") << "getOpcode()) {\n";
+
+  for (const Record *Rec : Cases) {
+    expandOpcodeSwitchCase(OS, Rec);
+    OS << '\n';
+  }
+
+  unsigned ColNum = getIndentLevel() * 2;
+  OS.PadToColumn(ColNum);
+
+  // Expand the default case.
+  OS << "default :\n";
+  increaseIndentLevel();
+  expandStatement(OS, Default);
+  decreaseIndentLevel();
+  OS << '\n';
+
+  OS.PadToColumn(ColNum);
+  OS << "} // end of switch-stmt";
+}
+
+void PredicateExpander::expandStatement(formatted_raw_ostream &OS,
+                                        const Record *Rec) {
+  OS.flush();
+  unsigned ColNum = getIndentLevel() * 2;
+  if (OS.getColumn() < ColNum)
+    OS.PadToColumn(ColNum);
+
+  if (Rec->isSubClassOf("MCOpcodeSwitchStatement")) {
+    expandOpcodeSwitchStatement(OS, Rec->getValueAsListOfDefs("Cases"),
+                                Rec->getValueAsDef("DefaultCase"));
+    return;
+  }
+
+  if (Rec->isSubClassOf("MCReturnStatement")) {
+    expandReturnStatement(OS, Rec->getValueAsDef("Pred"));
+    return;
+  }
+
+  llvm_unreachable("No known rules to expand this MCStatement");
+}
+
 void PredicateExpander::expandPredicate(formatted_raw_ostream &OS,
                                         const Record *Rec) {
   OS.flush();
@@ -205,6 +277,9 @@ void PredicateExpander::expandPredicate(formatted_raw_ostream &OS,
   if (Rec->isSubClassOf("CheckRegOperand"))
     return expandCheckRegOperand(OS, Rec->getValueAsInt("OpIndex"),
                                  Rec->getValueAsDef("Reg"));
+
+  if (Rec->isSubClassOf("CheckInvalidRegOperand"))
+    return expandCheckInvalidRegOperand(OS, Rec->getValueAsInt("OpIndex"));
 
   if (Rec->isSubClassOf("CheckImmOperand"))
     return expandCheckImmOperand(OS, Rec->getValueAsInt("OpIndex"),

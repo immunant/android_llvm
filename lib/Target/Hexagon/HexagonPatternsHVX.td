@@ -185,10 +185,13 @@ let Predicates = [UseHVX] in {
   def: Pat<(VecI8   vzero), (V6_vd0)>;
   def: Pat<(VecI16  vzero), (V6_vd0)>;
   def: Pat<(VecI32  vzero), (V6_vd0)>;
-  // Use V6_vsubw_dv instead.
-  def: Pat<(VecPI8  vzero), (Combinev (V6_vd0), (V6_vd0))>;
-  def: Pat<(VecPI16 vzero), (Combinev (V6_vd0), (V6_vd0))>;
-  def: Pat<(VecPI32 vzero), (Combinev (V6_vd0), (V6_vd0))>;
+  def: Pat<(VecPI8  vzero), (PS_vdd0)>;
+  def: Pat<(VecPI16 vzero), (PS_vdd0)>;
+  def: Pat<(VecPI32 vzero), (PS_vdd0)>;
+
+  def: Pat<(concat_vectors  (VecI8 vzero),  (VecI8 vzero)), (PS_vdd0)>;
+  def: Pat<(concat_vectors (VecI16 vzero), (VecI16 vzero)), (PS_vdd0)>;
+  def: Pat<(concat_vectors (VecI32 vzero), (VecI32 vzero)), (PS_vdd0)>;
 
   def: Pat<(VecPI8 (concat_vectors HVI8:$Vs, HVI8:$Vt)),
            (Combinev HvxVR:$Vt, HvxVR:$Vs)>;
@@ -411,7 +414,7 @@ class HvxSel_pat<InstHexagon MI, PatFrag RegPred>
   : Pat<(select I1:$Pu, RegPred:$Vs, RegPred:$Vt),
         (MI I1:$Pu, RegPred:$Vs, RegPred:$Vt)>;
 
-let Predicates = [HasV60T,UseHVX] in {
+let Predicates = [UseHVX] in {
   def: HvxSel_pat<PS_vselect, HVI8>;
   def: HvxSel_pat<PS_vselect, HVI16>;
   def: HvxSel_pat<PS_vselect, HVI32>;

@@ -449,7 +449,7 @@ def V_INTERP_P1_F32_e64  : VOP3Interp <"v_interp_p1_f32", VOP3_INTERP>;
 def V_INTERP_P2_F32_e64  : VOP3Interp <"v_interp_p2_f32", VOP3_INTERP>;
 def V_INTERP_MOV_F32_e64 : VOP3Interp <"v_interp_mov_f32", VOP3_INTERP_MOV>;
 
-def V_PERM_B32 : VOP3Inst <"v_perm_b32", VOP3_Profile<VOP_I32_I32_I32_I32>>;
+def V_PERM_B32 : VOP3Inst <"v_perm_b32", VOP3_Profile<VOP_I32_I32_I32_I32>, AMDGPUperm>;
 } // End SubtargetPredicate = isVI
 
 let Predicates = [Has16BitInsts] in {
@@ -461,17 +461,6 @@ def : GCNPat <
   (inst i16:$src0, i16:$src1, i16:$src2, (i1 0))
 >;
 
-def : GCNPat<
-  (i32 (op3 (op2 (op1 i16:$src0, i16:$src1), i16:$src2))),
-  (inst i16:$src0, i16:$src1, i16:$src2, (i1 0))
->;
-
-def : GCNPat<
-  (i64 (op3 (op2 (op1 i16:$src0, i16:$src1), i16:$src2))),
-   (REG_SEQUENCE VReg_64,
-     (inst i16:$src0, i16:$src1, i16:$src2, (i1 0)), sub0,
-     (V_MOV_B32_e32 (i32 0)), sub1)
->;
 }
 
 defm: Ternary_i16_Pats<mul, add, V_MAD_U16, zext>;

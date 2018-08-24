@@ -110,6 +110,10 @@ defm : SKLWriteResPair<WriteADC,    [SKLPort06],   1>; // Integer ALU + flags op
 defm : SKLWriteResPair<WriteIMul,   [SKLPort1],    3>; // Integer multiplication.
 defm : SKLWriteResPair<WriteIMul64, [SKLPort1],    3>; // Integer 64-bit multiplication.
 
+defm : X86WriteRes<WriteBSWAP32,    [SKLPort15], 1, [1], 1>;
+defm : X86WriteRes<WriteBSWAP64,    [SKLPort06, SKLPort15], 2, [1,1], 2>;
+defm : X86WriteRes<WriteXCHG, [SKLPort0156], 2, [3], 3>;
+
 defm : SKLWriteResPair<WriteDiv8,   [SKLPort0, SKLDivider], 25, [1,10], 1, 4>;
 defm : SKLWriteResPair<WriteDiv16,  [SKLPort0, SKLDivider], 25, [1,10], 1, 4>;
 defm : SKLWriteResPair<WriteDiv32,  [SKLPort0, SKLDivider], 25, [1,10], 1, 4>;
@@ -132,15 +136,24 @@ def  : WriteRes<WriteSETCCStore, [SKLPort06,SKLPort4,SKLPort237]> {
   let Latency = 2;
   let NumMicroOps = 3;
 }
+def  : WriteRes<WriteLAHFSAHF, [SKLPort06]>;
+def  : WriteRes<WriteBitTest,[SKLPort06]>; //
 
 // Bit counts.
-defm : SKLWriteResPair<WriteBitScan, [SKLPort1], 3>;
-defm : SKLWriteResPair<WriteLZCNT,   [SKLPort1], 3>;
-defm : SKLWriteResPair<WriteTZCNT,   [SKLPort1], 3>;
-defm : SKLWriteResPair<WritePOPCNT,  [SKLPort1], 3>;
+defm : SKLWriteResPair<WriteBSF, [SKLPort1], 3>;
+defm : SKLWriteResPair<WriteBSR, [SKLPort1], 3>;
+defm : SKLWriteResPair<WriteLZCNT,          [SKLPort1], 3>;
+defm : SKLWriteResPair<WriteTZCNT,          [SKLPort1], 3>;
+defm : SKLWriteResPair<WritePOPCNT,         [SKLPort1], 3>;
 
 // Integer shifts and rotates.
 defm : SKLWriteResPair<WriteShift, [SKLPort06],  1>;
+
+// SHLD/SHRD.
+defm : X86WriteRes<WriteSHDrri, [SKLPort1], 3, [1], 1>;
+defm : X86WriteRes<WriteSHDrrcl,[SKLPort1,SKLPort06,SKLPort0156], 6, [1, 2, 1], 4>;
+defm : X86WriteRes<WriteSHDmri, [SKLPort1,SKLPort23,SKLPort237,SKLPort0156], 9, [1, 1, 1, 1], 4>;
+defm : X86WriteRes<WriteSHDmrcl,[SKLPort1,SKLPort23,SKLPort237,SKLPort06,SKLPort0156], 11, [1, 1, 1, 2, 1], 6>;
 
 // BMI1 BEXTR, BMI2 BZHI
 defm : SKLWriteResPair<WriteBEXTR, [SKLPort06,SKLPort15], 2, [1,1], 2>;
@@ -183,76 +196,93 @@ defm : X86WriteRes<WriteFMoveY,        [SKLPort015], 1, [1], 1>;
 defm : X86WriteRes<WriteEMMS,          [SKLPort05,SKLPort0156], 10, [9,1], 10>;
 
 defm : SKLWriteResPair<WriteFAdd,     [SKLPort01],  4, [1], 1, 5>; // Floating point add/sub.
-defm : SKLWriteResPair<WriteFAddX,    [SKLPort01],  4, [1], 1, 6>; // Floating point add/sub (XMM).
-defm : SKLWriteResPair<WriteFAddY,    [SKLPort01],  4, [1], 1, 7>; // Floating point add/sub (YMM/ZMM).
+defm : SKLWriteResPair<WriteFAddX,    [SKLPort01],  4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFAddY,    [SKLPort01],  4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFAddZ>;
 defm : SKLWriteResPair<WriteFAdd64,   [SKLPort01],  4, [1], 1, 5>; // Floating point double add/sub.
-defm : SKLWriteResPair<WriteFAdd64X,  [SKLPort01],  4, [1], 1, 6>; // Floating point double add/sub (XMM).
-defm : SKLWriteResPair<WriteFAdd64Y,  [SKLPort01],  4, [1], 1, 7>; // Floating point double add/sub (YMM/ZMM).
+defm : SKLWriteResPair<WriteFAdd64X,  [SKLPort01],  4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFAdd64Y,  [SKLPort01],  4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFAdd64Z>;
 
 defm : SKLWriteResPair<WriteFCmp,     [SKLPort01],  4, [1], 1, 5>; // Floating point compare.
-defm : SKLWriteResPair<WriteFCmpX,    [SKLPort01],  4, [1], 1, 6>; // Floating point compare (XMM).
-defm : SKLWriteResPair<WriteFCmpY,    [SKLPort01],  4, [1], 1, 7>; // Floating point compare (YMM/ZMM).
+defm : SKLWriteResPair<WriteFCmpX,    [SKLPort01],  4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFCmpY,    [SKLPort01],  4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFCmpZ>;
 defm : SKLWriteResPair<WriteFCmp64,   [SKLPort01],  4, [1], 1, 5>; // Floating point double compare.
-defm : SKLWriteResPair<WriteFCmp64X,  [SKLPort01],  4, [1], 1, 6>; // Floating point double compare (XMM).
-defm : SKLWriteResPair<WriteFCmp64Y,  [SKLPort01],  4, [1], 1, 7>; // Floating point double compare (YMM/ZMM).
+defm : SKLWriteResPair<WriteFCmp64X,  [SKLPort01],  4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFCmp64Y,  [SKLPort01],  4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFCmp64Z>;
 
 defm : SKLWriteResPair<WriteFCom,      [SKLPort0],  2>; // Floating point compare to flags.
 
 defm : SKLWriteResPair<WriteFMul,     [SKLPort01],  4, [1], 1, 5>; // Floating point multiplication.
-defm : SKLWriteResPair<WriteFMulX,    [SKLPort01],  4, [1], 1, 6>; // Floating point multiplication (XMM).
-defm : SKLWriteResPair<WriteFMulY,    [SKLPort01],  4, [1], 1, 7>; // Floating point multiplication (YMM/ZMM).
+defm : SKLWriteResPair<WriteFMulX,    [SKLPort01],  4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFMulY,    [SKLPort01],  4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFMulZ>;
 defm : SKLWriteResPair<WriteFMul64,   [SKLPort01],  4, [1], 1, 5>; // Floating point double multiplication.
-defm : SKLWriteResPair<WriteFMul64X,  [SKLPort01],  4, [1], 1, 6>; // Floating point double multiplication (XMM).
-defm : SKLWriteResPair<WriteFMul64Y,  [SKLPort01],  4, [1], 1, 7>; // Floating point double multiplication (YMM/ZMM).
+defm : SKLWriteResPair<WriteFMul64X,  [SKLPort01],  4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFMul64Y,  [SKLPort01],  4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFMul64Z>;
 
 defm : SKLWriteResPair<WriteFDiv,     [SKLPort0,SKLFPDivider], 11, [1,3], 1, 5>; // Floating point division.
-//defm : SKLWriteResPair<WriteFDivX,    [SKLPort0,SKLFPDivider], 11, [1,3], 1, 6>; // Floating point division (XMM).
-defm : SKLWriteResPair<WriteFDivY,    [SKLPort0,SKLFPDivider], 11, [1,5], 1, 7>; // Floating point division (YMM).
-defm : SKLWriteResPair<WriteFDivZ,    [SKLPort0,SKLFPDivider], 11, [1,5], 1, 7>; // Floating point division (ZMM).
+//defm : SKLWriteResPair<WriteFDivX,    [SKLPort0,SKLFPDivider], 11, [1,3], 1, 6>;
+defm : SKLWriteResPair<WriteFDivY,    [SKLPort0,SKLFPDivider], 11, [1,5], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFDivZ>;
 //defm : SKLWriteResPair<WriteFDiv64,   [SKLPort0,SKLFPDivider], 14, [1,3], 1, 5>; // Floating point double division.
-//defm : SKLWriteResPair<WriteFDiv64X,  [SKLPort0,SKLFPDivider], 14, [1,3], 1, 6>; // Floating point double division (XMM).
-//defm : SKLWriteResPair<WriteFDiv64Y,  [SKLPort0,SKLFPDivider], 14, [1,5], 1, 7>; // Floating point double division (YMM).
-defm : SKLWriteResPair<WriteFDiv64Z,  [SKLPort0,SKLFPDivider], 14, [1,5], 1, 7>; // Floating point double division (ZMM).
+//defm : SKLWriteResPair<WriteFDiv64X,  [SKLPort0,SKLFPDivider], 14, [1,3], 1, 6>;
+//defm : SKLWriteResPair<WriteFDiv64Y,  [SKLPort0,SKLFPDivider], 14, [1,5], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFDiv64Z>;
 
 defm : SKLWriteResPair<WriteFSqrt,    [SKLPort0,SKLFPDivider], 12, [1,3], 1, 5>; // Floating point square root.
-defm : SKLWriteResPair<WriteFSqrtX,   [SKLPort0,SKLFPDivider], 12, [1,3], 1, 6>; // Floating point square root (XMM).
-defm : SKLWriteResPair<WriteFSqrtY,   [SKLPort0,SKLFPDivider], 12, [1,6], 1, 7>; // Floating point square root (YMM).
-defm : SKLWriteResPair<WriteFSqrtZ,   [SKLPort0,SKLFPDivider], 12, [1,6], 1, 7>; // Floating point square root (ZMM).
+defm : SKLWriteResPair<WriteFSqrtX,   [SKLPort0,SKLFPDivider], 12, [1,3], 1, 6>;
+defm : SKLWriteResPair<WriteFSqrtY,   [SKLPort0,SKLFPDivider], 12, [1,6], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFSqrtZ>;
 defm : SKLWriteResPair<WriteFSqrt64,  [SKLPort0,SKLFPDivider], 18, [1,6], 1, 5>; // Floating point double square root.
-defm : SKLWriteResPair<WriteFSqrt64X, [SKLPort0,SKLFPDivider], 18, [1,6], 1, 6>; // Floating point double square root (XMM).
-defm : SKLWriteResPair<WriteFSqrt64Y, [SKLPort0,SKLFPDivider], 18, [1,12],1, 7>; // Floating point double square root (YMM).
-defm : SKLWriteResPair<WriteFSqrt64Z, [SKLPort0,SKLFPDivider], 18, [1,12],1, 7>; // Floating point double square root (ZMM).
+defm : SKLWriteResPair<WriteFSqrt64X, [SKLPort0,SKLFPDivider], 18, [1,6], 1, 6>;
+defm : SKLWriteResPair<WriteFSqrt64Y, [SKLPort0,SKLFPDivider], 18, [1,12],1, 7>;
+defm : X86WriteResPairUnsupported<WriteFSqrt64Z>;
 defm : SKLWriteResPair<WriteFSqrt80,  [SKLPort0,SKLFPDivider], 21, [1,7]>; // Floating point long double square root.
 
 defm : SKLWriteResPair<WriteFRcp,   [SKLPort0], 4, [1], 1, 5>; // Floating point reciprocal estimate.
-defm : SKLWriteResPair<WriteFRcpX,  [SKLPort0], 4, [1], 1, 6>; // Floating point reciprocal estimate (XMM).
-defm : SKLWriteResPair<WriteFRcpY,  [SKLPort0], 4, [1], 1, 7>; // Floating point reciprocal estimate (YMM/ZMM).
+defm : SKLWriteResPair<WriteFRcpX,  [SKLPort0], 4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFRcpY,  [SKLPort0], 4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFRcpZ>;
 
 defm : SKLWriteResPair<WriteFRsqrt, [SKLPort0], 4, [1], 1, 5>; // Floating point reciprocal square root estimate.
-defm : SKLWriteResPair<WriteFRsqrtX,[SKLPort0], 4, [1], 1, 6>; // Floating point reciprocal square root estimate (XMM).
-defm : SKLWriteResPair<WriteFRsqrtY,[SKLPort0], 4, [1], 1, 7>; // Floating point reciprocal square root estimate (YMM/ZMM).
+defm : SKLWriteResPair<WriteFRsqrtX,[SKLPort0], 4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFRsqrtY,[SKLPort0], 4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFRsqrtZ>;
 
 defm : SKLWriteResPair<WriteFMA,    [SKLPort01], 4, [1], 1, 5>; // Fused Multiply Add.
-defm : SKLWriteResPair<WriteFMAX,   [SKLPort01], 4, [1], 1, 6>; // Fused Multiply Add (XMM).
-defm : SKLWriteResPair<WriteFMAY,   [SKLPort01], 4, [1], 1, 7>; // Fused Multiply Add (YMM/ZMM).
+defm : SKLWriteResPair<WriteFMAX,   [SKLPort01], 4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteFMAY,   [SKLPort01], 4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFMAZ>;
 defm : SKLWriteResPair<WriteDPPD,   [SKLPort5,SKLPort01],  9, [1,2], 3, 6>; // Floating point double dot product.
-defm : SKLWriteResPair<WriteDPPS,   [SKLPort5,SKLPort01], 13, [1,3], 4, 6>; // Floating point single dot product.
-defm : SKLWriteResPair<WriteDPPSY,  [SKLPort5,SKLPort01], 13, [1,3], 4, 7>; // Floating point single dot product (YMM).
+defm : SKLWriteResPair<WriteDPPS,   [SKLPort5,SKLPort01], 13, [1,3], 4, 6>;
+defm : SKLWriteResPair<WriteDPPSY,  [SKLPort5,SKLPort01], 13, [1,3], 4, 7>;
+defm : X86WriteResPairUnsupported<WriteDPPSZ>;
 defm : SKLWriteResPair<WriteFSign,   [SKLPort0], 1>; // Floating point fabs/fchs.
 defm : SKLWriteResPair<WriteFRnd,     [SKLPort01], 8, [2], 2, 6>; // Floating point rounding.
-defm : SKLWriteResPair<WriteFRndY,    [SKLPort01], 8, [2], 2, 7>; // Floating point rounding (YMM/ZMM).
+defm : SKLWriteResPair<WriteFRndY,    [SKLPort01], 8, [2], 2, 7>;
+defm : X86WriteResPairUnsupported<WriteFRndZ>;
 defm : SKLWriteResPair<WriteFLogic,  [SKLPort015], 1, [1], 1, 6>; // Floating point and/or/xor logicals.
-defm : SKLWriteResPair<WriteFLogicY, [SKLPort015], 1, [1], 1, 7>; // Floating point and/or/xor logicals (YMM/ZMM).
+defm : SKLWriteResPair<WriteFLogicY, [SKLPort015], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFLogicZ>;
 defm : SKLWriteResPair<WriteFTest,   [SKLPort0], 2, [1], 1, 6>; // Floating point TEST instructions.
-defm : SKLWriteResPair<WriteFTestY,  [SKLPort0], 2, [1], 1, 7>; // Floating point TEST instructions (YMM/ZMM).
+defm : SKLWriteResPair<WriteFTestY,  [SKLPort0], 2, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFTestZ>;
 defm : SKLWriteResPair<WriteFShuffle,  [SKLPort5], 1, [1], 1, 6>; // Floating point vector shuffles.
-defm : SKLWriteResPair<WriteFShuffleY, [SKLPort5], 1, [1], 1, 7>; // Floating point vector shuffles (YMM/ZMM).
+defm : SKLWriteResPair<WriteFShuffleY, [SKLPort5], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFShuffleZ>;
 defm : SKLWriteResPair<WriteFVarShuffle,  [SKLPort5], 1, [1], 1, 6>; // Floating point vector shuffles.
-defm : SKLWriteResPair<WriteFVarShuffleY, [SKLPort5], 1, [1], 1, 7>; // Floating point vector shuffles.
+defm : SKLWriteResPair<WriteFVarShuffleY, [SKLPort5], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFVarShuffleZ>;
 defm : SKLWriteResPair<WriteFBlend,  [SKLPort015], 1, [1], 1, 6>; // Floating point vector blends.
-defm : SKLWriteResPair<WriteFBlendY, [SKLPort015], 1, [1], 1, 7>; // Floating point vector blends.
+defm : SKLWriteResPair<WriteFBlendY, [SKLPort015], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteFBlendZ>;
 defm : SKLWriteResPair<WriteFVarBlend, [SKLPort015], 2, [2], 2, 6>; // Fp vector variable blends.
-defm : SKLWriteResPair<WriteFVarBlendY,[SKLPort015], 2, [2], 2, 7>; // Fp vector variable blends.
+defm : SKLWriteResPair<WriteFVarBlendY,[SKLPort015], 2, [2], 2, 7>;
+defm : X86WriteResPairUnsupported<WriteFVarBlendZ>;
 
 // FMA Scheduling helper class.
 // class FMASC { X86FoldableSchedWrite Sched = WriteFAdd; }
@@ -279,33 +309,44 @@ defm : X86WriteRes<WriteVecMoveToGpr,    [SKLPort0], 2, [1], 1>;
 defm : X86WriteRes<WriteVecMoveFromGpr,  [SKLPort5], 1, [1], 1>;
 
 defm : SKLWriteResPair<WriteVecALU,   [SKLPort05], 1, [1], 1, 5>; // Vector integer ALU op, no logicals.
-defm : SKLWriteResPair<WriteVecALUX,  [SKLPort01], 1, [1], 1, 6>; // Vector integer ALU op, no logicals (XMM).
-defm : SKLWriteResPair<WriteVecALUY,  [SKLPort01], 1, [1], 1, 7>; // Vector integer ALU op, no logicals (YMM/ZMM).
+defm : SKLWriteResPair<WriteVecALUX,  [SKLPort01], 1, [1], 1, 6>;
+defm : SKLWriteResPair<WriteVecALUY,  [SKLPort01], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteVecALUZ>;
 defm : SKLWriteResPair<WriteVecLogic, [SKLPort05],  1, [1], 1, 5>; // Vector integer and/or/xor.
-defm : SKLWriteResPair<WriteVecLogicX,[SKLPort015], 1, [1], 1, 6>; // Vector integer and/or/xor (XMM).
-defm : SKLWriteResPair<WriteVecLogicY,[SKLPort015], 1, [1], 1, 7>; // Vector integer and/or/xor (YMM/ZMM).
+defm : SKLWriteResPair<WriteVecLogicX,[SKLPort015], 1, [1], 1, 6>;
+defm : SKLWriteResPair<WriteVecLogicY,[SKLPort015], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteVecLogicZ>;
 defm : SKLWriteResPair<WriteVecTest,  [SKLPort0,SKLPort5], 3, [1,1], 2, 6>; // Vector integer TEST instructions.
-defm : SKLWriteResPair<WriteVecTestY, [SKLPort0,SKLPort5], 3, [1,1], 2, 7>; // Vector integer TEST instructions (YMM/ZMM).
+defm : SKLWriteResPair<WriteVecTestY, [SKLPort0,SKLPort5], 3, [1,1], 2, 7>;
+defm : X86WriteResPairUnsupported<WriteVecTestZ>;
 defm : SKLWriteResPair<WriteVecIMul,  [SKLPort0] ,  4, [1], 1, 5>; // Vector integer multiply.
-defm : SKLWriteResPair<WriteVecIMulX, [SKLPort01],  4, [1], 1, 6>; // Vector integer multiply (XMM).
-defm : SKLWriteResPair<WriteVecIMulY, [SKLPort01],  4, [1], 1, 7>; // Vector integer multiply (YMM/ZMM).
+defm : SKLWriteResPair<WriteVecIMulX, [SKLPort01],  4, [1], 1, 6>;
+defm : SKLWriteResPair<WriteVecIMulY, [SKLPort01],  4, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteVecIMulZ>;
 defm : SKLWriteResPair<WritePMULLD,   [SKLPort01], 10, [2], 2, 6>; // Vector PMULLD.
-defm : SKLWriteResPair<WritePMULLDY,  [SKLPort01], 10, [2], 2, 7>; // Vector PMULLD (YMM/ZMM).
+defm : SKLWriteResPair<WritePMULLDY,  [SKLPort01], 10, [2], 2, 7>;
+defm : X86WriteResPairUnsupported<WritePMULLDZ>;
 defm : SKLWriteResPair<WriteShuffle,  [SKLPort5], 1, [1], 1, 5>; // Vector shuffles.
-defm : SKLWriteResPair<WriteShuffleX, [SKLPort5], 1, [1], 1, 6>; // Vector shuffles (XMM).
-defm : SKLWriteResPair<WriteShuffleY, [SKLPort5], 1, [1], 1, 7>; // Vector shuffles (YMM/ZMM).
+defm : SKLWriteResPair<WriteShuffleX, [SKLPort5], 1, [1], 1, 6>;
+defm : SKLWriteResPair<WriteShuffleY, [SKLPort5], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteShuffleZ>;
 defm : SKLWriteResPair<WriteVarShuffle,  [SKLPort5], 1, [1], 1, 5>; // Vector shuffles.
-defm : SKLWriteResPair<WriteVarShuffleX, [SKLPort5], 1, [1], 1, 6>; // Vector shuffles (XMM).
-defm : SKLWriteResPair<WriteVarShuffleY, [SKLPort5], 1, [1], 1, 7>; // Vector shuffles (YMM/ZMM).
+defm : SKLWriteResPair<WriteVarShuffleX, [SKLPort5], 1, [1], 1, 6>;
+defm : SKLWriteResPair<WriteVarShuffleY, [SKLPort5], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteVarShuffleZ>;
 defm : SKLWriteResPair<WriteBlend,  [SKLPort5], 1, [1], 1, 6>; // Vector blends.
-defm : SKLWriteResPair<WriteBlendY, [SKLPort5], 1, [1], 1, 7>; // Vector blends (YMM/ZMM).
+defm : SKLWriteResPair<WriteBlendY, [SKLPort5], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteBlendZ>;
 defm : SKLWriteResPair<WriteVarBlend,  [SKLPort015], 2, [2], 2, 6>; // Vector variable blends.
-defm : SKLWriteResPair<WriteVarBlendY, [SKLPort015], 2, [2], 2, 6>; // Vector variable blends (YMM/ZMM).
+defm : SKLWriteResPair<WriteVarBlendY, [SKLPort015], 2, [2], 2, 6>;
+defm : X86WriteResPairUnsupported<WriteVarBlendZ>;
 defm : SKLWriteResPair<WriteMPSAD,  [SKLPort5], 4, [2], 2, 6>; // Vector MPSAD.
-defm : SKLWriteResPair<WriteMPSADY, [SKLPort5], 4, [2], 2, 7>; // Vector MPSAD (YMM/ZMM).
+defm : SKLWriteResPair<WriteMPSADY, [SKLPort5], 4, [2], 2, 7>;
+defm : X86WriteResPairUnsupported<WriteMPSADZ>;
 defm : SKLWriteResPair<WritePSADBW,  [SKLPort5], 3, [1], 1, 5>; // Vector PSADBW.
-defm : SKLWriteResPair<WritePSADBWX, [SKLPort5], 3, [1], 1, 6>; // Vector PSADBW (XMM).
-defm : SKLWriteResPair<WritePSADBWY, [SKLPort5], 3, [1], 1, 7>; // Vector PSADBW (YMM/ZMM).
+defm : SKLWriteResPair<WritePSADBWX, [SKLPort5], 3, [1], 1, 6>;
+defm : SKLWriteResPair<WritePSADBWY, [SKLPort5], 3, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WritePSADBWZ>;
 defm : SKLWriteResPair<WritePHMINPOS, [SKLPort01], 4, [1], 1, 6>; // Vector PHMINPOS.
 
 // Vector integer shifts.
@@ -314,12 +355,15 @@ defm : X86WriteRes<WriteVecShiftX,        [SKLPort5,SKLPort01],  2, [1,1], 2>;
 defm : X86WriteRes<WriteVecShiftY,        [SKLPort5,SKLPort01],  4, [1,1], 2>;
 defm : X86WriteRes<WriteVecShiftXLd,      [SKLPort01,SKLPort23], 7, [1,1], 2>;
 defm : X86WriteRes<WriteVecShiftYLd,      [SKLPort01,SKLPort23], 8, [1,1], 2>;
+defm : X86WriteResPairUnsupported<WriteVecShiftZ>;
 
-defm : SKLWriteResPair<WriteVecShiftImm,  [SKLPort0],  1, [1], 1, 5>;
-defm : SKLWriteResPair<WriteVecShiftImmX, [SKLPort01], 1, [1], 1, 6>; // Vector integer immediate shifts (XMM).
-defm : SKLWriteResPair<WriteVecShiftImmY, [SKLPort01], 1, [1], 1, 7>; // Vector integer immediate shifts (YMM/ZMM).
+defm : SKLWriteResPair<WriteVecShiftImm,  [SKLPort0],  1, [1], 1, 5>; // Vector integer immediate shifts.
+defm : SKLWriteResPair<WriteVecShiftImmX, [SKLPort01], 1, [1], 1, 6>;
+defm : SKLWriteResPair<WriteVecShiftImmY, [SKLPort01], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteVecShiftImmZ>;
 defm : SKLWriteResPair<WriteVarVecShift,  [SKLPort01], 1, [1], 1, 6>; // Variable vector shifts.
-defm : SKLWriteResPair<WriteVarVecShiftY, [SKLPort01], 1, [1], 1, 7>; // Variable vector shifts (YMM/ZMM).
+defm : SKLWriteResPair<WriteVarVecShiftY, [SKLPort01], 1, [1], 1, 7>;
+defm : X86WriteResPairUnsupported<WriteVarVecShiftZ>;
 
 // Vector insert/extract operations.
 def : WriteRes<WriteVecInsert, [SKLPort5]> {
@@ -346,33 +390,43 @@ def : WriteRes<WriteVecExtractSt, [SKLPort4,SKLPort5,SKLPort237]> {
 defm : SKLWriteResPair<WriteCvtSS2I,   [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPS2I,   [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPS2IY,  [SKLPort1], 3>;
+defm : X86WriteResPairUnsupported<WriteCvtPS2IZ>;
 defm : SKLWriteResPair<WriteCvtSD2I,   [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPD2I,   [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPD2IY,  [SKLPort1], 3>;
+defm : X86WriteResPairUnsupported<WriteCvtPD2IZ>;
 
 defm : SKLWriteResPair<WriteCvtI2SS,   [SKLPort1], 4>;
 defm : SKLWriteResPair<WriteCvtI2PS,   [SKLPort1], 4>;
 defm : SKLWriteResPair<WriteCvtI2PSY,  [SKLPort1], 4>;
+defm : X86WriteResPairUnsupported<WriteCvtI2PSZ>;
 defm : SKLWriteResPair<WriteCvtI2SD,   [SKLPort1], 4>;
 defm : SKLWriteResPair<WriteCvtI2PD,   [SKLPort1], 4>;
 defm : SKLWriteResPair<WriteCvtI2PDY,  [SKLPort1], 4>;
+defm : X86WriteResPairUnsupported<WriteCvtI2PDZ>;
 
 defm : SKLWriteResPair<WriteCvtSS2SD,  [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPS2PD,  [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPS2PDY, [SKLPort1], 3>;
+defm : X86WriteResPairUnsupported<WriteCvtPS2PDZ>;
 defm : SKLWriteResPair<WriteCvtSD2SS,  [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPD2PS,  [SKLPort1], 3>;
 defm : SKLWriteResPair<WriteCvtPD2PSY, [SKLPort1], 3>;
+defm : X86WriteResPairUnsupported<WriteCvtPD2PSZ>;
 
 defm : X86WriteRes<WriteCvtPH2PS,    [SKLPort5,SKLPort015],  5, [1,1], 2>;
 defm : X86WriteRes<WriteCvtPH2PSY,    [SKLPort5,SKLPort01],  7, [1,1], 2>;
+defm : X86WriteResUnsupported<WriteCvtPH2PSZ>;
 defm : X86WriteRes<WriteCvtPH2PSLd,  [SKLPort23,SKLPort01],  9, [1,1], 2>;
 defm : X86WriteRes<WriteCvtPH2PSYLd, [SKLPort23,SKLPort01], 10, [1,1], 2>;
+defm : X86WriteResUnsupported<WriteCvtPH2PSZLd>;
 
 defm : X86WriteRes<WriteCvtPS2PH,                       [SKLPort5,SKLPort015], 5, [1,1], 2>;
 defm : X86WriteRes<WriteCvtPS2PHY,                       [SKLPort5,SKLPort01], 7, [1,1], 2>;
+defm : X86WriteResUnsupported<WriteCvtPS2PHZ>;
 defm : X86WriteRes<WriteCvtPS2PHSt,  [SKLPort4,SKLPort5,SKLPort237,SKLPort01], 6, [1,1,1,1], 4>;
 defm : X86WriteRes<WriteCvtPS2PHYSt, [SKLPort4,SKLPort5,SKLPort237,SKLPort01], 8, [1,1,1,1], 4>;
+defm : X86WriteResUnsupported<WriteCvtPS2PHZSt>;
 
 // Strings instructions.
 
@@ -553,14 +607,6 @@ def SKLWriteResGroup7 : SchedWriteRes<[SKLPort06]> {
   let ResourceCycles = [1];
 }
 def: InstRW<[SKLWriteResGroup7], (instrs CDQ, CQO, CLAC, STAC)>;
-def: InstRW<[SKLWriteResGroup7], (instregex "BT(16|32|64)ri8",
-                                            "BT(16|32|64)rr",
-                                            "BTC(16|32|64)ri8",
-                                            "BTC(16|32|64)rr",
-                                            "BTR(16|32|64)ri8",
-                                            "BTR(16|32|64)rr",
-                                            "BTS(16|32|64)ri8",
-                                            "BTS(16|32|64)rr")>;
 
 def SKLWriteResGroup8 : SchedWriteRes<[SKLPort15]> {
   let Latency = 1;
@@ -588,9 +634,7 @@ def SKLWriteResGroup10 : SchedWriteRes<[SKLPort0156]> {
 }
 def: InstRW<[SKLWriteResGroup10], (instrs CBW, CWDE, CDQE,
                                           CMC, STC)>;
-def: InstRW<[SKLWriteResGroup10], (instrs LAHF, SAHF)>; // TODO: This doesn't match Agner's data
-def: InstRW<[SKLWriteResGroup10], (instregex "NOOP",
-                                             "SGDT64m",
+def: InstRW<[SKLWriteResGroup10], (instregex "SGDT64m",
                                              "SIDT64m",
                                              "SMSW16m",
                                              "STRm",
@@ -654,20 +698,6 @@ def SKLWriteResGroup21 : SchedWriteRes<[SKLPort237,SKLPort0156]> {
 }
 def: InstRW<[SKLWriteResGroup21], (instrs SFENCE)>;
 
-def SKLWriteResGroup22 : SchedWriteRes<[SKLPort06,SKLPort15]> {
-  let Latency = 2;
-  let NumMicroOps = 2;
-  let ResourceCycles = [1,1];
-}
-def: InstRW<[SKLWriteResGroup22], (instrs BSWAP64r)>;
-
-def SKLWriteResGroup22_1 : SchedWriteRes<[SKLPort15]> {
-  let Latency = 1;
-  let NumMicroOps = 1;
-  let ResourceCycles = [1];
-}
-def: InstRW<[SKLWriteResGroup22_1], (instrs BSWAP32r)>;
-
 def SKLWriteResGroup23 : SchedWriteRes<[SKLPort06,SKLPort0156]> {
   let Latency = 2;
   let NumMicroOps = 2;
@@ -710,9 +740,7 @@ def SKLWriteResGroup29 : SchedWriteRes<[SKLPort1]> {
   let ResourceCycles = [1];
 }
 def: InstRW<[SKLWriteResGroup29], (instregex "PDEP(32|64)rr",
-                                             "PEXT(32|64)rr",
-                                             "SHLD(16|32|64)rri8",
-                                             "SHRD(16|32|64)rri8")>;
+                                             "PEXT(32|64)rr")>;
 
 def SKLWriteResGroup29_16i : SchedWriteRes<[SKLPort1, SKLPort0156]> {
   let Latency = 4;
@@ -748,15 +776,6 @@ def: InstRW<[SKLWriteResGroup33], (instregex "ROL(8|16|32|64)rCL",
                                              "SAR(8|16|32|64)rCL",
                                              "SHL(8|16|32|64)rCL",
                                              "SHR(8|16|32|64)rCL")>;
-
-def SKLWriteResGroup34 : SchedWriteRes<[SKLPort0156]> {
-  let Latency = 2;
-  let NumMicroOps = 3;
-  let ResourceCycles = [3];
-}
-def: InstRW<[SKLWriteResGroup34], (instrs XADD8rr, XADD16rr, XADD32rr, XADD64rr,
-                                          XCHG8rr, XCHG16rr, XCHG32rr, XCHG64rr,
-                                          XCHG16ar, XCHG32ar, XCHG64ar)>;
 
 def SKLWriteResGroup35 : SchedWriteRes<[SKLPort0,SKLPort5]> {
   let Latency = 3;
@@ -1063,14 +1082,6 @@ def SKLWriteResGroup78 : SchedWriteRes<[SKLPort5,SKLPort01]> {
 }
 def: InstRW<[SKLWriteResGroup78], (instregex "(V?)CVTSI642SSrr")>;
 
-def SKLWriteResGroup79 : SchedWriteRes<[SKLPort1,SKLPort06,SKLPort0156]> {
-  let Latency = 6;
-  let NumMicroOps = 4;
-  let ResourceCycles = [1,2,1];
-}
-def: InstRW<[SKLWriteResGroup79], (instregex "SHLD(16|32|64)rrCL",
-                                             "SHRD(16|32|64)rrCL")>;
-
 def SKLWriteResGroup80 : SchedWriteRes<[SKLPort1,SKLPort6,SKLPort06,SKLPort0156]> {
   let Latency = 6;
   let NumMicroOps = 4;
@@ -1359,14 +1370,6 @@ def SKLWriteResGroup128 : SchedWriteRes<[SKLPort5,SKLPort01,SKLPort23]> {
 def: InstRW<[SKLWriteResGroup128], (instregex "(V?)PHADDSWrm",
                                               "(V?)PHSUBSWrm")>;
 
-def SKLWriteResGroup130 : SchedWriteRes<[SKLPort1,SKLPort23,SKLPort237,SKLPort0156]> {
-  let Latency = 9;
-  let NumMicroOps = 4;
-  let ResourceCycles = [1,1,1,1];
-}
-def: InstRW<[SKLWriteResGroup130], (instregex "SHLD(16|32|64)mri8",
-                                              "SHRD(16|32|64)mri8")>;
-
 def SKLWriteResGroup131 : SchedWriteRes<[SKLPort1,SKLPort6,SKLPort23,SKLPort0156]> {
   let Latency = 9;
   let NumMicroOps = 5;
@@ -1485,14 +1488,6 @@ def SKLWriteResGroup152 : SchedWriteRes<[SKLPort5,SKLPort23,SKLPort01]> {
 def: InstRW<[SKLWriteResGroup152], (instregex "CVTPD2PSrm",
                                               "CVT(T?)PD2DQrm",
                                               "MMX_CVT(T?)PD2PIirm")>;
-
-def SKLWriteResGroup153 : SchedWriteRes<[SKLPort1,SKLPort23,SKLPort237,SKLPort06,SKLPort0156]> {
-  let Latency = 11;
-  let NumMicroOps = 6;
-  let ResourceCycles = [1,1,1,2,1];
-}
-def: InstRW<[SKLWriteResGroup153], (instregex "SHLD(16|32|64)mrCL",
-                                              "SHRD(16|32|64)mrCL")>;
 
 def SKLWriteResGroup154 : SchedWriteRes<[SKLPort1,SKLPort06,SKLPort0156]> {
   let Latency = 11;

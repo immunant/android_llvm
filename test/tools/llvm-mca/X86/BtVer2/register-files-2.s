@@ -22,8 +22,8 @@ vmulps %xmm0, %xmm0, %xmm0
 # CHECK:      Dispatch Logic - number of cycles where we saw N instructions dispatched:
 # CHECK-NEXT: [# dispatched], [# cycles]
 # CHECK-NEXT:  0,              20  (71.4%)
-# CHECK-NEXT:  2,              2  (7.1%)
 # CHECK-NEXT:  1,              6  (21.4%)
+# CHECK-NEXT:  2,              2  (7.1%)
 
 # CHECK:      Register File statistics:
 # CHECK-NEXT: Total number of mappings created:    10
@@ -88,4 +88,3 @@ vmulps %xmm0, %xmm0, %xmm0
 # CHECK:            [0]    [1]    [2]    [3]
 # CHECK-NEXT: 0.     5     6.6    0.2    0.0       vaddps	%xmm0, %xmm0, %xmm0
 # CHECK-NEXT: 1.     5     7.8    0.0    0.0       vmulps	%xmm0, %xmm0, %xmm0
-

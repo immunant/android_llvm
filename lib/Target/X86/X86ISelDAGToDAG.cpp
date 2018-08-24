@@ -215,7 +215,7 @@ namespace {
     bool selectTLSADDRAddr(SDValue N, SDValue &Base,
                            SDValue &Scale, SDValue &Index, SDValue &Disp,
                            SDValue &Segment);
-    bool selectScalarSSELoad(SDNode *Root, SDValue N,
+    bool selectScalarSSELoad(SDNode *Root, SDNode *Parent, SDValue N,
                              SDValue &Base, SDValue &Scale,
                              SDValue &Index, SDValue &Disp,
                              SDValue &Segment,
@@ -470,7 +470,7 @@ namespace {
 // type.
 static bool isLegalMaskCompare(SDNode *N, const X86Subtarget *Subtarget) {
   unsigned Opcode = N->getOpcode();
-  if (Opcode == X86ISD::CMPM || Opcode == X86ISD::CMPMU ||
+  if (Opcode == X86ISD::CMPM || Opcode == ISD::SETCC ||
       Opcode == X86ISD::CMPM_RND || Opcode == X86ISD::VFPCLASS) {
     // We can get 256-bit 8 element types here without VLX being enabled. When
     // this happens we will use 512-bit operations and the mask will not be
@@ -568,9 +568,59 @@ X86DAGToDAGISel::IsProfitableToFold(SDValue N, SDNode *U, SDNode *Root) const {
         if (Val.getOpcode() == ISD::TargetGlobalTLSAddress)
           return false;
       }
+
+      // Don't fold load if this matches the BTS/BTR/BTC patterns.
+      // BTS: (or X, (shl 1, n))
+      // BTR: (and X, (rotl -2, n))
+      // BTC: (xor X, (shl 1, n))
+      if (U->getOpcode() == ISD::OR || U->getOpcode() == ISD::XOR) {
+        if (U->getOperand(0).getOpcode() == ISD::SHL &&
+            isOneConstant(U->getOperand(0).getOperand(0)))
+          return false;
+
+        if (U->getOperand(1).getOpcode() == ISD::SHL &&
+            isOneConstant(U->getOperand(1).getOperand(0)))
+          return false;
+      }
+      if (U->getOpcode() == ISD::AND) {
+        SDValue U0 = U->getOperand(0);
+        SDValue U1 = U->getOperand(1);
+        if (U0.getOpcode() == ISD::ROTL) {
+          auto *C = dyn_cast<ConstantSDNode>(U0.getOperand(0));
+          if (C && C->getSExtValue() == -2)
+            return false;
+        }
+
+        if (U1.getOpcode() == ISD::ROTL) {
+          auto *C = dyn_cast<ConstantSDNode>(U1.getOperand(0));
+          if (C && C->getSExtValue() == -2)
+            return false;
+        }
+      }
+
+      break;
     }
+    case ISD::SHL:
+    case ISD::SRA:
+    case ISD::SRL:
+      // Don't fold a load into a shift by immediate. The BMI2 instructions
+      // support folding a load, but not an immediate. The legacy instructions
+      // support folding an immediate, but can't fold a load. Folding an
+      // immediate is preferable to folding a load.
+      if (isa<ConstantSDNode>(U->getOperand(1)))
+        return false;
+
+      break;
     }
   }
+
+  // Prevent folding a load if this can implemented with an insert_subreg or
+  // a move that implicitly zeroes.
+  if (Root->getOpcode() == ISD::INSERT_SUBVECTOR &&
+      isNullConstant(Root->getOperand(2)) &&
+      (Root->getOperand(0).isUndef() ||
+       ISD::isBuildVectorAllZeros(Root->getOperand(0).getNode())))
+    return false;
 
   return true;
 }
@@ -668,6 +718,7 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
       CurDAG->ReplaceAllUsesOfValueWith(SDValue(N, 0), Res);
       ++I;
       CurDAG->DeleteNode(N);
+      continue;
     }
 
     if (OptLevel != CodeGenOpt::None &&
@@ -830,6 +881,14 @@ void X86DAGToDAGISel::PostprocessISelDAG() {
         In.getMachineOpcode() <= TargetOpcode::GENERIC_OP_END)
       continue;
 
+    // Make sure the instruction has a VEX, XOP, or EVEX prefix. This covers
+    // the SHA instructions which use a legacy encoding.
+    uint64_t TSFlags = getInstrInfo()->get(In.getMachineOpcode()).TSFlags;
+    if ((TSFlags & X86II::EncodingMask) != X86II::VEX &&
+        (TSFlags & X86II::EncodingMask) != X86II::EVEX &&
+        (TSFlags & X86II::EncodingMask) != X86II::XOP)
+      continue;
+
     // Producing instruction is another vector instruction. We can drop the
     // move.
     CurDAG->UpdateNodeOperands(N, N->getOperand(0), In, N->getOperand(2));
@@ -940,11 +999,13 @@ bool X86DAGToDAGISel::matchWrapper(SDValue N, X86ISelAddressMode &AM) {
 
   bool IsRIPRel = N.getOpcode() == X86ISD::WrapperRIP;
 
-  // Only do this address mode folding for 64-bit if we're in the small code
-  // model.
-  // FIXME: But we can do GOTPCREL addressing in the medium code model.
+  // We can't use an addressing mode in the 64-bit large code model. In the
+  // medium code model, we use can use an mode when RIP wrappers are present.
+  // That signifies access to globals that are known to be "near", such as the
+  // GOT itself.
   CodeModel::Model M = TM.getCodeModel();
-  if (Subtarget->is64Bit() && M != CodeModel::Small && M != CodeModel::Kernel)
+  if (Subtarget->is64Bit() &&
+      (M == CodeModel::Large || (M == CodeModel::Medium && !IsRIPRel)))
     return true;
 
   // Base and index reg must be 0 in order to use %rip as base.
@@ -1685,8 +1746,7 @@ bool X86DAGToDAGISel::selectAddr(SDNode *Parent, SDValue N, SDValue &Base,
 // We can only fold a load if all nodes between it and the root node have a
 // single use. If there are additional uses, we could end up duplicating the
 // load.
-static bool hasSingleUsesFromRoot(SDNode *Root, SDNode *N) {
-  SDNode *User = *N->use_begin();
+static bool hasSingleUsesFromRoot(SDNode *Root, SDNode *User) {
   while (User != Root) {
     if (!User->hasOneUse())
       return false;
@@ -1703,17 +1763,19 @@ static bool hasSingleUsesFromRoot(SDNode *Root, SDNode *N) {
 /// We also return:
 ///   PatternChainNode: this is the matched node that has a chain input and
 ///   output.
-bool X86DAGToDAGISel::selectScalarSSELoad(SDNode *Root,
+bool X86DAGToDAGISel::selectScalarSSELoad(SDNode *Root, SDNode *Parent,
                                           SDValue N, SDValue &Base,
                                           SDValue &Scale, SDValue &Index,
                                           SDValue &Disp, SDValue &Segment,
                                           SDValue &PatternNodeWithChain) {
+  if (!hasSingleUsesFromRoot(Root, Parent))
+    return false;
+
   // We can allow a full vector load here since narrowing a load is ok.
   if (ISD::isNON_EXTLoad(N.getNode())) {
     PatternNodeWithChain = N;
     if (IsProfitableToFold(PatternNodeWithChain, N.getNode(), Root) &&
-        IsLegalToFold(PatternNodeWithChain, *N->use_begin(), Root, OptLevel) &&
-        hasSingleUsesFromRoot(Root, N.getNode())) {
+        IsLegalToFold(PatternNodeWithChain, Parent, Root, OptLevel)) {
       LoadSDNode *LD = cast<LoadSDNode>(PatternNodeWithChain);
       return selectAddr(LD, LD->getBasePtr(), Base, Scale, Index, Disp,
                         Segment);
@@ -1724,8 +1786,7 @@ bool X86DAGToDAGISel::selectScalarSSELoad(SDNode *Root,
   if (N.getOpcode() == X86ISD::VZEXT_LOAD) {
     PatternNodeWithChain = N;
     if (IsProfitableToFold(PatternNodeWithChain, N.getNode(), Root) &&
-        IsLegalToFold(PatternNodeWithChain, *N->use_begin(), Root, OptLevel) &&
-        hasSingleUsesFromRoot(Root, N.getNode())) {
+        IsLegalToFold(PatternNodeWithChain, Parent, Root, OptLevel)) {
       auto *MI = cast<MemIntrinsicSDNode>(PatternNodeWithChain);
       return selectAddr(MI, MI->getBasePtr(), Base, Scale, Index, Disp,
                         Segment);
@@ -1739,8 +1800,7 @@ bool X86DAGToDAGISel::selectScalarSSELoad(SDNode *Root,
     PatternNodeWithChain = N.getOperand(0);
     if (ISD::isNON_EXTLoad(PatternNodeWithChain.getNode()) &&
         IsProfitableToFold(PatternNodeWithChain, N.getNode(), Root) &&
-        IsLegalToFold(PatternNodeWithChain, N.getNode(), Root, OptLevel) &&
-        hasSingleUsesFromRoot(Root, N.getNode())) {
+        IsLegalToFold(PatternNodeWithChain, N.getNode(), Root, OptLevel)) {
       LoadSDNode *LD = cast<LoadSDNode>(PatternNodeWithChain);
       return selectAddr(LD, LD->getBasePtr(), Base, Scale, Index, Disp,
                         Segment);
@@ -1756,8 +1816,7 @@ bool X86DAGToDAGISel::selectScalarSSELoad(SDNode *Root,
     PatternNodeWithChain = N.getOperand(0).getOperand(0);
     if (ISD::isNON_EXTLoad(PatternNodeWithChain.getNode()) &&
         IsProfitableToFold(PatternNodeWithChain, N.getNode(), Root) &&
-        IsLegalToFold(PatternNodeWithChain, N.getNode(), Root, OptLevel) &&
-        hasSingleUsesFromRoot(Root, N.getNode())) {
+        IsLegalToFold(PatternNodeWithChain, N.getNode(), Root, OptLevel)) {
       // Okay, this is a zero extending load.  Fold it.
       LoadSDNode *LD = cast<LoadSDNode>(PatternNodeWithChain);
       return selectAddr(LD, LD->getBasePtr(), Base, Scale, Index, Disp,
@@ -1780,10 +1839,10 @@ bool X86DAGToDAGISel::selectMOV64Imm32(SDValue N, SDValue &Imm) {
   }
 
   // In static codegen with small code model, we can get the address of a label
-  // into a register with 'movl'. TableGen has already made sure we're looking
-  // at a label of some kind.
-  assert(N->getOpcode() == X86ISD::Wrapper &&
-         "Unexpected node type for MOV32ri64");
+  // into a register with 'movl'
+  if (N->getOpcode() != X86ISD::Wrapper)
+    return false;
+
   N = N.getOperand(0);
 
   // At least GNU as does not accept 'movl' for TPOFF relocations.
@@ -2708,7 +2767,6 @@ bool X86DAGToDAGISel::shrinkAndImmediate(SDNode *And) {
 
 void X86DAGToDAGISel::Select(SDNode *Node) {
   MVT NVT = Node->getSimpleValueType(0);
-  unsigned Opc, MOpc;
   unsigned Opcode = Node->getOpcode();
   SDLoc dl(Node);
 
@@ -2744,6 +2802,16 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
   case X86ISD::GlobalBaseReg:
     ReplaceNode(Node, getGlobalBaseReg());
     return;
+
+  case ISD::BITCAST:
+    // Just drop all 128/256/512-bit bitcasts.
+    if (NVT.is512BitVector() || NVT.is256BitVector() || NVT.is128BitVector() ||
+        NVT == MVT::f128) {
+      ReplaceUses(SDValue(Node, 0), Node->getOperand(0));
+      CurDAG->RemoveDeadNode(Node);
+      return;
+    }
+    break;
 
   case X86ISD::SELECT:
   case X86ISD::SHRUNKBLEND: {
@@ -2853,7 +2921,7 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     SDValue N0 = Node->getOperand(0);
     SDValue N1 = Node->getOperand(1);
 
-    Opc = (Opcode == X86ISD::SMUL8 ? X86::IMUL8r : X86::MUL8r);
+    unsigned Opc = (Opcode == X86ISD::SMUL8 ? X86::IMUL8r : X86::MUL8r);
 
     SDValue InFlag = CurDAG->getCopyToReg(CurDAG->getEntryNode(), dl, X86::AL,
                                           N0, SDValue()).getValue(1);
@@ -2870,7 +2938,7 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     SDValue N0 = Node->getOperand(0);
     SDValue N1 = Node->getOperand(1);
 
-    unsigned LoReg;
+    unsigned LoReg, Opc;
     switch (NVT.SimpleTy) {
     default: llvm_unreachable("Unsupported VT!");
     // MVT::i8 is handled by X86ISD::UMUL8.
@@ -2895,6 +2963,7 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     SDValue N0 = Node->getOperand(0);
     SDValue N1 = Node->getOperand(1);
 
+    unsigned Opc, MOpc;
     bool isSigned = Opcode == ISD::SMUL_LOHI;
     bool hasBMI2 = Subtarget->hasBMI2();
     if (!isSigned) {
@@ -3021,6 +3090,7 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     SDValue N0 = Node->getOperand(0);
     SDValue N1 = Node->getOperand(1);
 
+    unsigned Opc, MOpc;
     bool isSigned = (Opcode == ISD::SDIVREM ||
                      Opcode == X86ISD::SDIVREM8_SEXT_HREG);
     if (!isSigned) {
@@ -3286,7 +3356,7 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     }
 
     // Connect the flag usage to the last instruction created.
-    ReplaceUses(SDValue(Node, 2), SDValue(CNode, 0));
+    ReplaceUses(SDValue(Node, 2), SDValue(CNode, 1));
     CurDAG->RemoveDeadNode(Node);
     return;
   }

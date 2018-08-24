@@ -129,21 +129,20 @@ private:
         : Stack(Stack), ExternalResolver(std::move(ExternalResolver)),
           ExternalResolverCtx(std::move(ExternalResolverCtx)) {}
 
-    orc::SymbolNameSet lookupFlags(orc::SymbolFlagsMap &SymbolFlags,
-                                   const orc::SymbolNameSet &Symbols) override {
-      orc::SymbolNameSet SymbolsNotFound;
+    orc::SymbolFlagsMap
+    lookupFlags(const orc::SymbolNameSet &Symbols) override {
+      orc::SymbolFlagsMap SymbolFlags;
 
       for (auto &S : Symbols) {
         if (auto Sym = findSymbol(*S))
           SymbolFlags[S] = Sym.getFlags();
         else if (auto Err = Sym.takeError()) {
           Stack.reportError(std::move(Err));
-          return orc::SymbolNameSet();
-        } else
-          SymbolsNotFound.insert(S);
+          return orc::SymbolFlagsMap();
+        }
       }
 
-      return SymbolsNotFound;
+      return SymbolFlags;
     }
 
     orc::SymbolNameSet
@@ -153,14 +152,15 @@ private:
 
       for (auto &S : Symbols) {
         if (auto Sym = findSymbol(*S)) {
-          if (auto Addr = Sym.getAddress())
+          if (auto Addr = Sym.getAddress()) {
             Query->resolve(S, JITEvaluatedSymbol(*Addr, Sym.getFlags()));
-          else {
-            Stack.ES.failQuery(*Query, Addr.takeError());
+            Query->notifySymbolReady();
+          } else {
+            Stack.ES.legacyFailQuery(*Query, Addr.takeError());
             return orc::SymbolNameSet();
           }
         } else if (auto Err = Sym.takeError()) {
-          Stack.ES.failQuery(*Query, std::move(Err));
+          Stack.ES.legacyFailQuery(*Query, std::move(Err));
           return orc::SymbolNameSet();
         } else
           UnresolvedSymbols.insert(S);
@@ -168,6 +168,9 @@ private:
 
       if (Query->isFullyResolved())
         Query->handleFullyResolved();
+
+      if (Query->isFullyReady())
+        Query->handleFullyReady();
 
       return UnresolvedSymbols;
     }

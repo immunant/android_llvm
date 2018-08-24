@@ -1705,6 +1705,9 @@ SparcTargetLowering::SparcTargetLowering(const TargetMachine &TM,
 
     setOperationAction(ISD::UDIV, MVT::i32, Expand);
     setLibcallName(RTLIB::UDIV_I32, ".udiv");
+
+    setLibcallName(RTLIB::SREM_I32, ".rem");
+    setLibcallName(RTLIB::UREM_I32, ".urem");
   }
 
   if (Subtarget->is64Bit()) {
@@ -1727,6 +1730,7 @@ SparcTargetLowering::SparcTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::VAARG             , MVT::Other, Custom);
 
   setOperationAction(ISD::TRAP              , MVT::Other, Legal);
+  setOperationAction(ISD::DEBUGTRAP         , MVT::Other, Legal);
 
   // Use the default implementation.
   setOperationAction(ISD::VACOPY            , MVT::Other, Expand);
@@ -1980,11 +1984,22 @@ SDValue SparcTargetLowering::makeAddress(SDValue Op, SelectionDAG &DAG) const {
 
   // Handle PIC mode first. SPARC needs a got load for every variable!
   if (isPositionIndependent()) {
-    // This is the pic32 code model, the GOT is known to be smaller than 4GB.
-    SDValue HiLo = makeHiLoPair(Op, SparcMCExpr::VK_Sparc_GOT22,
-                                SparcMCExpr::VK_Sparc_GOT10, DAG);
+    const Module *M = DAG.getMachineFunction().getFunction().getParent();
+    PICLevel::Level picLevel = M->getPICLevel();
+    SDValue Idx;
+
+    if (picLevel == PICLevel::SmallPIC) {
+      // This is the pic13 code model, the GOT is known to be smaller than 8KiB.
+      Idx = DAG.getNode(SPISD::Lo, DL, Op.getValueType(),
+                        withTargetFlags(Op, SparcMCExpr::VK_Sparc_GOT13, DAG));
+    } else {
+      // This is the pic32 code model, the GOT is known to be smaller than 4GB.
+      Idx = makeHiLoPair(Op, SparcMCExpr::VK_Sparc_GOT22,
+                         SparcMCExpr::VK_Sparc_GOT10, DAG);
+    }
+
     SDValue GlobalBase = DAG.getNode(SPISD::GLOBAL_BASE_REG, DL, VT);
-    SDValue AbsAddr = DAG.getNode(ISD::ADD, DL, VT, GlobalBase, HiLo);
+    SDValue AbsAddr = DAG.getNode(ISD::ADD, DL, VT, GlobalBase, Idx);
     // GLOBAL_BASE_REG codegen'ed with call. Inform MFI that this
     // function has calls.
     MachineFrameInfo &MFI = DAG.getMachineFunction().getFrameInfo();

@@ -136,7 +136,7 @@ enum RegisterMapping {
 // "s_waitcnt 0" before use.
 class BlockWaitcntBrackets {
 public:
-  BlockWaitcntBrackets() {
+  BlockWaitcntBrackets(const GCNSubtarget *SubTarget) : ST(SubTarget) {
     for (enum InstCounterType T = VM_CNT; T < NUM_INST_CNTS;
          T = (enum InstCounterType)(T + 1)) {
       memset(VgprScores[T], 0, sizeof(VgprScores[T]));
@@ -314,6 +314,7 @@ public:
   void dump() { print(dbgs()); }
 
 private:
+  const GCNSubtarget *ST = nullptr;
   bool WaitAtBeginning = false;
   bool RevisitLoop = false;
   bool MixedExpTypes = false;
@@ -363,7 +364,7 @@ private:
 
 class SIInsertWaitcnts : public MachineFunctionPass {
 private:
-  const SISubtarget *ST = nullptr;
+  const GCNSubtarget *ST = nullptr;
   const SIInstrInfo *TII = nullptr;
   const SIRegisterInfo *TRI = nullptr;
   const MachineRegisterInfo *MRI = nullptr;
@@ -392,7 +393,11 @@ private:
 public:
   static char ID;
 
-  SIInsertWaitcnts() : MachineFunctionPass(ID) {}
+  SIInsertWaitcnts() : MachineFunctionPass(ID) {
+    (void)ForceExpCounter;
+    (void)ForceLgkmCounter;
+    (void)ForceVMCounter;
+  }
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
@@ -735,9 +740,12 @@ unsigned int BlockWaitcntBrackets::updateByWait(InstCounterType T,
   const int32_t LB = getScoreLB(T);
   const int32_t UB = getScoreUB(T);
   if ((UB >= ScoreToWait) && (ScoreToWait > LB)) {
-    if (T == VM_CNT && hasPendingFlat()) {
-      // If there is a pending FLAT operation, and this is a VM waitcnt,
-      // then we need to force a waitcnt 0 for VM.
+    if ((T == VM_CNT || T == LGKM_CNT) &&
+        hasPendingFlat() &&
+        !ST->hasFlatLgkmVMemCountInOrder()) {
+      // If there is a pending FLAT operation, and this is a VMem or LGKM
+      // waitcnt and the target can report early completion, then we need
+      // to force a waitcnt 0.
       NeedWait = CNT_MASK(T);
       setScoreLB(T, getScoreUB(T));
     } else if (counterOutOfOrder(T)) {
@@ -926,8 +934,7 @@ void SIInsertWaitcnts::generateWaitcntInstBefore(
   // All waits must be resolved at call return.
   // NOTE: this could be improved with knowledge of all call sites or
   //   with knowledge of the called routines.
-  if (MI.getOpcode() == AMDGPU::RETURN ||
-      MI.getOpcode() == AMDGPU::SI_RETURN_TO_EPILOG ||
+  if (MI.getOpcode() == AMDGPU::SI_RETURN_TO_EPILOG ||
       MI.getOpcode() == AMDGPU::S_SETPC_B64_return) {
     for (enum InstCounterType T = VM_CNT; T < NUM_INST_CNTS;
          T = (enum InstCounterType)(T + 1)) {
@@ -1123,7 +1130,7 @@ void SIInsertWaitcnts::generateWaitcntInstBefore(
   // TODO: Remove this work-around, enable the assert for Bug 457939
   //       after fixing the scheduler. Also, the Shader Compiler code is
   //       independent of target.
-  if (readsVCCZ(MI) && ST->getGeneration() <= SISubtarget::SEA_ISLANDS) {
+  if (readsVCCZ(MI) && ST->getGeneration() <= AMDGPUSubtarget::SEA_ISLANDS) {
     if (ScoreBrackets->getScoreLB(LGKM_CNT) <
             ScoreBrackets->getScoreUB(LGKM_CNT) &&
         ScoreBrackets->hasPendingSMEM()) {
@@ -1200,7 +1207,7 @@ void SIInsertWaitcnts::generateWaitcntInstBefore(
           if (!ScoreBracket) {
             assert(!BlockVisitedSet.count(TBB));
             BlockWaitcntBracketsMap[TBB] =
-                llvm::make_unique<BlockWaitcntBrackets>();
+                llvm::make_unique<BlockWaitcntBrackets>(ST);
             ScoreBracket = BlockWaitcntBracketsMap[TBB].get();
           }
           ScoreBracket->setRevisitLoop(true);
@@ -1708,7 +1715,7 @@ void SIInsertWaitcnts::insertWaitcntInBlock(MachineFunction &MF,
       if (ScoreBrackets->getScoreLB(LGKM_CNT) <
               ScoreBrackets->getScoreUB(LGKM_CNT) &&
           ScoreBrackets->hasPendingSMEM()) {
-        if (ST->getGeneration() <= SISubtarget::SEA_ISLANDS)
+        if (ST->getGeneration() <= AMDGPUSubtarget::SEA_ISLANDS)
           VCCZBugWorkAround = true;
       }
     }
@@ -1830,7 +1837,7 @@ void SIInsertWaitcnts::insertWaitcntInBlock(MachineFunction &MF,
 }
 
 bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
-  ST = &MF.getSubtarget<SISubtarget>();
+  ST = &MF.getSubtarget<GCNSubtarget>();
   TII = ST->getInstrInfo();
   TRI = &TII->getRegisterInfo();
   MRI = &MF.getRegInfo();
@@ -1864,6 +1871,7 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
   BlockVisitedSet.clear();
   VCCZBugHandledSet.clear();
   LoopWaitcntDataMap.clear();
+  BlockWaitcntProcessedSet.clear();
 
   // Walk over the blocks in reverse post-dominator order, inserting
   // s_waitcnt where needed.
@@ -1879,7 +1887,7 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
 
     BlockWaitcntBrackets *ScoreBrackets = BlockWaitcntBracketsMap[&MBB].get();
     if (!ScoreBrackets) {
-      BlockWaitcntBracketsMap[&MBB] = llvm::make_unique<BlockWaitcntBrackets>();
+      BlockWaitcntBracketsMap[&MBB] = llvm::make_unique<BlockWaitcntBrackets>(ST);
       ScoreBrackets = BlockWaitcntBracketsMap[&MBB].get();
     }
     ScoreBrackets->setPostOrder(MBB.getNumber());
@@ -1896,7 +1904,7 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
       // If the loop has multiple back-edges, and so more than one "bottom"
       // basic block, we have to guarantee a re-walk over every blocks.
       if ((std::count(BlockWaitcntProcessedSet.begin(),
-                      BlockWaitcntProcessedSet.end(), &MBB) < Count)) {
+                      BlockWaitcntProcessedSet.end(), &MBB) < (int)Count)) {
         BlockWaitcntBracketsMap[&MBB]->setRevisitLoop(true);
         LLVM_DEBUG(dbgs() << "set-revisit1: Block"
                           << ContainingLoop->getHeader()->getNumber() << '\n';);

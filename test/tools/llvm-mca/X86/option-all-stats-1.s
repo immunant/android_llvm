@@ -6,12 +6,12 @@
 
 add %eax, %eax
 
-# ALL:             Iterations:        100
-# ALL-NEXT:        Instructions:      100
-# ALL-NEXT:        Total Cycles:      103
-# ALL-NEXT:        Dispatch Width:    2
-# ALL-NEXT:        IPC:               0.97
-# ALL-NEXT:        Block RThroughput: 0.5
+# FULLREPORT:      Iterations:        100
+# FULLREPORT-NEXT: Instructions:      100
+# FULLREPORT-NEXT: Total Cycles:      103
+# FULLREPORT-NEXT: Dispatch Width:    2
+# FULLREPORT-NEXT: IPC:               0.97
+# FULLREPORT-NEXT: Block RThroughput: 0.5
 
 # ALL:             Instruction Info:
 # ALL-NEXT:        [1]: #uOps
@@ -19,7 +19,7 @@ add %eax, %eax
 # ALL-NEXT:        [3]: RThroughput
 # ALL-NEXT:        [4]: MayLoad
 # ALL-NEXT:        [5]: MayStore
-# ALL-NEXT:        [6]: HasSideEffects
+# ALL-NEXT:        [6]: HasSideEffects (U)
 
 # ALL:             [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # ALL-NEXT:         1      1     0.50                        addl	%eax, %eax
@@ -35,8 +35,8 @@ add %eax, %eax
 # FULLREPORT:      Dispatch Logic - number of cycles where we saw N instructions dispatched:
 # FULLREPORT-NEXT: [# dispatched], [# cycles]
 # FULLREPORT-NEXT:  0,              22  (21.4%)
-# FULLREPORT-NEXT:  2,              19  (18.4%)
 # FULLREPORT-NEXT:  1,              62  (60.2%)
+# FULLREPORT-NEXT:  2,              19  (18.4%)
 
 # FULLREPORT:      Schedulers - number of cycles where we saw N instructions issued:
 # FULLREPORT-NEXT: [# issued], [# cycles]
@@ -90,4 +90,3 @@ add %eax, %eax
 # FULLREPORT:      Resource pressure by instruction:
 # FULLREPORT-NEXT: [0]    [1]    [2]    [3]    [4]    [5]    [6]    [7]    [8]    [9]    [10]   [11]   [12]   [13]   Instructions:
 # FULLREPORT-NEXT: 0.50   0.50    -      -      -      -      -      -      -      -      -      -      -      -     addl	%eax, %eax
-

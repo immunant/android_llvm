@@ -16,7 +16,7 @@ add %edi, %eax
 # CHECK-NEXT: [3]: RThroughput
 # CHECK-NEXT: [4]: MayLoad
 # CHECK-NEXT: [5]: MayStore
-# CHECK-NEXT: [6]: HasSideEffects
+# CHECK-NEXT: [6]: HasSideEffects (U)
 
 # CHECK:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
 # CHECK-NEXT:  1      1     0.50                        addl	%edi, %eax
@@ -44,4 +44,3 @@ add %edi, %eax
 # CHECK:      Resource pressure by instruction:
 # CHECK-NEXT: [0]    [1]    [2]    [3]    [4]    [5]    [6]    [7]    [8]    [9]    [10]   [11]   [12]   [13]   Instructions:
 # CHECK-NEXT: 0.50   0.50    -      -      -      -      -      -      -      -      -      -      -      -     addl	%edi, %eax
-

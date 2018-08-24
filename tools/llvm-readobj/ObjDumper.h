@@ -13,6 +13,9 @@
 #include <memory>
 #include <system_error>
 
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Object/ObjectFile.h"
+
 namespace llvm {
 namespace object {
 class COFFImportFile;
@@ -41,6 +44,7 @@ public:
   virtual void printDynamicTable() { }
   virtual void printNeededLibraries() { }
   virtual void printProgramHeaders() { }
+  virtual void printSectionAsHex(StringRef SectionName) {}
   virtual void printHashTable() { }
   virtual void printGnuHashTable() { }
   virtual void printLoadName() {}
@@ -48,6 +52,7 @@ public:
   virtual void printGroupSections() {}
   virtual void printHashHistogram() {}
   virtual void printCGProfile() {}
+  virtual void printAddrsig() {}
   virtual void printNotes() {}
   virtual void printELFLinkerOptions() {}
 
@@ -82,6 +87,9 @@ public:
   virtual void printMachOLinkerOptions() { }
 
   virtual void printStackMap() const = 0;
+
+  void printSectionAsString(const object::ObjectFile *Obj, StringRef SecName);
+  void printSectionAsHex(const object::ObjectFile *Obj, StringRef SecName);
 
 protected:
   ScopedPrinter &W;

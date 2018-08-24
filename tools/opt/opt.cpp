@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "BreakpointPrinter.h"
+#include "Debugify.h"
 #include "NewPMDriver.h"
 #include "PassPrinters.h"
 #include "llvm/ADT/Triple.h"
@@ -121,11 +122,12 @@ static cl::opt<bool>
 StripDebug("strip-debug",
            cl::desc("Strip debugger symbol info from translation unit"));
 
-static cl::opt<bool> StripModuleFlags("strip-module-flags",
-                                      cl::desc("Strip module flags metadata"));
-
 static cl::opt<bool>
-DisableInline("disable-inlining", cl::desc("Do not run the inliner pass"));
+    StripNamedMetadata("strip-named-metadata",
+                       cl::desc("Strip module-level named metadata"));
+
+static cl::opt<bool> DisableInline("disable-inlining",
+                                   cl::desc("Do not run the inliner pass"));
 
 static cl::opt<bool>
 DisableOptimizations("disable-opt",
@@ -215,6 +217,11 @@ static cl::opt<bool> DebugifyEach(
     cl::desc(
         "Start each pass with debugify and end it with check-debugify"));
 
+static cl::opt<std::string>
+    DebugifyExport("debugify-export",
+                   cl::desc("Export per-pass debugify statistics to this file"),
+                   cl::value_desc("filename"), cl::init(""));
+
 static cl::opt<bool>
 PrintBreakpoints("print-breakpoints-for-testing",
                  cl::desc("Print select breakpoints location for testing"));
@@ -265,34 +272,45 @@ static cl::opt<std::string>
                     cl::value_desc("filename"));
 
 class OptCustomPassManager : public legacy::PassManager {
+  DebugifyStatsMap DIStatsMap;
+
 public:
   using super = legacy::PassManager;
 
   void add(Pass *P) override {
+    // Wrap each pass with (-check)-debugify passes if requested, making
+    // exceptions for passes which shouldn't see -debugify instrumentation.
     bool WrapWithDebugify = DebugifyEach && !P->getAsImmutablePass() &&
                             !isIRPrintingPass(P) && !isBitcodeWriterPass(P);
     if (!WrapWithDebugify) {
       super::add(P);
       return;
     }
+
+    // Apply -debugify/-check-debugify before/after each pass and collect
+    // debug info loss statistics.
     PassKind Kind = P->getPassKind();
+    StringRef Name = P->getPassName();
+
     // TODO: Implement Debugify for BasicBlockPass, LoopPass.
     switch (Kind) {
       case PT_Function:
         super::add(createDebugifyFunctionPass());
         super::add(P);
-        super::add(createCheckDebugifyFunctionPass(true, P->getPassName()));
+        super::add(createCheckDebugifyFunctionPass(true, Name, &DIStatsMap));
         break;
       case PT_Module:
         super::add(createDebugifyModulePass());
         super::add(P);
-        super::add(createCheckDebugifyModulePass(true, P->getPassName()));
+        super::add(createCheckDebugifyModulePass(true, Name, &DIStatsMap));
         break;
       default:
         super::add(P);
         break;
     }
   }
+
+  const DebugifyStatsMap &getDebugifyStatsMap() const { return DIStatsMap; }
 };
 
 static inline void addPass(legacy::PassManagerBase &PM, Pass *P) {
@@ -503,10 +521,13 @@ int main(int argc, char **argv) {
   if (StripDebug)
     StripDebugInfo(*M);
 
-  // Erase module flags metadata, if requested.
-  if (StripModuleFlags)
-    if (NamedMDNode *ModFlags = M->getModuleFlagsMetadata())
-      M->eraseNamedMetadata(ModFlags);
+  // Erase module-level named metadata, if requested.
+  if (StripNamedMetadata) {
+    while (!M->named_metadata_empty()) {
+      NamedMDNode *NMD = &*M->named_metadata_begin();
+      M->eraseNamedMetadata(NMD);
+    }
+  }
 
   // If we are supposed to override the target triple or data layout, do so now.
   if (!TargetTriple.empty())
@@ -833,6 +854,9 @@ int main(int argc, char **argv) {
     }
     Out->os() << BOS->str();
   }
+
+  if (DebugifyEach && !DebugifyExport.empty())
+    exportDebugifyStats(DebugifyExport, Passes.getDebugifyStatsMap());
 
   // Declare success.
   if (!NoOutput || PrintBreakpoints)

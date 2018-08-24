@@ -55,6 +55,7 @@ extern "C" void LLVMInitializeMipsTarget() {
   initializeGlobalISel(*PR);
   initializeMipsDelaySlotFillerPass(*PR);
   initializeMipsBranchExpansionPass(*PR);
+  initializeMicroMipsSizeReducePass(*PR);
 }
 
 static std::string computeDataLayout(const Triple &TT, StringRef CPU,
@@ -239,6 +240,7 @@ public:
   bool addInstSelector() override;
   void addPreEmitPass() override;
   void addPreRegAlloc() override;
+  void addPreEmit2() ;
   bool addIRTranslator() override;
   bool addLegalizeMachineIR() override;
   bool addRegBankSelect() override;
@@ -284,11 +286,19 @@ MipsTargetMachine::getTargetTransformInfo(const Function &F) {
   return TargetTransformInfo(BasicTTIImpl(this, F));
 }
 
+void MipsPassConfig::addPreEmit2() {
+}
+
 // Implemented by targets that want to run passes immediately before
 // machine code is emitted. return true if -print-machineinstrs should
 // print out the code after the passes.
 void MipsPassConfig::addPreEmitPass() {
-  addPass(createMicroMipsSizeReductionPass());
+  // Expand pseudo instructions that are sensitive to register allocation.
+  addPass(createMipsExpandPseudoPass());
+
+  // The microMIPS size reduction pass performs instruction reselection for
+  // instructions which can be remapped to a 16 bit instruction.
+  addPass(createMicroMipsSizeReducePass());
 
   // The delay slot filler pass can potientially create forbidden slot hazards
   // for MIPSR6 and therefore it should go before MipsBranchExpansion pass.

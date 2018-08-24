@@ -10,6 +10,7 @@
 #include "Analysis.h"
 #include "BenchmarkResult.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <unordered_set>
 #include <vector>
@@ -20,7 +21,7 @@ static const char kCsvSep = ',';
 
 namespace {
 
-enum EscapeTag { kEscapeCsv, kEscapeHtml };
+enum EscapeTag { kEscapeCsv, kEscapeHtml, kEscapeHtmlString };
 
 template <EscapeTag Tag>
 void writeEscaped(llvm::raw_ostream &OS, const llvm::StringRef S);
@@ -56,6 +57,17 @@ void writeEscaped<kEscapeHtml>(llvm::raw_ostream &OS, const llvm::StringRef S) {
   }
 }
 
+template <>
+void writeEscaped<kEscapeHtmlString>(llvm::raw_ostream &OS,
+                                     const llvm::StringRef S) {
+  for (const char C : S) {
+    if (C == '"')
+      OS << "\\\"";
+    else
+      OS << C;
+  }
+}
+
 } // namespace
 
 template <EscapeTag Tag>
@@ -75,6 +87,33 @@ static void writeMeasurementValue(llvm::raw_ostream &OS, const double Value) {
   writeEscaped<Tag>(OS, llvm::formatv("{0:F}", Value).str());
 }
 
+template <typename EscapeTag, EscapeTag Tag>
+void Analysis::writeSnippet(llvm::raw_ostream &OS,
+                            llvm::ArrayRef<uint8_t> Bytes,
+                            const char *Separator) const {
+  llvm::SmallVector<std::string, 3> Lines;
+  // Parse the asm snippet and print it.
+  while (!Bytes.empty()) {
+    llvm::MCInst MI;
+    uint64_t MISize = 0;
+    if (!Disasm_->getInstruction(MI, MISize, Bytes, 0, llvm::nulls(),
+                                 llvm::nulls())) {
+      writeEscaped<Tag>(OS, llvm::join(Lines, Separator));
+      writeEscaped<Tag>(OS, Separator);
+      writeEscaped<Tag>(OS, "[error decoding asm snippet]");
+      return;
+    }
+    Lines.emplace_back();
+    std::string &Line = Lines.back();
+    llvm::raw_string_ostream OSS(Line);
+    InstPrinter_->printInst(&MI, OSS, "", *SubtargetInfo_);
+    Bytes = Bytes.drop_front(MISize);
+    OSS.flush();
+    Line = llvm::StringRef(Line).trim().str();
+  }
+  writeEscaped<Tag>(OS, llvm::join(Lines, Separator));
+}
+
 // Prints a row representing an instruction, along with scheduling info and
 // point coordinates (measurements).
 void Analysis::printInstructionRowCsv(const size_t PointId,
@@ -82,25 +121,22 @@ void Analysis::printInstructionRowCsv(const size_t PointId,
   const InstructionBenchmark &Point = Clustering_.getPoints()[PointId];
   writeClusterId<kEscapeCsv>(OS, Clustering_.getClusterIdForPoint(PointId));
   OS << kCsvSep;
-  writeEscaped<kEscapeCsv>(OS, Point.Key.OpcodeName);
+  writeSnippet<EscapeTag, kEscapeCsv>(OS, Point.AssembledSnippet, "; ");
   OS << kCsvSep;
   writeEscaped<kEscapeCsv>(OS, Point.Key.Config);
   OS << kCsvSep;
-  const auto OpcodeIt = MnemonicToOpcode_.find(Point.Key.OpcodeName);
-  if (OpcodeIt != MnemonicToOpcode_.end()) {
-    const unsigned SchedClassId =
-        InstrInfo_->get(OpcodeIt->second).getSchedClass();
+  assert(!Point.Key.Instructions.empty());
+  // FIXME: Resolve variant classes.
+  const unsigned SchedClassId =
+      InstrInfo_->get(Point.Key.Instructions[0].getOpcode()).getSchedClass();
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
-    const auto &SchedModel = SubtargetInfo_->getSchedModel();
-    const llvm::MCSchedClassDesc *const SCDesc =
-        SchedModel.getSchedClassDesc(SchedClassId);
-    writeEscaped<kEscapeCsv>(OS, SCDesc->Name);
+  const auto &SchedModel = SubtargetInfo_->getSchedModel();
+  const llvm::MCSchedClassDesc *const SCDesc =
+      SchedModel.getSchedClassDesc(SchedClassId);
+  writeEscaped<kEscapeCsv>(OS, SCDesc->Name);
 #else
-    OS << SchedClassId;
+  OS << SchedClassId;
 #endif
-  }
-  // FIXME: Print the sched class once InstructionBenchmark separates key into
-  // (mnemonic, mode, opaque).
   for (const auto &Measurement : Point.Measurements) {
     OS << kCsvSep;
     writeMeasurementValue<kEscapeCsv>(OS, Measurement.Value);
@@ -114,14 +150,21 @@ Analysis::Analysis(const llvm::Target &Target,
   if (Clustering.getPoints().empty())
     return;
 
-  InstrInfo_.reset(Target.createMCInstrInfo());
   const InstructionBenchmark &FirstPoint = Clustering.getPoints().front();
+  InstrInfo_.reset(Target.createMCInstrInfo());
+  RegInfo_.reset(Target.createMCRegInfo(FirstPoint.LLVMTriple));
+  AsmInfo_.reset(Target.createMCAsmInfo(*RegInfo_, FirstPoint.LLVMTriple));
   SubtargetInfo_.reset(Target.createMCSubtargetInfo(FirstPoint.LLVMTriple,
                                                     FirstPoint.CpuName, ""));
+  InstPrinter_.reset(Target.createMCInstPrinter(
+      llvm::Triple(FirstPoint.LLVMTriple), 0 /*default variant*/, *AsmInfo_,
+      *InstrInfo_, *RegInfo_));
 
-  // Build an index of mnemonic->opcode.
-  for (int I = 0, E = InstrInfo_->getNumOpcodes(); I < E; ++I)
-    MnemonicToOpcode_.emplace(InstrInfo_->getName(I), I);
+  Context_ = llvm::make_unique<llvm::MCContext>(AsmInfo_.get(), RegInfo_.get(),
+                                                &ObjectFileInfo_);
+  Disasm_.reset(Target.createMCDisassembler(*SubtargetInfo_, *Context_));
+  assert(Disasm_ && "cannot create MCDisassembler. missing call to "
+                    "InitializeXXXTargetDisassembler ?");
 }
 
 template <>
@@ -158,30 +201,52 @@ Analysis::makePointsPerSchedClass() const {
     const InstructionBenchmark &Point = Points[PointId];
     if (!Point.Error.empty())
       continue;
-    const auto OpcodeIt = MnemonicToOpcode_.find(Point.Key.OpcodeName);
-    if (OpcodeIt == MnemonicToOpcode_.end())
-      continue;
-    const unsigned SchedClassId =
-        InstrInfo_->get(OpcodeIt->second).getSchedClass();
-    PointsPerSchedClass[SchedClassId].push_back(PointId);
+    assert(!Point.Key.Instructions.empty());
+    const auto Opcode = Point.Key.Instructions[0].getOpcode();
+    // FIXME: Resolve variant classes.
+    PointsPerSchedClass[InstrInfo_->get(Opcode).getSchedClass()].push_back(
+        PointId);
   }
   return PointsPerSchedClass;
 }
 
-void Analysis::printSchedClassClustersHtml(std::vector<size_t> PointIds,
-                                           llvm::raw_ostream &OS) const {
-  assert(!PointIds.empty());
-  // Sort the points by cluster id so that we can display them grouped by
-  // cluster.
-  llvm::sort(PointIds.begin(), PointIds.end(),
-             [this](const size_t A, const size_t B) {
-               return Clustering_.getClusterIdForPoint(A) <
-                      Clustering_.getClusterIdForPoint(B);
-             });
+// Uops repeat the same opcode over again. Just show this opcode and show the
+// whole snippet only on hover.
+static void writeUopsSnippetHtml(llvm::raw_ostream &OS,
+                                 const std::vector<llvm::MCInst> &Instructions,
+                                 const llvm::MCInstrInfo &InstrInfo) {
+  if (Instructions.empty())
+    return;
+  writeEscaped<kEscapeHtml>(OS, InstrInfo.getName(Instructions[0].getOpcode()));
+  if (Instructions.size() > 1)
+    OS << " (x" << Instructions.size() << ")";
+}
+
+// Latency tries to find a serial path. Just show the opcode path and show the
+// whole snippet only on hover.
+static void
+writeLatencySnippetHtml(llvm::raw_ostream &OS,
+                        const std::vector<llvm::MCInst> &Instructions,
+                        const llvm::MCInstrInfo &InstrInfo) {
+  bool First = true;
+  for (const llvm::MCInst &Instr : Instructions) {
+    if (First)
+      First = false;
+    else
+      OS << " &rarr; ";
+    writeEscaped<kEscapeHtml>(OS, InstrInfo.getName(Instr.getOpcode()));
+  }
+}
+
+void Analysis::printSchedClassClustersHtml(
+    const std::vector<SchedClassCluster> &Clusters, const SchedClass &SC,
+    llvm::raw_ostream &OS) const {
   const auto &Points = Clustering_.getPoints();
   OS << "<table class=\"sched-class-clusters\">";
   OS << "<tr><th>ClusterId</th><th>Opcode/Config</th>";
-  for (const auto &Measurement : Points[PointIds[0]].Measurements) {
+  assert(!Clusters.empty());
+  for (const auto &Measurement :
+       Points[Clusters[0].getPointIds()[0]].Measurements) {
     OS << "<th>";
     if (Measurement.DebugString.empty())
       writeEscaped<kEscapeHtml>(OS, Measurement.Key);
@@ -190,29 +255,36 @@ void Analysis::printSchedClassClustersHtml(std::vector<size_t> PointIds,
     OS << "</th>";
   }
   OS << "</tr>";
-  for (size_t I = 0, E = PointIds.size(); I < E;) {
-    const auto &CurrentClusterId =
-        Clustering_.getClusterIdForPoint(PointIds[I]);
-    OS << "<tr><td>";
-    writeClusterId<kEscapeHtml>(OS, CurrentClusterId);
+  for (const SchedClassCluster &Cluster : Clusters) {
+    OS << "<tr class=\""
+       << (Cluster.measurementsMatch(*SubtargetInfo_, SC, Clustering_)
+               ? "good-cluster"
+               : "bad-cluster")
+       << "\"><td>";
+    writeClusterId<kEscapeHtml>(OS, Cluster.id());
     OS << "</td><td><ul>";
-    std::vector<BenchmarkMeasureStats> MeasurementStats(
-        Points[PointIds[I]].Measurements.size());
-    for (; I < E &&
-           Clustering_.getClusterIdForPoint(PointIds[I]) == CurrentClusterId;
-         ++I) {
-      const auto &Point = Points[PointIds[I]];
-      OS << "<li><span class=\"mono\">";
-      writeEscaped<kEscapeHtml>(OS, Point.Key.OpcodeName);
+    for (const size_t PointId : Cluster.getPointIds()) {
+      const auto &Point = Points[PointId];
+      OS << "<li><span class=\"mono\" title=\"";
+      writeSnippet<EscapeTag, kEscapeHtmlString>(OS, Point.AssembledSnippet,
+                                                 "\n");
+      OS << "\">";
+      switch (Point.Mode) {
+      case InstructionBenchmark::Latency:
+        writeLatencySnippetHtml(OS, Point.Key.Instructions, *InstrInfo_);
+        break;
+      case InstructionBenchmark::Uops:
+        writeUopsSnippetHtml(OS, Point.Key.Instructions, *InstrInfo_);
+        break;
+      default:
+        llvm_unreachable("invalid mode");
+      }
       OS << "</span> <span class=\"mono\">";
       writeEscaped<kEscapeHtml>(OS, Point.Key.Config);
       OS << "</span></li>";
-      for (size_t J = 0, F = Point.Measurements.size(); J < F; ++J) {
-        MeasurementStats[J].push(Point.Measurements[J]);
-      }
     }
     OS << "</ul></td>";
-    for (const auto &Stats : MeasurementStats) {
+    for (const auto &Stats : Cluster.getRepresentative()) {
       OS << "<td class=\"measurement\">";
       writeMeasurementValue<kEscapeHtml>(OS, Stats.avg());
       OS << "<br><span class=\"minmax\">[";
@@ -300,25 +372,101 @@ getNonRedundantWriteProcRes(const llvm::MCSchedClassDesc &SCDesc,
   return Result;
 }
 
-void Analysis::printSchedClassDescHtml(const llvm::MCSchedClassDesc &SCDesc,
+Analysis::SchedClass::SchedClass(const llvm::MCSchedClassDesc &SD,
+                                 const llvm::MCSubtargetInfo &STI)
+    : SCDesc(&SD),
+      NonRedundantWriteProcRes(getNonRedundantWriteProcRes(SD, STI)),
+      IdealizedProcResPressure(computeIdealizedProcResPressure(
+          STI.getSchedModel(), NonRedundantWriteProcRes)) {}
+
+void Analysis::SchedClassCluster::addPoint(
+    size_t PointId, const InstructionBenchmarkClustering &Clustering) {
+  PointIds.push_back(PointId);
+  const auto &Point = Clustering.getPoints()[PointId];
+  if (ClusterId.isUndef()) {
+    ClusterId = Clustering.getClusterIdForPoint(PointId);
+    Representative.resize(Point.Measurements.size());
+  }
+  for (size_t I = 0, E = Point.Measurements.size(); I < E; ++I) {
+    Representative[I].push(Point.Measurements[I]);
+  }
+  assert(ClusterId == Clustering.getClusterIdForPoint(PointId));
+}
+
+bool Analysis::SchedClassCluster::measurementsMatch(
+    const llvm::MCSubtargetInfo &STI, const SchedClass &SC,
+    const InstructionBenchmarkClustering &Clustering) const {
+  const size_t NumMeasurements = Representative.size();
+  std::vector<BenchmarkMeasure> ClusterCenterPoint(NumMeasurements);
+  std::vector<BenchmarkMeasure> SchedClassPoint(NumMeasurements);
+  // Latency case.
+  assert(!Clustering.getPoints().empty());
+  const InstructionBenchmark::ModeE Mode = Clustering.getPoints()[0].Mode;
+  if (Mode == InstructionBenchmark::Latency) {
+    if (NumMeasurements != 1) {
+      llvm::errs()
+          << "invalid number of measurements in latency mode: expected 1, got "
+          << NumMeasurements << "\n";
+      return false;
+    }
+    // Find the latency.
+    SchedClassPoint[0].Value = 0.0;
+    for (unsigned I = 0; I < SC.SCDesc->NumWriteLatencyEntries; ++I) {
+      const llvm::MCWriteLatencyEntry *const WLE =
+          STI.getWriteLatencyEntry(SC.SCDesc, I);
+      SchedClassPoint[0].Value =
+          std::max<double>(SchedClassPoint[0].Value, WLE->Cycles);
+    }
+    ClusterCenterPoint[0].Value = Representative[0].avg();
+  } else if (Mode == InstructionBenchmark::Uops) {
+    for (int I = 0, E = Representative.size(); I < E; ++I) {
+      // Find the pressure on ProcResIdx `Key`.
+      uint16_t ProcResIdx = 0;
+      if (!llvm::to_integer(Representative[I].key(), ProcResIdx, 10)) {
+        llvm::errs() << "expected ProcResIdx key, got "
+                     << Representative[I].key() << "\n";
+        return false;
+      }
+      const auto ProcResPressureIt =
+          std::find_if(SC.IdealizedProcResPressure.begin(),
+                       SC.IdealizedProcResPressure.end(),
+                       [ProcResIdx](const std::pair<uint16_t, float> &WPR) {
+                         return WPR.first == ProcResIdx;
+                       });
+      SchedClassPoint[I].Value =
+          ProcResPressureIt == SC.IdealizedProcResPressure.end()
+              ? 0.0
+              : ProcResPressureIt->second;
+      ClusterCenterPoint[I].Value = Representative[I].avg();
+    }
+  } else {
+    llvm::errs() << "unimplemented measurement matching for mode " << Mode
+                 << "\n";
+    return false;
+  }
+  return Clustering.isNeighbour(ClusterCenterPoint, SchedClassPoint);
+}
+
+void Analysis::printSchedClassDescHtml(const SchedClass &SC,
                                        llvm::raw_ostream &OS) const {
   OS << "<table class=\"sched-class-desc\">";
   OS << "<tr><th>Valid</th><th>Variant</th><th>uOps</th><th>Latency</"
         "th><th>WriteProcRes</th><th title=\"This is the idealized unit "
         "resource (port) pressure assuming ideal distribution\">Idealized "
         "Resource Pressure</th></tr>";
-  if (SCDesc.isValid()) {
+  if (SC.SCDesc->isValid()) {
     const auto &SM = SubtargetInfo_->getSchedModel();
     OS << "<tr><td>&#10004;</td>";
-    OS << "<td>" << (SCDesc.isVariant() ? "&#10004;" : "&#10005;") << "</td>";
-    OS << "<td>" << SCDesc.NumMicroOps << "</td>";
+    OS << "<td>" << (SC.SCDesc->isVariant() ? "&#10004;" : "&#10005;")
+       << "</td>";
+    OS << "<td>" << SC.SCDesc->NumMicroOps << "</td>";
     // Latencies.
     OS << "<td><ul>";
-    for (int I = 0, E = SCDesc.NumWriteLatencyEntries; I < E; ++I) {
+    for (int I = 0, E = SC.SCDesc->NumWriteLatencyEntries; I < E; ++I) {
       const auto *const Entry =
-          SubtargetInfo_->getWriteLatencyEntry(&SCDesc, I);
+          SubtargetInfo_->getWriteLatencyEntry(SC.SCDesc, I);
       OS << "<li>" << Entry->Cycles;
-      if (SCDesc.NumWriteLatencyEntries > 1) {
+      if (SC.SCDesc->NumWriteLatencyEntries > 1) {
         // Dismabiguate if more than 1 latency.
         OS << " (WriteResourceID " << Entry->WriteResourceID << ")";
       }
@@ -327,8 +475,7 @@ void Analysis::printSchedClassDescHtml(const llvm::MCSchedClassDesc &SCDesc,
     OS << "</ul></td>";
     // WriteProcRes.
     OS << "<td><ul>";
-    const auto ProcRes = getNonRedundantWriteProcRes(SCDesc, *SubtargetInfo_);
-    for (const auto &WPR : ProcRes) {
+    for (const auto &WPR : SC.NonRedundantWriteProcRes) {
       OS << "<li><span class=\"mono\">";
       writeEscaped<kEscapeHtml>(OS,
                                 SM.getProcResource(WPR.ProcResourceIdx)->Name);
@@ -337,7 +484,7 @@ void Analysis::printSchedClassDescHtml(const llvm::MCSchedClassDesc &SCDesc,
     OS << "</ul></td>";
     // Idealized port pressure.
     OS << "<td><ul>";
-    for (const auto &Pressure : computeIdealizedProcResPressure(SM, ProcRes)) {
+    for (const auto &Pressure : SC.IdealizedProcResPressure) {
       OS << "<li><span class=\"mono\">";
       writeEscaped<kEscapeHtml>(OS, SubtargetInfo_->getSchedModel()
                                         .getProcResource(Pressure.first)
@@ -401,11 +548,20 @@ table.sched-class-desc td {
 span.mono {
   font-family: monospace;
 }
-span.minmax {
-  color: #888;
-}
 td.measurement {
   text-align: center;
+}
+tr.good-cluster td.measurement {
+  color: #292
+}
+tr.bad-cluster td.measurement {
+  color: #922
+}
+tr.good-cluster td.measurement span.minmax {
+  color: #888;
+}
+tr.bad-cluster td.measurement span.minmax {
+  color: #888;
 }
 </style>
 </head>
@@ -414,46 +570,65 @@ td.measurement {
 template <>
 llvm::Error Analysis::run<Analysis::PrintSchedClassInconsistencies>(
     llvm::raw_ostream &OS) const {
+  const auto &FirstPoint = Clustering_.getPoints()[0];
   // Print the header.
   OS << "<!DOCTYPE html><html>" << kHtmlHead << "<body>";
   OS << "<h1><span class=\"mono\">llvm-exegesis</span> Analysis Results</h1>";
   OS << "<h3>Triple: <span class=\"mono\">";
-  writeEscaped<kEscapeHtml>(OS, Clustering_.getPoints()[0].LLVMTriple);
+  writeEscaped<kEscapeHtml>(OS, FirstPoint.LLVMTriple);
   OS << "</span></h3><h3>Cpu: <span class=\"mono\">";
-  writeEscaped<kEscapeHtml>(OS, Clustering_.getPoints()[0].CpuName);
+  writeEscaped<kEscapeHtml>(OS, FirstPoint.CpuName);
   OS << "</span></h3>";
 
-  // All the points in a scheduling class should be in the same cluster.
-  // Print any scheduling class for which this is not the case.
   for (const auto &SchedClassAndPoints : makePointsPerSchedClass()) {
-    std::unordered_set<size_t> ClustersForSchedClass;
-    for (const size_t PointId : SchedClassAndPoints.second) {
-      const auto &ClusterId = Clustering_.getClusterIdForPoint(PointId);
-      if (!ClusterId.isValid())
-        continue; // Ignore noise and errors.
-      ClustersForSchedClass.insert(ClusterId.getId());
-    }
-    if (ClustersForSchedClass.size() <= 1)
-      continue; // Nothing weird.
-
+    const auto SchedClassId = SchedClassAndPoints.first;
+    const std::vector<size_t> &SchedClassPoints = SchedClassAndPoints.second;
     const auto &SchedModel = SubtargetInfo_->getSchedModel();
     const llvm::MCSchedClassDesc *const SCDesc =
-        SchedModel.getSchedClassDesc(SchedClassAndPoints.first);
+        SchedModel.getSchedClassDesc(SchedClassId);
     if (!SCDesc)
       continue;
+    const SchedClass SC(*SCDesc, *SubtargetInfo_);
+
+    // Bucket sched class points into sched class clusters.
+    std::vector<SchedClassCluster> SchedClassClusters;
+    for (const size_t PointId : SchedClassPoints) {
+      const auto &ClusterId = Clustering_.getClusterIdForPoint(PointId);
+      if (!ClusterId.isValid())
+        continue; // Ignore noise and errors. FIXME: take noise into account ?
+      auto SchedClassClusterIt =
+          std::find_if(SchedClassClusters.begin(), SchedClassClusters.end(),
+                       [ClusterId](const SchedClassCluster &C) {
+                         return C.id() == ClusterId;
+                       });
+      if (SchedClassClusterIt == SchedClassClusters.end()) {
+        SchedClassClusters.emplace_back();
+        SchedClassClusterIt = std::prev(SchedClassClusters.end());
+      }
+      SchedClassClusterIt->addPoint(PointId, Clustering_);
+    }
+
+    // Print any scheduling class that has at least one cluster that does not
+    // match the checked-in data.
+    if (std::all_of(SchedClassClusters.begin(), SchedClassClusters.end(),
+                    [this, &SC](const SchedClassCluster &C) {
+                      return C.measurementsMatch(*SubtargetInfo_, SC,
+                                                 Clustering_);
+                    }))
+      continue; // Nothing weird.
+
     OS << "<div class=\"inconsistency\"><p>Sched Class <span "
           "class=\"sched-class-name\">";
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
     writeEscaped<kEscapeHtml>(OS, SCDesc->Name);
 #else
-    OS << SchedClassAndPoints.first;
+    OS << SchedClassId;
 #endif
-    OS << "</span> contains instructions with distinct performance "
-          "characteristics, falling into "
-       << ClustersForSchedClass.size() << " clusters:</p>";
-    printSchedClassClustersHtml(SchedClassAndPoints.second, OS);
-    OS << "<p>llvm data:</p>";
-    printSchedClassDescHtml(*SCDesc, OS);
+    OS << "</span> contains instructions whose performance characteristics do"
+          " not match that of LLVM:</p>";
+    printSchedClassClustersHtml(SchedClassClusters, SC, OS);
+    OS << "<p>llvm SchedModel data:</p>";
+    printSchedClassDescHtml(SC, OS);
     OS << "</div>";
   }
 

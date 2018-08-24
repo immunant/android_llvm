@@ -389,9 +389,8 @@ void InstrInfoEmitter::emitMCIIHelperMethods(raw_ostream &OS) {
   for (const Record *Rec : TIIPredicates) {
     FOS << "bool " << Rec->getValueAsString("FunctionName");
     FOS << "(const MCInst &MI) {\n";
-    FOS << "  return ";
-    PE.expandPredicate(FOS, Rec->getValueAsDef("Pred"));
-    FOS << ";\n}\n";
+    PE.expandStatement(FOS, Rec->getValueAsDef("Body"));
+    FOS << "\n}\n";
   }
 
   FOS << "\n} // end " << TargetName << "_MC namespace\n";
@@ -413,9 +412,8 @@ void InstrInfoEmitter::emitTIIHelperMethods(raw_ostream &OS) {
   for (const Record *Rec : TIIPredicates) {
     FOS << "\n  static bool " << Rec->getValueAsString("FunctionName");
     FOS << "(const MachineInstr &MI) {\n";
-    FOS << "    return ";
-    PE.expandPredicate(FOS, Rec->getValueAsDef("Pred"));
-    FOS << ";\n  }\n";
+    PE.expandStatement(FOS, Rec->getValueAsDef("Body"));
+    FOS << "\n  }\n";
   }
 }
 
@@ -576,6 +574,7 @@ void InstrInfoEmitter::emitRecord(const CodeGenInstruction &Inst, unsigned Num,
   if (Inst.isMoveReg)          OS << "|(1ULL<<MCID::MoveReg)";
   if (Inst.isBitcast)          OS << "|(1ULL<<MCID::Bitcast)";
   if (Inst.isAdd)              OS << "|(1ULL<<MCID::Add)";
+  if (Inst.isTrap)             OS << "|(1ULL<<MCID::Trap)";
   if (Inst.isSelect)           OS << "|(1ULL<<MCID::Select)";
   if (Inst.isBarrier)          OS << "|(1ULL<<MCID::Barrier)";
   if (Inst.hasDelaySlot)       OS << "|(1ULL<<MCID::DelaySlot)";

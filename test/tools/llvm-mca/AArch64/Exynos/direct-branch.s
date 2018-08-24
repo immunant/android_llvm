@@ -23,10 +23,12 @@
 # ALL-NEXT: [3]: RThroughput
 # ALL-NEXT: [4]: MayLoad
 # ALL-NEXT: [5]: MayStore
-# ALL-NEXT: [6]: HasSideEffects
+# ALL-NEXT: [6]: HasSideEffects (U)
 
 # ALL:      [1]    [2]    [3]    [4]    [5]    [6]    Instructions:
-# ALL-NEXT:  1      0      -                          b	t
+
+# M1-NEXT:   1      0     0.25                        b	t
+# M3-NEXT:   1      0     0.17                        b	t
 
 # ALL:      Timeline view:
 # ALL-NEXT: Index     01
@@ -43,4 +45,3 @@
 
 # ALL:            [0]    [1]    [2]    [3]
 # ALL-NEXT: 0.     3     0.0    0.0    0.0       b	t
-

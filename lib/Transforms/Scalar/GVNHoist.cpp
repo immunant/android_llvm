@@ -48,7 +48,7 @@
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Analysis/MemorySSAUpdater.h"
 #include "llvm/Analysis/PostDominators.h"
-#include "llvm/Analysis/Utils/Local.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
@@ -534,7 +534,7 @@ private:
 
     if (NewBB == DBB && !MSSA->isLiveOnEntryDef(D))
       if (auto *UD = dyn_cast<MemoryUseOrDef>(D))
-        if (firstInBB(NewPt, UD->getMemoryInst()))
+        if (!firstInBB(UD->getMemoryInst(), NewPt))
           // Cannot move the load or store to NewPt above its definition in D.
           return false;
 

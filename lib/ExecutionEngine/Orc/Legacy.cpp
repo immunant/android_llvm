@@ -12,60 +12,38 @@
 namespace llvm {
 namespace orc {
 
+void SymbolResolver::anchor() {}
+
 JITSymbolResolverAdapter::JITSymbolResolverAdapter(
     ExecutionSession &ES, SymbolResolver &R, MaterializationResponsibility *MR)
     : ES(ES), R(R), MR(MR) {}
 
 Expected<JITSymbolResolverAdapter::LookupResult>
 JITSymbolResolverAdapter::lookup(const LookupSet &Symbols) {
-  Error Err = Error::success();
-  JITSymbolResolver::LookupResult Result;
-
   SymbolNameSet InternedSymbols;
   for (auto &S : Symbols)
     InternedSymbols.insert(ES.getSymbolStringPool().intern(S));
 
-  auto OnResolve =
-      [&, this](Expected<AsynchronousSymbolQuery::ResolutionResult> RR) {
-        if (RR) {
-          // If this lookup was attached to a MaterializationResponsibility then
-          // record the dependencies.
-          if (MR)
-            MR->addDependencies(RR->Dependencies);
+  auto LookupFn = [&, this](std::shared_ptr<AsynchronousSymbolQuery> Q,
+                            SymbolNameSet Unresolved) {
+    return R.lookup(std::move(Q), std::move(Unresolved));
+  };
 
-          for (auto &KV : RR->Symbols) {
-            ResolvedStrings.insert(KV.first);
-            Result[*KV.first] = KV.second;
-          }
-        } else
-          Err = joinErrors(std::move(Err), RR.takeError());
-      };
+  auto RegisterDependencies = [&](const SymbolDependenceMap &Deps) {
+    if (MR)
+      MR->addDependenciesForAll(Deps);
+  };
 
-  auto OnReady = [this](Error Err) { ES.reportError(std::move(Err)); };
+  auto InternedResult =
+      ES.legacyLookup(ES, std::move(LookupFn), std::move(InternedSymbols),
+                      false, RegisterDependencies);
 
-  auto Query = std::make_shared<AsynchronousSymbolQuery>(InternedSymbols,
-                                                         OnResolve, OnReady);
+  if (!InternedResult)
+    return InternedResult.takeError();
 
-  auto UnresolvedSymbols = R.lookup(Query, InternedSymbols);
-
-  if (!UnresolvedSymbols.empty()) {
-    std::string ErrorMsg = "Unresolved symbols: ";
-
-    ErrorMsg += **UnresolvedSymbols.begin();
-    for (auto I = std::next(UnresolvedSymbols.begin()),
-              E = UnresolvedSymbols.end();
-         I != E; ++I) {
-      ErrorMsg += ", ";
-      ErrorMsg += **I;
-    }
-
-    Err =
-        joinErrors(std::move(Err),
-                   make_error<StringError>(ErrorMsg, inconvertibleErrorCode()));
-  }
-
-  if (Err)
-    return std::move(Err);
+  JITSymbolResolver::LookupResult Result;
+  for (auto &KV : *InternedResult)
+    Result[*KV.first] = KV.second;
 
   return Result;
 }
@@ -76,8 +54,7 @@ JITSymbolResolverAdapter::lookupFlags(const LookupSet &Symbols) {
   for (auto &S : Symbols)
     InternedSymbols.insert(ES.getSymbolStringPool().intern(S));
 
-  SymbolFlagsMap SymbolFlags;
-  R.lookupFlags(SymbolFlags, InternedSymbols);
+  SymbolFlagsMap SymbolFlags = R.lookupFlags(InternedSymbols);
   LookupFlagsResult Result;
   for (auto &KV : SymbolFlags) {
     ResolvedStrings.insert(KV.first);

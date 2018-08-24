@@ -127,7 +127,8 @@ static void PlaceBlockMarker(
   // Decide where in Header to put the BLOCK.
   MachineBasicBlock::iterator InsertPos;
   MachineLoop *HeaderLoop = MLI.getLoopFor(Header);
-  if (HeaderLoop && MBB.getNumber() > LoopBottom(HeaderLoop)->getNumber()) {
+  if (HeaderLoop &&
+      MBB.getNumber() > WebAssembly::getBottom(HeaderLoop)->getNumber()) {
     // Header is the header of a loop that does not lexically contain MBB, so
     // the BLOCK needs to be above the LOOP, after any END constructs.
     InsertPos = Header->begin();
@@ -181,7 +182,7 @@ static void PlaceLoopMarker(
 
   // The operand of a LOOP is the first block after the loop. If the loop is the
   // bottom of the function, insert a dummy block at the end.
-  MachineBasicBlock *Bottom = LoopBottom(Loop);
+  MachineBasicBlock *Bottom = WebAssembly::getBottom(Loop);
   auto Iter = std::next(MachineFunction::iterator(Bottom));
   if (Iter == MF.end()) {
     MachineBasicBlock *Label = MF.CreateMachineBasicBlock();
@@ -252,10 +253,14 @@ static void FixEndsAtEndOfFunction(
   case MVT::i64: retType = WebAssembly::ExprType::I64; break;
   case MVT::f32: retType = WebAssembly::ExprType::F32; break;
   case MVT::f64: retType = WebAssembly::ExprType::F64; break;
-  case MVT::v16i8: retType = WebAssembly::ExprType::I8x16; break;
-  case MVT::v8i16: retType = WebAssembly::ExprType::I16x8; break;
-  case MVT::v4i32: retType = WebAssembly::ExprType::I32x4; break;
-  case MVT::v4f32: retType = WebAssembly::ExprType::F32x4; break;
+  case MVT::v16i8:
+  case MVT::v8i16:
+  case MVT::v4i32:
+  case MVT::v2i64:
+  case MVT::v4f32:
+  case MVT::v2f64:
+    retType = WebAssembly::ExprType::V128;
+    break;
   case MVT::ExceptRef: retType = WebAssembly::ExprType::ExceptRef; break;
   default: llvm_unreachable("unexpected return type");
   }
@@ -357,9 +362,7 @@ static void PlaceMarkers(MachineFunction &MF, const MachineLoopInfo &MLI,
   FixEndsAtEndOfFunction(MF, MFI, BlockTops, LoopTops);
 
   // Add an end instruction at the end of the function body.
-  if (!MF.getSubtarget<WebAssemblySubtarget>()
-        .getTargetTriple().isOSBinFormatELF())
-    AppendEndToFunction(MF, TII);
+  AppendEndToFunction(MF, TII);
 }
 
 bool WebAssemblyCFGStackify::runOnMachineFunction(MachineFunction &MF) {
