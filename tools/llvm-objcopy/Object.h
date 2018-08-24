@@ -27,7 +27,6 @@
 
 namespace llvm {
 
-class Buffer;
 class SectionBase;
 class Section;
 class OwnedDataSection;
@@ -78,7 +77,7 @@ public:
 
 class SectionWriter : public SectionVisitor {
 protected:
-  Buffer &Out;
+  FileOutputBuffer &Out;
 
 public:
   virtual ~SectionWriter(){};
@@ -92,7 +91,7 @@ public:
   virtual void visit(const GnuDebugLinkSection &Sec) override = 0;
   virtual void visit(const GroupSection &Sec) override = 0;
 
-  explicit SectionWriter(Buffer &Buf) : Out(Buf) {}
+  SectionWriter(FileOutputBuffer &Buf) : Out(Buf) {}
 };
 
 template <class ELFT> class ELFSectionWriter : public SectionWriter {
@@ -108,7 +107,7 @@ public:
   void visit(const GnuDebugLinkSection &Sec) override;
   void visit(const GroupSection &Sec) override;
 
-  explicit ELFSectionWriter(Buffer &Buf) : SectionWriter(Buf) {}
+  ELFSectionWriter(FileOutputBuffer &Buf) : SectionWriter(Buf) {}
 };
 
 #define MAKE_SEC_WRITER_FRIEND                                                 \
@@ -124,62 +123,24 @@ public:
   void visit(const GnuDebugLinkSection &Sec) override;
   void visit(const GroupSection &Sec) override;
 
-  explicit BinarySectionWriter(Buffer &Buf) : SectionWriter(Buf) {}
-};
-
-// The class Buffer abstracts out the common interface of FileOutputBuffer and
-// WritableMemoryBuffer so that the hierarchy of Writers depends on this
-// abstract interface and doesn't depend on a particular implementation.
-// TODO: refactor the buffer classes in LLVM to enable us to use them here
-// directly.
-class Buffer {
-  StringRef Name;
-
-public:
-  virtual ~Buffer();
-  virtual void allocate(size_t Size) = 0;
-  virtual uint8_t *getBufferStart() = 0;
-  virtual Error commit() = 0;
-
-  explicit Buffer(StringRef Name) : Name(Name) {}
-  StringRef getName() const { return Name; }
-};
-
-class FileBuffer : public Buffer {
-  std::unique_ptr<FileOutputBuffer> Buf;
-
-public:
-  void allocate(size_t Size) override;
-  uint8_t *getBufferStart() override;
-  Error commit() override;
-
-  explicit FileBuffer(StringRef FileName) : Buffer(FileName) {}
-};
-
-class MemBuffer : public Buffer {
-  std::unique_ptr<WritableMemoryBuffer> Buf;
-
-public:
-  void allocate(size_t Size) override;
-  uint8_t *getBufferStart() override;
-  Error commit() override;
-
-  explicit MemBuffer(StringRef Name) : Buffer(Name) {}
-
-  std::unique_ptr<WritableMemoryBuffer> releaseMemoryBuffer();
+  BinarySectionWriter(FileOutputBuffer &Buf) : SectionWriter(Buf) {}
 };
 
 class Writer {
 protected:
+  StringRef File;
   Object &Obj;
-  Buffer &Buf;
+  std::unique_ptr<FileOutputBuffer> BufPtr;
+
+  void createBuffer(uint64_t Size);
 
 public:
   virtual ~Writer();
+
   virtual void finalize() = 0;
   virtual void write() = 0;
 
-  Writer(Object &O, Buffer &B) : Obj(O), Buf(B) {}
+  Writer(StringRef File, Object &Obj) : File(File), Obj(Obj) {}
 };
 
 template <class ELFT> class ELFWriter : public Writer {
@@ -208,8 +169,8 @@ public:
 
   void finalize() override;
   void write() override;
-  ELFWriter(Object &Obj, Buffer &Buf, bool WSH)
-      : Writer(Obj, Buf), WriteSectionHeaders(WSH) {}
+  ELFWriter(StringRef File, Object &Obj, bool WSH)
+      : Writer(File, Obj), WriteSectionHeaders(WSH) {}
 };
 
 class BinaryWriter : public Writer {
@@ -222,7 +183,7 @@ public:
   ~BinaryWriter() {}
   void finalize() override;
   void write() override;
-  BinaryWriter(Object &Obj, Buffer &Buf) : Writer(Obj, Buf) {}
+  BinaryWriter(StringRef File, Object &Obj) : Writer(File, Obj) {}
 };
 
 class SectionBase {
@@ -608,12 +569,14 @@ public:
 };
 
 class ELFReader : public Reader {
-  Binary *Bin;
+private:
+  std::unique_ptr<Binary> Bin;
+  std::shared_ptr<MemoryBuffer> Data;
 
 public:
   ElfType getElfType() const;
   std::unique_ptr<Object> create() const override;
-  explicit ELFReader(Binary *B) : Bin(B){};
+  ELFReader(StringRef File);
 };
 
 class Object {
@@ -621,6 +584,7 @@ private:
   using SecPtr = std::unique_ptr<SectionBase>;
   using SegPtr = std::unique_ptr<Segment>;
 
+  std::shared_ptr<MemoryBuffer> OwnedData;
   std::vector<SecPtr> Sections;
   std::vector<SegPtr> Segments;
 
@@ -652,6 +616,10 @@ public:
 
   StringTableSection *SectionNames = nullptr;
   SymbolTableSection *SymbolTable = nullptr;
+
+  explicit Object(std::shared_ptr<MemoryBuffer> Data)
+      : OwnedData(std::move(Data)) {}
+  virtual ~Object() = default;
 
   void sortSections();
   SectionTableRef sections() { return SectionTableRef(Sections); }

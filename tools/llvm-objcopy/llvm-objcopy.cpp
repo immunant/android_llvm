@@ -13,8 +13,6 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/BinaryFormat/ELF.h"
-#include "llvm/Object/Archive.h"
-#include "llvm/Object/ArchiveWriter.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/ELFTypes.h"
@@ -193,23 +191,23 @@ bool OnlyKeepDWOPred(const Object &Obj, const SectionBase &Sec) {
 }
 
 std::unique_ptr<Writer> CreateWriter(const CopyConfig &Config, Object &Obj,
-                                     Buffer &Buf, ElfType OutputElfType) {
+                                     StringRef File, ElfType OutputElfType) {
   if (Config.OutputFormat == "binary") {
-    return llvm::make_unique<BinaryWriter>(Obj, Buf);
+    return llvm::make_unique<BinaryWriter>(File, Obj);
   }
   // Depending on the initial ELFT and OutputFormat we need a different Writer.
   switch (OutputElfType) {
   case ELFT_ELF32LE:
-    return llvm::make_unique<ELFWriter<ELF32LE>>(Obj, Buf,
+    return llvm::make_unique<ELFWriter<ELF32LE>>(File, Obj,
                                                  !Config.StripSections);
   case ELFT_ELF64LE:
-    return llvm::make_unique<ELFWriter<ELF64LE>>(Obj, Buf,
+    return llvm::make_unique<ELFWriter<ELF64LE>>(File, Obj,
                                                  !Config.StripSections);
   case ELFT_ELF32BE:
-    return llvm::make_unique<ELFWriter<ELF32BE>>(Obj, Buf,
+    return llvm::make_unique<ELFWriter<ELF32BE>>(File, Obj,
                                                  !Config.StripSections);
   case ELFT_ELF64BE:
-    return llvm::make_unique<ELFWriter<ELF64BE>>(Obj, Buf,
+    return llvm::make_unique<ELFWriter<ELF64BE>>(File, Obj,
                                                  !Config.StripSections);
   }
   llvm_unreachable("Invalid output format");
@@ -220,8 +218,7 @@ void SplitDWOToFile(const CopyConfig &Config, const Reader &Reader,
   auto DWOFile = Reader.create();
   DWOFile->removeSections(
       [&](const SectionBase &Sec) { return OnlyKeepDWOPred(*DWOFile, Sec); });
-  FileBuffer FB(File);
-  auto Writer = CreateWriter(Config, *DWOFile, FB, OutputElfType);
+  auto Writer = CreateWriter(Config, *DWOFile, File, OutputElfType);
   Writer->finalize();
   Writer->write();
 }
@@ -389,8 +386,7 @@ void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
       // Keep special sections.
       if (Obj.SectionNames == &Sec)
         return false;
-      if (Obj.SymbolTable == &Sec ||
-          (Obj.SymbolTable && Obj.SymbolTable->getStrTab() == &Sec))
+      if (Obj.SymbolTable == &Sec || Obj.SymbolTable->getStrTab() == &Sec)
         return false;
 
       // Remove everything else.
@@ -415,7 +411,7 @@ void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
   // (equivalently, the updated symbol table is not empty)
   // the symbol table and the string table should not be removed.
   if ((!Config.SymbolsToKeep.empty() || Config.KeepFileSymbols) &&
-      Obj.SymbolTable && !Obj.SymbolTable->empty()) {
+      !Obj.SymbolTable->empty()) {
     RemovePred = [&Obj, RemovePred](const SectionBase &Sec) {
       if (&Sec == Obj.SymbolTable || &Sec == Obj.SymbolTable->getStrTab())
         return false;
@@ -445,89 +441,24 @@ void HandleArgs(const CopyConfig &Config, Object &Obj, const Reader &Reader,
     Obj.addSection<GnuDebugLinkSection>(Config.AddGnuDebugLink);
 }
 
-void ExecuteElfObjcopyOnBinary(const CopyConfig &Config, Binary &Binary,
-                               Buffer &Out) {
-  ELFReader Reader(&Binary);
-  std::unique_ptr<Object> Obj = Reader.create();
-
-  HandleArgs(Config, *Obj, Reader, Reader.getElfType());
-
-  std::unique_ptr<Writer> Writer =
-      CreateWriter(Config, *Obj, Out, Reader.getElfType());
-  Writer->finalize();
-  Writer->write();
-}
-
-// For regular archives this function simply calls llvm::writeArchive,
-// For thin archives it writes the archive file itself as well as its members.
-Error deepWriteArchive(StringRef ArcName, ArrayRef<NewArchiveMember> NewMembers,
-                       bool WriteSymtab, object::Archive::Kind Kind,
-                       bool Deterministic, bool Thin) {
-  Error E =
-      writeArchive(ArcName, NewMembers, WriteSymtab, Kind, Deterministic, Thin);
-  if (!Thin || E)
-    return E;
-  for (const NewArchiveMember &Member : NewMembers) {
-    // Internally, FileBuffer will use the buffer created by
-    // FileOutputBuffer::create, for regular files (that is the case for
-    // deepWriteArchive) FileOutputBuffer::create will return OnDiskBuffer.
-    // OnDiskBuffer uses a temporary file and then renames it. So in reality
-    // there is no inefficiency / duplicated in-memory buffers in this case. For
-    // now in-memory buffers can not be completely avoided since
-    // NewArchiveMember still requires them even though writeArchive does not
-    // write them on disk.
-    FileBuffer FB(Member.MemberName);
-    FB.allocate(Member.Buf->getBufferSize());
-    std::copy(Member.Buf->getBufferStart(), Member.Buf->getBufferEnd(),
-              FB.getBufferStart());
-    if (auto E = FB.commit())
-      return E;
-  }
-  return Error::success();
-}
-
-void ExecuteElfObjcopyOnArchive(const CopyConfig &Config, const Archive &Ar) {
-  std::vector<NewArchiveMember> NewArchiveMembers;
-  Error Err = Error::success();
-  for (const Archive::Child &Child : Ar.children(Err)) {
-    Expected<std::unique_ptr<Binary>> ChildOrErr = Child.getAsBinary();
-    if (!ChildOrErr)
-      reportError(Ar.getFileName(), ChildOrErr.takeError());
-    Expected<StringRef> ChildNameOrErr = Child.getName();
-    if (!ChildNameOrErr)
-      reportError(Ar.getFileName(), ChildNameOrErr.takeError());
-
-    MemBuffer MB(ChildNameOrErr.get());
-    ExecuteElfObjcopyOnBinary(Config, **ChildOrErr, MB);
-
-    Expected<NewArchiveMember> Member =
-        NewArchiveMember::getOldMember(Child, true);
-    if (!Member)
-      reportError(Ar.getFileName(), Member.takeError());
-    Member->Buf = MB.releaseMemoryBuffer();
-    Member->MemberName = Member->Buf->getBufferIdentifier();
-    NewArchiveMembers.push_back(std::move(*Member));
-  }
-
-  if (Err)
-    reportError(Config.InputFilename, std::move(Err));
-  if (Error E =
-          deepWriteArchive(Config.OutputFilename, NewArchiveMembers,
-                           Ar.hasSymbolTable(), Ar.kind(), true, Ar.isThin()))
-    reportError(Config.OutputFilename, std::move(E));
+std::unique_ptr<Reader> CreateReader(StringRef InputFilename,
+                                     ElfType &OutputElfType) {
+  // Right now we can only read ELF files so there's only one reader;
+  auto Out = llvm::make_unique<ELFReader>(InputFilename);
+  // We need to set the default ElfType for output.
+  OutputElfType = Out->getElfType();
+  return std::move(Out);
 }
 
 void ExecuteElfObjcopy(const CopyConfig &Config) {
-  Expected<OwningBinary<llvm::object::Binary>> BinaryOrErr =
-      createBinary(Config.InputFilename);
-  if (!BinaryOrErr)
-    reportError(Config.InputFilename, BinaryOrErr.takeError());
-
-  if (Archive *Ar = dyn_cast<Archive>(BinaryOrErr.get().getBinary()))
-    return ExecuteElfObjcopyOnArchive(Config, *Ar);
-
-  FileBuffer FB(Config.OutputFilename);
-  ExecuteElfObjcopyOnBinary(Config, *BinaryOrErr.get().getBinary(), FB);
+  ElfType OutputElfType;
+  auto Reader = CreateReader(Config.InputFilename, OutputElfType);
+  auto Obj = Reader->create();
+  auto Writer =
+      CreateWriter(Config, *Obj, Config.OutputFilename, OutputElfType);
+  HandleArgs(Config, *Obj, *Reader, OutputElfType);
+  Writer->finalize();
+  Writer->write();
 }
 
 // ParseObjcopyOptions returns the config and sets the input arguments. If a
@@ -652,13 +583,9 @@ CopyConfig ParseStripOptions(ArrayRef<const char *> ArgsArr) {
   Config.OutputFilename =
       InputArgs.getLastArgValue(STRIP_output, Positional[0]);
 
+  // Strip debug info only.
   Config.StripDebug = InputArgs.hasArg(STRIP_strip_debug);
-
-  Config.DiscardAll = InputArgs.hasArg(STRIP_discard_all);
-  Config.StripUnneeded = InputArgs.hasArg(STRIP_strip_unneeded);
-  Config.StripAll = InputArgs.hasArg(STRIP_strip_all);
-
-  if (!Config.StripDebug && !Config.StripUnneeded && !Config.DiscardAll)
+  if (!Config.StripDebug)
     Config.StripAll = true;
 
   for (auto Arg : InputArgs.filtered(STRIP_remove_section))

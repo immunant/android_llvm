@@ -30,43 +30,12 @@ using namespace llvm;
 using namespace object;
 using namespace ELF;
 
-Buffer::~Buffer() {}
-
-void FileBuffer::allocate(size_t Size) {
-  Expected<std::unique_ptr<FileOutputBuffer>> BufferOrErr =
-      FileOutputBuffer::create(getName(), Size, FileOutputBuffer::F_executable);
-  handleAllErrors(BufferOrErr.takeError(), [this](const ErrorInfoBase &E) {
-    error("failed to open " + getName() + ": " + E.message());
-  });
-  Buf = std::move(*BufferOrErr);
-}
-
-Error FileBuffer::commit() { return Buf->commit(); }
-
-uint8_t *FileBuffer::getBufferStart() {
-  return reinterpret_cast<uint8_t *>(Buf->getBufferStart());
-}
-
-void MemBuffer::allocate(size_t Size) {
-  Buf = WritableMemoryBuffer::getNewMemBuffer(Size, getName());
-}
-
-Error MemBuffer::commit() { return Error::success(); }
-
-uint8_t *MemBuffer::getBufferStart() {
-  return reinterpret_cast<uint8_t *>(Buf->getBufferStart());
-}
-
-std::unique_ptr<WritableMemoryBuffer> MemBuffer::releaseMemoryBuffer() {
-  return std::move(Buf);
-}
-
 template <class ELFT> void ELFWriter<ELFT>::writePhdr(const Segment &Seg) {
   using Elf_Phdr = typename ELFT::Phdr;
 
-  uint8_t *B = Buf.getBufferStart();
-  B += Obj.ProgramHdrSegment.Offset + Seg.Index * sizeof(Elf_Phdr);
-  Elf_Phdr &Phdr = *reinterpret_cast<Elf_Phdr *>(B);
+  uint8_t *Buf = BufPtr->getBufferStart();
+  Buf += Obj.ProgramHdrSegment.Offset + Seg.Index * sizeof(Elf_Phdr);
+  Elf_Phdr &Phdr = *reinterpret_cast<Elf_Phdr *>(Buf);
   Phdr.p_type = Seg.Type;
   Phdr.p_flags = Seg.Flags;
   Phdr.p_offset = Seg.Offset;
@@ -84,9 +53,9 @@ void SectionBase::finalize() {}
 void SectionBase::markSymbols() {}
 
 template <class ELFT> void ELFWriter<ELFT>::writeShdr(const SectionBase &Sec) {
-  uint8_t *B = Buf.getBufferStart();
-  B += Sec.HeaderOffset;
-  typename ELFT::Shdr &Shdr = *reinterpret_cast<typename ELFT::Shdr *>(B);
+  uint8_t *Buf = BufPtr->getBufferStart();
+  Buf += Sec.HeaderOffset;
+  typename ELFT::Shdr &Shdr = *reinterpret_cast<typename ELFT::Shdr *>(Buf);
   Shdr.sh_name = Sec.NameIndex;
   Shdr.sh_type = Sec.Type;
   Shdr.sh_flags = Sec.Flags;
@@ -441,7 +410,9 @@ void Section::initialize(SectionTableRef SecTable) {
   }
 }
 
-void Section::finalize() { this->Link = LinkSection ? LinkSection->Index : 0; }
+void Section::finalize() {
+  this->Link = LinkSection ? LinkSection->Index : 0;
+}
 
 void GnuDebugLinkSection::init(StringRef File, StringRef Data) {
   FileName = sys::path::filename(File);
@@ -843,33 +814,41 @@ Writer::~Writer() {}
 
 Reader::~Reader() {}
 
+ELFReader::ELFReader(StringRef File) {
+  auto BinaryOrErr = createBinary(File);
+  if (!BinaryOrErr)
+    reportError(File, BinaryOrErr.takeError());
+  auto OwnedBin = std::move(BinaryOrErr.get());
+  std::tie(Bin, Data) = OwnedBin.takeBinary();
+}
+
 ElfType ELFReader::getElfType() const {
-  if (isa<ELFObjectFile<ELF32LE>>(Bin))
+  if (isa<ELFObjectFile<ELF32LE>>(Bin.get()))
     return ELFT_ELF32LE;
-  if (isa<ELFObjectFile<ELF64LE>>(Bin))
+  if (isa<ELFObjectFile<ELF64LE>>(Bin.get()))
     return ELFT_ELF64LE;
-  if (isa<ELFObjectFile<ELF32BE>>(Bin))
+  if (isa<ELFObjectFile<ELF32BE>>(Bin.get()))
     return ELFT_ELF32BE;
-  if (isa<ELFObjectFile<ELF64BE>>(Bin))
+  if (isa<ELFObjectFile<ELF64BE>>(Bin.get()))
     return ELFT_ELF64BE;
   llvm_unreachable("Invalid ELFType");
 }
 
 std::unique_ptr<Object> ELFReader::create() const {
-  auto Obj = llvm::make_unique<Object>();
-  if (auto *o = dyn_cast<ELFObjectFile<ELF32LE>>(Bin)) {
+  auto Obj = llvm::make_unique<Object>(Data);
+  if (auto *o = dyn_cast<ELFObjectFile<ELF32LE>>(Bin.get())) {
     ELFBuilder<ELF32LE> Builder(*o, *Obj);
     Builder.build();
     return Obj;
-  } else if (auto *o = dyn_cast<ELFObjectFile<ELF64LE>>(Bin)) {
+  } else if (auto *o = dyn_cast<ELFObjectFile<ELF64LE>>(Bin.get())) {
     ELFBuilder<ELF64LE> Builder(*o, *Obj);
     Builder.build();
     return Obj;
-  } else if (auto *o = dyn_cast<ELFObjectFile<ELF32BE>>(Bin)) {
+  } else if (auto *o = dyn_cast<ELFObjectFile<ELF32BE>>(Bin.get())) {
     ELFBuilder<ELF32BE> Builder(*o, *Obj);
     Builder.build();
     return Obj;
-  } else if (auto *o = dyn_cast<ELFObjectFile<ELF64BE>>(Bin)) {
+  } else if (auto *o = dyn_cast<ELFObjectFile<ELF64BE>>(Bin.get())) {
     ELFBuilder<ELF64BE> Builder(*o, *Obj);
     Builder.build();
     return Obj;
@@ -878,8 +857,8 @@ std::unique_ptr<Object> ELFReader::create() const {
 }
 
 template <class ELFT> void ELFWriter<ELFT>::writeEhdr() {
-  uint8_t *B = Buf.getBufferStart();
-  Elf_Ehdr &Ehdr = *reinterpret_cast<Elf_Ehdr *>(B);
+  uint8_t *Buf = BufPtr->getBufferStart();
+  Elf_Ehdr &Ehdr = *reinterpret_cast<Elf_Ehdr *>(Buf);
   std::copy(Obj.Ident, Obj.Ident + 16, Ehdr.e_ident);
   Ehdr.e_type = Obj.Type;
   Ehdr.e_machine = Obj.Machine;
@@ -908,10 +887,10 @@ template <class ELFT> void ELFWriter<ELFT>::writePhdrs() {
 }
 
 template <class ELFT> void ELFWriter<ELFT>::writeShdrs() {
-  uint8_t *B = Buf.getBufferStart() + Obj.SHOffset;
+  uint8_t *Buf = BufPtr->getBufferStart() + Obj.SHOffset;
   // This reference serves to write the dummy section header at the begining
   // of the file. It is not used for anything else
-  Elf_Shdr &Shdr = *reinterpret_cast<Elf_Shdr *>(B);
+  Elf_Shdr &Shdr = *reinterpret_cast<Elf_Shdr *>(Buf);
   Shdr.sh_name = 0;
   Shdr.sh_type = SHT_NULL;
   Shdr.sh_flags = 0;
@@ -1097,8 +1076,17 @@ template <class ELFT> void ELFWriter<ELFT>::write() {
   writeSectionData();
   if (WriteSectionHeaders)
     writeShdrs();
-  if (auto E = Buf.commit())
-    reportError(Buf.getName(), errorToErrorCode(std::move(E)));
+  if (auto E = BufPtr->commit())
+    reportError(File, errorToErrorCode(std::move(E)));
+}
+
+void Writer::createBuffer(uint64_t Size) {
+  auto BufferOrErr =
+      FileOutputBuffer::create(File, Size, FileOutputBuffer::F_executable);
+  handleAllErrors(BufferOrErr.takeError(), [this](const ErrorInfoBase &) {
+    error("failed to open " + File);
+  });
+  BufPtr = std::move(*BufferOrErr);
 }
 
 template <class ELFT> void ELFWriter<ELFT>::finalize() {
@@ -1135,8 +1123,8 @@ template <class ELFT> void ELFWriter<ELFT>::finalize() {
     Section.finalize();
   }
 
-  Buf.allocate(totalSize());
-  SecWriter = llvm::make_unique<ELFSectionWriter<ELFT>>(Buf);
+  createBuffer(totalSize());
+  SecWriter = llvm::make_unique<ELFSectionWriter<ELFT>>(*BufPtr);
 }
 
 void BinaryWriter::write() {
@@ -1145,8 +1133,8 @@ void BinaryWriter::write() {
       continue;
     Section.accept(*SecWriter);
   }
-  if (auto E = Buf.commit())
-    reportError(Buf.getName(), errorToErrorCode(std::move(E)));
+  if (auto E = BufPtr->commit())
+    reportError(File, errorToErrorCode(std::move(E)));
 }
 
 void BinaryWriter::finalize() {
@@ -1228,8 +1216,8 @@ void BinaryWriter::finalize() {
       TotalSize = std::max(TotalSize, Section->Offset + Section->Size);
   }
 
-  Buf.allocate(TotalSize);
-  SecWriter = llvm::make_unique<BinarySectionWriter>(Buf);
+  createBuffer(TotalSize);
+  SecWriter = llvm::make_unique<BinarySectionWriter>(*BufPtr);
 }
 
 namespace llvm {
