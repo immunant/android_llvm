@@ -3103,6 +3103,9 @@ SDValue AArch64TargetLowering::LowerFormalArguments(
   // much is there while considering tail calls (because we can reuse it).
   FuncInfo->setBytesInStackArgArea(StackArgSize);
 
+  if (Subtarget->hasCustomCallingConv())
+    Subtarget->getRegisterInfo()->UpdateCustomCalleeSavedRegs(MF);
+
   return Chain;
 }
 
@@ -3333,6 +3336,10 @@ bool AArch64TargetLowering::isEligibleForTailCallOptimization(
   const uint32_t *CallerPreserved = TRI->getCallPreservedMask(MF, CallerCC);
   if (!CCMatch) {
     const uint32_t *CalleePreserved = TRI->getCallPreservedMask(MF, CalleeCC);
+    if (Subtarget->hasCustomCallingConv()) {
+      TRI->UpdateCustomCallPreservedMask(MF, &CallerPreserved);
+      TRI->UpdateCustomCallPreservedMask(MF, &CalleePreserved);
+    }
     if (!TRI->regmaskSubsetEqual(CallerPreserved, CalleePreserved))
       return false;
   }
@@ -3726,6 +3733,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   } else
     Mask = TRI->getCallPreservedMask(MF, CallConv);
 
+  if (Subtarget->hasCustomCallingConv())
+    TRI->UpdateCustomCallPreservedMask(MF, &Mask);
+
   if (TRI->isAnyArgRegReserved(MF))
     TRI->emitReservedArgRegCallError(MF);
 
@@ -4007,8 +4017,10 @@ AArch64TargetLowering::LowerDarwinGlobalTLSAddress(SDValue Op,
   // TLS calls preserve all registers except those that absolutely must be
   // trashed: X0 (it takes an argument), LR (it's a call) and NZCV (let's not be
   // silly).
-  const uint32_t *Mask =
-      Subtarget->getRegisterInfo()->getTLSCallPreservedMask();
+  const AArch64RegisterInfo *TRI = Subtarget->getRegisterInfo();
+  const uint32_t *Mask = TRI->getTLSCallPreservedMask();
+  if (Subtarget->hasCustomCallingConv())
+    TRI->UpdateCustomCallPreservedMask(DAG.getMachineFunction(), &Mask);
 
   // Finally, we can make the call. This is just a degenerate version of a
   // normal AArch64 call node: x0 takes the address of the descriptor, and
@@ -7726,8 +7738,10 @@ SDValue AArch64TargetLowering::LowerWindowsDYNAMIC_STACKALLOC(
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   SDValue Callee = DAG.getTargetExternalSymbol("__chkstk", PtrVT, 0);
 
-  const uint32_t *Mask =
-      Subtarget->getRegisterInfo()->getWindowsStackProbePreservedMask();
+  const AArch64RegisterInfo *TRI = Subtarget->getRegisterInfo();
+  const uint32_t *Mask = TRI->getWindowsStackProbePreservedMask();
+  if (Subtarget->hasCustomCallingConv())
+    TRI->UpdateCustomCallPreservedMask(DAG.getMachineFunction(), &Mask);
 
   Size = DAG.getNode(ISD::SRL, dl, MVT::i64, Size,
                      DAG.getConstant(4, dl, MVT::i64));
