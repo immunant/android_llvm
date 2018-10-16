@@ -96,14 +96,13 @@ def FeatureStrictAlign : SubtargetFeature<"strict-align",
                                           "Disallow all unaligned memory "
                                           "access">;
 
-foreach i = {1-7,18,20} in
-    def FeatureReserveX#i : SubtargetFeature<"reserve-x"#i, "ReserveXRegister["#i#"]", "true",
-                                             "Reserve X"#i#", making it unavailable "
-                                             "as a GPR">;
+def FeatureReserveX18 : SubtargetFeature<"reserve-x18", "ReserveX18", "true",
+                                         "Reserve X18, making it unavailable "
+                                         "as a GPR">;
 
-foreach i = {8-15,18} in
-    def FeatureCallSavedX#i : SubtargetFeature<"call-saved-x"#i,
-         "CustomCallSavedXRegs["#i#"]", "true", "Make X"#i#" callee saved.">;
+def FeatureReserveX20 : SubtargetFeature<"reserve-x20", "ReserveX20", "true",
+                                         "Reserve X20, making it unavailable "
+                                         "as a GPR">;
 
 def FeatureUseAA : SubtargetFeature<"use-aa", "UseAA", "true",
                                     "Use alias analysis during codegen">;

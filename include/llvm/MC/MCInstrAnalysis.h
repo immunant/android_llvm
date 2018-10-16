@@ -23,7 +23,6 @@
 namespace llvm {
 
 class MCRegisterInfo;
-class Triple;
 
 class MCInstrAnalysis {
 protected:
@@ -106,13 +105,6 @@ public:
   virtual bool
   evaluateBranch(const MCInst &Inst, uint64_t Addr, uint64_t Size,
                  uint64_t &Target) const;
-
-  /// Returns (PLT virtual address, GOT virtual address) pairs for PLT entries.
-  virtual std::vector<std::pair<uint64_t, uint64_t>>
-  findPltEntries(uint64_t PltSectionVA, ArrayRef<uint8_t> PltContents,
-                 uint64_t GotPltSectionVA, const Triple &TargetTriple) const {
-    return {};
-  }
 };
 
 } // end namespace llvm

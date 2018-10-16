@@ -127,11 +127,6 @@ static cl::opt<unsigned long long> ClMappingOffset(
     cl::desc("HWASan shadow mapping offset [EXPERIMENTAL]"), cl::Hidden,
     cl::init(0));
 
-static cl::opt<bool>
-    ClWithIfunc("hwasan-with-ifunc",
-                cl::desc("Access dynamic shadow through an ifunc global on "
-                         "platforms that support this"),
-                cl::Hidden, cl::init(false));
 namespace {
 
 /// An instrumentation pass implementing detection of addressability bugs
@@ -199,7 +194,6 @@ private:
   ShadowMapping Mapping;
 
   Type *IntptrTy;
-  Type *Int8PtrTy;
   Type *Int8Ty;
 
   bool CompileKernel;
@@ -251,7 +245,6 @@ bool HWAddressSanitizer::doInitialization(Module &M) {
   C = &(M.getContext());
   IRBuilder<> IRB(*C);
   IntptrTy = IRB.getIntPtrTy(DL);
-  Int8PtrTy = IRB.getInt8PtrTy();
   Int8Ty = IRB.getInt8Ty();
 
   HwasanCtorFunction = nullptr;
@@ -288,7 +281,7 @@ void HWAddressSanitizer::initializeCallbacks(Module &M) {
   }
 
   HwasanTagMemoryFunc = checkSanitizerInterfaceFunction(M.getOrInsertFunction(
-      "__hwasan_tag_memory", IRB.getVoidTy(), Int8PtrTy, Int8Ty, IntptrTy));
+      "__hwasan_tag_memory", IRB.getVoidTy(), IntptrTy, Int8Ty, IntptrTy));
   HwasanGenerateTagFunc = checkSanitizerInterfaceFunction(
       M.getOrInsertFunction("__hwasan_generate_tag", Int8Ty));
 
@@ -428,7 +421,8 @@ void HWAddressSanitizer::instrumentMemAccessInline(Value *PtrLong, bool IsWrite,
                                   IRB.getInt8Ty());
   Value *AddrLong = untagPointer(IRB, PtrLong);
   Value *ShadowLong = memToShadow(AddrLong, PtrLong->getType(), IRB);
-  Value *MemTag = IRB.CreateLoad(IRB.CreateIntToPtr(ShadowLong, Int8PtrTy));
+  Value *MemTag =
+      IRB.CreateLoad(IRB.CreateIntToPtr(ShadowLong, IRB.getInt8PtrTy()));
   Value *TagMismatch = IRB.CreateICmpNE(PtrTag, MemTag);
 
   int matchAllTag = ClMatchAllTag.getNumOccurrences() > 0 ?
@@ -527,13 +521,13 @@ bool HWAddressSanitizer::tagAlloca(IRBuilder<> &IRB, AllocaInst *AI,
   Value *JustTag = IRB.CreateTrunc(Tag, IRB.getInt8Ty());
   if (ClInstrumentWithCalls) {
     IRB.CreateCall(HwasanTagMemoryFunc,
-                   {IRB.CreatePointerCast(AI, Int8PtrTy), JustTag,
+                   {IRB.CreatePointerCast(AI, IntptrTy), JustTag,
                     ConstantInt::get(IntptrTy, Size)});
   } else {
     size_t ShadowSize = Size >> Mapping.Scale;
     Value *ShadowPtr = IRB.CreateIntToPtr(
         memToShadow(IRB.CreatePointerCast(AI, IntptrTy), AI->getType(), IRB),
-        Int8PtrTy);
+        IRB.getInt8PtrTy());
     // If this memset is not inlined, it will be intercepted in the hwasan
     // runtime library. That's OK, because the interceptor skips the checks if
     // the address is in the shadow region.
@@ -757,21 +751,13 @@ void HWAddressSanitizer::ShadowMapping::init(Triple &TargetTriple) {
       IsAndroid && !TargetTriple.isAndroidVersionLT(21);
 
   Scale = kDefaultShadowScale;
-  const bool WithIfunc = ClWithIfunc.getNumOccurrences() > 0
-                             ? ClWithIfunc
-                             : IsAndroidWithIfuncSupport;
 
-  if (ClMappingOffset.getNumOccurrences() > 0) {
-    InGlobal = false;
-    Offset = ClMappingOffset;
-  } else if (ClEnableKhwasan || ClInstrumentWithCalls) {
-    InGlobal = false;
+  if (ClEnableKhwasan || ClInstrumentWithCalls || !IsAndroidWithIfuncSupport)
     Offset = 0;
-  } else if (WithIfunc) {
-    InGlobal = true;
+  else
     Offset = kDynamicShadowSentinel;
-  } else {
-    InGlobal = false;
-    Offset = kDynamicShadowSentinel;
-  }
+  if (ClMappingOffset.getNumOccurrences() > 0)
+    Offset = ClMappingOffset;
+
+  InGlobal = IsAndroidWithIfuncSupport;
 }

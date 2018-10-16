@@ -86,8 +86,6 @@ public:
   void setARMSubArch(Triple &TheTriple) const override;
 
   virtual uint16_t getEType() const = 0;
-
-  std::vector<std::pair<DataRefImpl, uint64_t>> getPltAddresses() const;
 };
 
 class ELFSectionRef : public SectionRef {

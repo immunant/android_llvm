@@ -2918,9 +2918,6 @@ bool AArch64FastISel::fastLowerArguments() {
   if (CC != CallingConv::C && CC != CallingConv::Swift)
     return false;
 
-  if (Subtarget->hasCustomCallingConv())
-    return false;
-
   // Only handle simple cases of up to 8 GPR and FPR each.
   unsigned GPRCnt = 0;
   unsigned FPRCnt = 0;
@@ -3210,10 +3207,6 @@ bool AArch64FastISel::fastLowerCall(CallLoweringInfo &CLI) {
   unsigned NumBytes;
   if (!processCallArgs(CLI, OutVTs, NumBytes))
     return false;
-
-  const AArch64RegisterInfo *RegInfo = Subtarget->getRegisterInfo();
-  if (RegInfo->isAnyArgRegReserved(*MF))
-    RegInfo->emitReservedArgRegCallError(*MF);
 
   // Issue the call.
   MachineInstrBuilder MIB;

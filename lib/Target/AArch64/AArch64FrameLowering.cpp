@@ -330,7 +330,7 @@ static unsigned findScratchNonCalleeSaveRegister(MachineBasicBlock *MBB) {
   LiveRegs.addLiveIns(*MBB);
 
   // Mark callee saved registers as used so we will not choose them.
-  const MCPhysReg *CSRegs = MF->getRegInfo().getCalleeSavedRegs();
+  const MCPhysReg *CSRegs = TRI.getCalleeSavedRegs(MF);
   for (unsigned i = 0; CSRegs[i]; ++i)
     LiveRegs.addReg(CSRegs[i]);
 
@@ -1193,7 +1193,7 @@ static void computeCalleeSaveRegisterPairs(
     // we also need to save lr in the shadow call stack.
     if ((RPI.Reg1 == AArch64::LR || RPI.Reg2 == AArch64::LR) &&
         MF.getFunction().hasFnAttribute(Attribute::ShadowCallStack)) {
-      if (!MF.getSubtarget<AArch64Subtarget>().isXRegisterReserved(18))
+      if (!MF.getSubtarget<AArch64Subtarget>().isX18Reserved())
         report_fatal_error("Must reserve x18 to use shadow call stack");
       NeedShadowCallStackProlog = true;
     }
@@ -1406,7 +1406,7 @@ void AArch64FrameLowering::determineCalleeSaves(MachineFunction &MF,
   unsigned UnspilledCSGPRPaired = AArch64::NoRegister;
 
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  const MCPhysReg *CSRegs = MF.getRegInfo().getCalleeSavedRegs();
+  const MCPhysReg *CSRegs = RegInfo->getCalleeSavedRegs(&MF);
 
   unsigned BasePointerReg = RegInfo->hasBasePointer(MF)
                                 ? RegInfo->getBaseRegister()

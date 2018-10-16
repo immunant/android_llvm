@@ -3103,9 +3103,6 @@ SDValue AArch64TargetLowering::LowerFormalArguments(
   // much is there while considering tail calls (because we can reuse it).
   FuncInfo->setBytesInStackArgArea(StackArgSize);
 
-  if (Subtarget->hasCustomCallingConv())
-    Subtarget->getRegisterInfo()->UpdateCustomCalleeSavedRegs(MF);
-
   return Chain;
 }
 
@@ -3336,10 +3333,6 @@ bool AArch64TargetLowering::isEligibleForTailCallOptimization(
   const uint32_t *CallerPreserved = TRI->getCallPreservedMask(MF, CallerCC);
   if (!CCMatch) {
     const uint32_t *CalleePreserved = TRI->getCallPreservedMask(MF, CalleeCC);
-    if (Subtarget->hasCustomCallingConv()) {
-      TRI->UpdateCustomCallPreservedMask(MF, &CallerPreserved);
-      TRI->UpdateCustomCallPreservedMask(MF, &CalleePreserved);
-    }
     if (!TRI->regmaskSubsetEqual(CallerPreserved, CalleePreserved))
       return false;
   }
@@ -3733,12 +3726,6 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   } else
     Mask = TRI->getCallPreservedMask(MF, CallConv);
 
-  if (Subtarget->hasCustomCallingConv())
-    TRI->UpdateCustomCallPreservedMask(MF, &Mask);
-
-  if (TRI->isAnyArgRegReserved(MF))
-    TRI->emitReservedArgRegCallError(MF);
-
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(DAG.getRegisterMask(Mask));
 
@@ -4017,10 +4004,8 @@ AArch64TargetLowering::LowerDarwinGlobalTLSAddress(SDValue Op,
   // TLS calls preserve all registers except those that absolutely must be
   // trashed: X0 (it takes an argument), LR (it's a call) and NZCV (let's not be
   // silly).
-  const AArch64RegisterInfo *TRI = Subtarget->getRegisterInfo();
-  const uint32_t *Mask = TRI->getTLSCallPreservedMask();
-  if (Subtarget->hasCustomCallingConv())
-    TRI->UpdateCustomCallPreservedMask(DAG.getMachineFunction(), &Mask);
+  const uint32_t *Mask =
+      Subtarget->getRegisterInfo()->getTLSCallPreservedMask();
 
   // Finally, we can make the call. This is just a degenerate version of a
   // normal AArch64 call node: x0 takes the address of the descriptor, and
@@ -5033,43 +5018,15 @@ unsigned AArch64TargetLowering::getRegisterByName(const char* RegName, EVT VT,
                                                   SelectionDAG &DAG) const {
   unsigned Reg = StringSwitch<unsigned>(RegName)
                        .Case("sp", AArch64::SP)
-                       .Case("x1", AArch64::X1)
-                       .Case("w1", AArch64::W1)
-                       .Case("x2", AArch64::X2)
-                       .Case("w2", AArch64::W2)
-                       .Case("x3", AArch64::X3)
-                       .Case("w3", AArch64::W3)
-                       .Case("x4", AArch64::X4)
-                       .Case("w4", AArch64::W4)
-                       .Case("x5", AArch64::X5)
-                       .Case("w5", AArch64::W5)
-                       .Case("x6", AArch64::X6)
-                       .Case("w6", AArch64::W6)
-                       .Case("x7", AArch64::X7)
-                       .Case("w7", AArch64::W7)
                        .Case("x18", AArch64::X18)
                        .Case("w18", AArch64::W18)
                        .Case("x20", AArch64::X20)
                        .Case("w20", AArch64::W20)
                        .Default(0);
-  if (((Reg == AArch64::X1 || Reg == AArch64::W1) &&
-      !Subtarget->isXRegisterReserved(1)) ||
-      ((Reg == AArch64::X2 || Reg == AArch64::W2) &&
-      !Subtarget->isXRegisterReserved(2)) ||
-      ((Reg == AArch64::X3 || Reg == AArch64::W3) &&
-      !Subtarget->isXRegisterReserved(3)) ||
-      ((Reg == AArch64::X4 || Reg == AArch64::W4) &&
-      !Subtarget->isXRegisterReserved(4)) ||
-      ((Reg == AArch64::X5 || Reg == AArch64::W5) &&
-      !Subtarget->isXRegisterReserved(5)) ||
-      ((Reg == AArch64::X6 || Reg == AArch64::W6) &&
-      !Subtarget->isXRegisterReserved(6)) ||
-      ((Reg == AArch64::X7 || Reg == AArch64::W7) &&
-      !Subtarget->isXRegisterReserved(7)) ||
-      ((Reg == AArch64::X18 || Reg == AArch64::W18) &&
-      !Subtarget->isXRegisterReserved(18)) ||
+  if (((Reg == AArch64::X18 || Reg == AArch64::W18) &&
+      !Subtarget->isX18Reserved()) ||
       ((Reg == AArch64::X20 || Reg == AArch64::W20) &&
-      !Subtarget->isXRegisterReserved(20)))
+      !Subtarget->isX20Reserved()))
     Reg = 0;
   if (Reg)
     return Reg;
@@ -7738,10 +7695,8 @@ SDValue AArch64TargetLowering::LowerWindowsDYNAMIC_STACKALLOC(
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   SDValue Callee = DAG.getTargetExternalSymbol("__chkstk", PtrVT, 0);
 
-  const AArch64RegisterInfo *TRI = Subtarget->getRegisterInfo();
-  const uint32_t *Mask = TRI->getWindowsStackProbePreservedMask();
-  if (Subtarget->hasCustomCallingConv())
-    TRI->UpdateCustomCallPreservedMask(DAG.getMachineFunction(), &Mask);
+  const uint32_t *Mask =
+      Subtarget->getRegisterInfo()->getWindowsStackProbePreservedMask();
 
   Size = DAG.getNode(ISD::SRL, dl, MVT::i64, Size,
                      DAG.getConstant(4, dl, MVT::i64));

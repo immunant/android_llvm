@@ -137,11 +137,11 @@ protected:
   unsigned MaxJumpTableSize = 0;
   unsigned WideningBaseCost = 0;
 
-  // ReserveXRegister[i] - X#i is not available as a general purpose register.
-  BitVector ReserveXRegister;
+  // ReserveX18 - X18 is not available as a general purpose register.
+  bool ReserveX18;
 
-  // CustomCallUsedXRegister[i] - X#i call saved.
-  BitVector CustomCallSavedXRegs;
+  // ReserveX20 - X20 is not available as a general purpose register.
+  bool ReserveX20 = false;
 
   bool IsLittle;
 
@@ -228,12 +228,8 @@ public:
     return MinVectorRegisterBitWidth;
   }
 
-  bool isXRegisterReserved(size_t i) const { return ReserveXRegister[i]; }
-  unsigned getNumXRegisterReserved() const { return ReserveXRegister.count(); }
-  bool isXRegCustomCalleeSaved(size_t i) const {
-    return CustomCallSavedXRegs[i];
-  }
-  bool hasCustomCallingConv() const { return CustomCallSavedXRegs.any(); }
+  bool isX18Reserved() const { return ReserveX18; }
+  bool isX20Reserved() const { return ReserveX20; }
   bool hasFPARMv8() const { return HasFPARMv8; }
   bool hasNEON() const { return HasNEON; }
   bool hasCrypto() const { return HasCrypto; }
