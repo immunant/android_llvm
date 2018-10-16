@@ -765,7 +765,7 @@ void X86FrameLowering::emitStackProbeCall(MachineFunction &MF,
   bool IsLargeCodeModel = MF.getTarget().getCodeModel() == CodeModel::Large;
 
   // FIXME: Add retpoline support and remove this.
-  if (Is64Bit && IsLargeCodeModel && STI.useRetpoline())
+  if (Is64Bit && IsLargeCodeModel && STI.useRetpolineIndirectCalls())
     report_fatal_error("Emitting stack probe calls on 64-bit with the large "
                        "code model and retpoline not yet implemented.");
 
@@ -1208,6 +1208,13 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF,
   if (!IsWin64Prologue && !IsFunclet && TRI->needsStackRealignment(MF)) {
     assert(HasFP && "There should be a frame pointer if stack is realigned.");
     BuildStackAlignAND(MBB, MBBI, DL, StackPtr, MaxAlign);
+
+    if (NeedsWinCFI) {
+      HasWinCFI = true;
+      BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_StackAlign))
+          .addImm(MaxAlign)
+          .setMIFlag(MachineInstr::FrameSetup);
+    }
   }
 
   // If there is an SUB32ri of ESP immediately before this instruction, merge
@@ -1983,6 +1990,7 @@ bool X86FrameLowering::assignCalleeSavedSpillSlots(
   }
 
   X86FI->setCalleeSavedFrameSize(CalleeSavedFrameSize);
+  MFI.setCVBytesOfCalleeSavedRegisters(CalleeSavedFrameSize);
 
   // Assign slots for XMMs.
   for (unsigned i = CSI.size(); i != 0; --i) {
@@ -2437,7 +2445,7 @@ void X86FrameLowering::adjustForSegmentedStacks(
     // is laid out within 2^31 bytes of each function body, but this seems
     // to be sufficient for JIT.
     // FIXME: Add retpoline support and remove the error here..
-    if (STI.useRetpoline())
+    if (STI.useRetpolineIndirectCalls())
       report_fatal_error("Emitting morestack calls on 64-bit with the large "
                          "code model and retpoline not yet implemented.");
     BuildMI(allocMBB, DL, TII.get(X86::CALL64m))

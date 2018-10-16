@@ -2050,8 +2050,8 @@ define void @fadd_64g() {
 define void @fadd_32imm() {
 ; X64-LABEL: fadd_32imm:
 ; X64:       # %bb.0:
-; X64-NEXT:    movl $3735928559, %eax # imm = 0xDEADBEEF
 ; X64-NEXT:    movss {{.*#+}} xmm0 = mem[0],zero,zero,zero
+; X64-NEXT:    movl $3735928559, %eax # imm = 0xDEADBEEF
 ; X64-NEXT:    addss (%rax), %xmm0
 ; X64-NEXT:    movss %xmm0, (%rax)
 ; X64-NEXT:    retq
@@ -2082,8 +2082,8 @@ define void @fadd_32imm() {
 define void @fadd_64imm() {
 ; X64-LABEL: fadd_64imm:
 ; X64:       # %bb.0:
-; X64-NEXT:    movl $3735928559, %eax # imm = 0xDEADBEEF
 ; X64-NEXT:    movsd {{.*#+}} xmm0 = mem[0],zero
+; X64-NEXT:    movl $3735928559, %eax # imm = 0xDEADBEEF
 ; X64-NEXT:    addsd (%rax), %xmm0
 ; X64-NEXT:    movsd %xmm0, (%rax)
 ; X64-NEXT:    retq
@@ -2245,11 +2245,11 @@ define void @fadd_array(i64* %arg, double %arg1, i64 %arg2) {
 ; X32-NEXT:    .cfi_offset %edi, -16
 ; X32-NEXT:    .cfi_offset %ebx, -12
 ; X32-NEXT:    movl 20(%ebp), %esi
-; X32-NEXT:    movl 8(%ebp), %edi
 ; X32-NEXT:    xorl %eax, %eax
 ; X32-NEXT:    xorl %edx, %edx
 ; X32-NEXT:    xorl %ecx, %ecx
 ; X32-NEXT:    xorl %ebx, %ebx
+; X32-NEXT:    movl 8(%ebp), %edi
 ; X32-NEXT:    lock cmpxchg8b (%edi,%esi,8)
 ; X32-NEXT:    movl %edx, {{[0-9]+}}(%esp)
 ; X32-NEXT:    movl %eax, {{[0-9]+}}(%esp)

@@ -631,6 +631,8 @@ public:
   void ReportNearMisses(SmallVectorImpl<NearMissInfo> &NearMisses, SMLoc IDLoc,
                         OperandVector &Operands);
 
+  void doBeforeLabelEmit(MCSymbol *Symbol) override;
+
   void onLabelParsed(MCSymbol *Symbol) override;
 };
 
@@ -5626,7 +5628,8 @@ StringRef ARMAsmParser::splitMnemonic(StringRef Mnemonic,
       Mnemonic.startswith("vsel") || Mnemonic == "vins" || Mnemonic == "vmovx" ||
       Mnemonic == "bxns"  || Mnemonic == "blxns" ||
       Mnemonic == "vudot" || Mnemonic == "vsdot" ||
-      Mnemonic == "vcmla" || Mnemonic == "vcadd")
+      Mnemonic == "vcmla" || Mnemonic == "vcadd" ||
+      Mnemonic == "vfmal" || Mnemonic == "vfmsl")
     return Mnemonic;
 
   // First, split out any predication code. Ignore mnemonics we know aren't
@@ -5716,7 +5719,10 @@ void ARMAsmParser::getMnemonicAcceptInfo(StringRef Mnemonic, StringRef FullInst,
       (FullInst.startswith("vmull") && FullInst.endswith(".p64")) ||
       Mnemonic == "vmovx" || Mnemonic == "vins" ||
       Mnemonic == "vudot" || Mnemonic == "vsdot" ||
-      Mnemonic == "vcmla" || Mnemonic == "vcadd") {
+      Mnemonic == "vcmla" || Mnemonic == "vcadd" ||
+      Mnemonic == "vfmal" || Mnemonic == "vfmsl" ||
+      Mnemonic == "sb"    || Mnemonic == "ssbb"  ||
+      Mnemonic == "pssbb") {
     // These mnemonics are never predicable
     CanAcceptPredicationCode = false;
   } else if (!isThumb()) {
@@ -6819,6 +6825,26 @@ bool ARMAsmParser::validateInstruction(MCInst &Inst,
                                                "code specified");
     break;
   }
+  case ARM::DSB:
+  case ARM::t2DSB: {
+
+    if (Inst.getNumOperands() < 2)
+      break;
+
+    unsigned Option = Inst.getOperand(0).getImm();
+    unsigned Pred = Inst.getOperand(1).getImm();
+
+    // SSBB and PSSBB (DSB #0|#4) are not predicable (pred must be AL).
+    if (Option == 0 && Pred != ARMCC::AL)
+      return Error(Operands[1]->getStartLoc(),
+                   "instruction 'ssbb' is not predicable, but condition code "
+                   "specified");
+    if (Option == 4 && Pred != ARMCC::AL)
+      return Error(Operands[1]->getStartLoc(),
+                   "instruction 'pssbb' is not predicable, but condition code "
+                   "specified");
+    break;
+  }
   case ARM::VMOVRRS: {
     // Source registers must be sequential.
     const unsigned Sm = MRI->getEncodingValue(Inst.getOperand(2).getReg());
@@ -6835,6 +6861,15 @@ bool ARMAsmParser::validateInstruction(MCInst &Inst,
     if (Sm1 != Sm + 1)
       return Error(Operands[3]->getStartLoc(),
                    "destination operands must be sequential");
+    break;
+  }
+  case ARM::VLDMDIA:
+  case ARM::VSTMDIA: {
+    ARMOperand &Op = static_cast<ARMOperand&>(*Operands[3]);
+    auto &RegList = Op.getRegList();
+    if (RegList.size() < 1 || RegList.size() > 16)
+      return Error(Operands[3]->getStartLoc(),
+                   "list of registers must be at least 1 and at most 16");
     break;
   }
   }
@@ -9441,10 +9476,13 @@ bool ARMAsmParser::parseDirectiveARM(SMLoc L) {
   return false;
 }
 
-void ARMAsmParser::onLabelParsed(MCSymbol *Symbol) {
+void ARMAsmParser::doBeforeLabelEmit(MCSymbol *Symbol) {
   // We need to flush the current implicit IT block on a label, because it is
   // not legal to branch into an IT block.
   flushPendingInstructions(getStreamer());
+}
+
+void ARMAsmParser::onLabelParsed(MCSymbol *Symbol) {
   if (NextSymbolIsThumb) {
     getParser().getStreamer().EmitThumbFunc(Symbol);
     NextSymbolIsThumb = false;

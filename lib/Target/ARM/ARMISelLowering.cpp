@@ -850,8 +850,10 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
   }
   setOperationAction(ISD::CTTZ,  MVT::i32, Custom);
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
-  if (!Subtarget->hasV5TOps() || Subtarget->isThumb1Only())
+  if (!Subtarget->hasV5TOps() || Subtarget->isThumb1Only()) {
     setOperationAction(ISD::CTLZ, MVT::i32, Expand);
+    setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, LibCall);
+  }
 
   // @llvm.readcyclecounter requires the Performance Monitors extension.
   // Default to the 0 expansion on unsupported platforms.
@@ -1196,6 +1198,8 @@ ARMTargetLowering::ARMTargetLowering(const TargetMachine &TM,
 
   // Prefer likely predicted branches to selects on out-of-order cores.
   PredictableSelectIsExpensive = Subtarget->getSchedModel().isOutOfOrder();
+
+  setPrefLoopAlignment(Subtarget->getPrefLoopAlignment());
 
   setMinFunctionAlignment(Subtarget->isThumb() ? 1 : 2);
 }
@@ -3068,41 +3072,8 @@ static bool allUsersAreInFunction(const Value *V, const Function *F) {
   return true;
 }
 
-/// Return true if all users of V are within some (any) function, looking through
-/// ConstantExprs. In other words, are there any global constant users?
-static bool allUsersAreInFunctions(const Value *V) {
-  SmallVector<const User*,4> Worklist;
-  for (auto *U : V->users())
-    Worklist.push_back(U);
-  while (!Worklist.empty()) {
-    auto *U = Worklist.pop_back_val();
-    if (isa<ConstantExpr>(U)) {
-      for (auto *UU : U->users())
-        Worklist.push_back(UU);
-      continue;
-    }
-
-    if (!isa<Instruction>(U))
-      return false;
-  }
-  return true;
-}
-
-// Return true if T is an integer, float or an array/vector of either.
-static bool isSimpleType(Type *T) {
-  if (T->isIntegerTy() || T->isFloatingPointTy())
-    return true;
-  Type *SubT = nullptr;
-  if (T->isArrayTy())
-    SubT = T->getArrayElementType();
-  else if (T->isVectorTy())
-    SubT = T->getVectorElementType();
-  else
-    return false;
-  return SubT->isIntegerTy() || SubT->isFloatingPointTy();
-}
-
-static SDValue promoteToConstantPool(const GlobalValue *GV, SelectionDAG &DAG,
+static SDValue promoteToConstantPool(const ARMTargetLowering *TLI,
+                                     const GlobalValue *GV, SelectionDAG &DAG,
                                      EVT PtrVT, const SDLoc &dl) {
   // If we're creating a pool entry for a constant global with unnamed address,
   // and the global is small enough, we can emit it inline into the constant pool
@@ -3129,11 +3100,11 @@ static SDValue promoteToConstantPool(const GlobalValue *GV, SelectionDAG &DAG,
       !GVar->hasLocalLinkage())
     return SDValue();
 
-  // Ensure that we don't try and inline any type that contains pointers. If
-  // we inline a value that contains relocations, we move the relocations from
-  // .data to .text which is not ideal.
+  // If we inline a value that contains relocations, we move the relocations
+  // from .data to .text. This is not allowed in position-independent code.
   auto *Init = GVar->getInitializer();
-  if (!isSimpleType(Init->getType()))
+  if ((TLI->isPositionIndependent() || TLI->getSubtarget()->isROPI()) &&
+      Init->needsRelocation())
     return SDValue();
 
   // The constant islands pass can only really deal with alignment requests
@@ -3144,7 +3115,7 @@ static SDValue promoteToConstantPool(const GlobalValue *GV, SelectionDAG &DAG,
   // that are strings for simplicity.
   auto *CDAInit = dyn_cast<ConstantDataArray>(Init);
   unsigned Size = DAG.getDataLayout().getTypeAllocSize(Init->getType());
-  unsigned Align = GVar->getAlignment();
+  unsigned Align = DAG.getDataLayout().getPreferredAlignment(GVar);
   unsigned RequiredPadding = 4 - (Size % 4);
   bool PaddingPossible =
     RequiredPadding == 4 || (CDAInit && CDAInit->isString());
@@ -3165,12 +3136,14 @@ static SDValue promoteToConstantPool(const GlobalValue *GV, SelectionDAG &DAG,
         ConstpoolPromotionMaxTotal)
       return SDValue();
 
-  // This is only valid if all users are in a single function OR it has users
-  // in multiple functions but it no larger than a pointer. We also check if
-  // GVar has constant (non-ConstantExpr) users. If so, it essentially has its
-  // address taken.
-  if (!allUsersAreInFunction(GVar, &F) &&
-      !(Size <= 4 && allUsersAreInFunctions(GVar)))
+  // This is only valid if all users are in a single function; we can't clone
+  // the constant in general. The LLVM IR unnamed_addr allows merging
+  // constants, but not cloning them.
+  //
+  // We could potentially allow cloning if we could prove all uses of the
+  // constant in the current function don't care about the address, like
+  // printf format strings. But that isn't implemented for now.
+  if (!allUsersAreInFunction(GVar, &F))
     return SDValue();
 
   // We're going to inline this global. Pad it out if needed.
@@ -3226,7 +3199,7 @@ SDValue ARMTargetLowering::LowerGlobalAddressELF(SDValue Op,
 
   // promoteToConstantPool only if not generating XO text section
   if (TM.shouldAssumeDSOLocal(*GV->getParent(), GV) && !Subtarget->genExecuteOnly())
-    if (SDValue V = promoteToConstantPool(GV, DAG, PtrVT, dl))
+    if (SDValue V = promoteToConstantPool(this, GV, DAG, PtrVT, dl))
       return V;
 
   if (isPositionIndependent()) {
@@ -3315,9 +3288,13 @@ SDValue ARMTargetLowering::LowerGlobalAddressWindows(SDValue Op,
   assert(!Subtarget->isROPI() && !Subtarget->isRWPI() &&
          "ROPI/RWPI not currently supported for Windows");
 
+  const TargetMachine &TM = getTargetMachine();
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-  const ARMII::TOF TargetFlags =
-    (GV->hasDLLImportStorageClass() ? ARMII::MO_DLLIMPORT : ARMII::MO_NO_FLAG);
+  ARMII::TOF TargetFlags = ARMII::MO_NO_FLAG;
+  if (GV->hasDLLImportStorageClass())
+    TargetFlags = ARMII::MO_DLLIMPORT;
+  else if (!TM.shouldAssumeDSOLocal(*GV->getParent(), GV))
+    TargetFlags = ARMII::MO_COFFSTUB;
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   SDValue Result;
   SDLoc DL(Op);
@@ -3329,7 +3306,7 @@ SDValue ARMTargetLowering::LowerGlobalAddressWindows(SDValue Op,
   Result = DAG.getNode(ARMISD::Wrapper, DL, PtrVT,
                        DAG.getTargetGlobalAddress(GV, DL, PtrVT, /*Offset=*/0,
                                                   TargetFlags));
-  if (GV->hasDLLImportStorageClass())
+  if (TargetFlags & (ARMII::MO_DLLIMPORT | ARMII::MO_COFFSTUB))
     Result = DAG.getLoad(PtrVT, DL, DAG.getEntryNode(), Result,
                          MachinePointerInfo::getGOT(DAG.getMachineFunction()));
   return Result;
@@ -8030,10 +8007,8 @@ static void ReplaceCMP_SWAP_64Results(SDNode *N,
       ARM::CMP_SWAP_64, SDLoc(N),
       DAG.getVTList(MVT::Untyped, MVT::i32, MVT::Other), Ops);
 
-  MachineFunction &MF = DAG.getMachineFunction();
-  MachineSDNode::mmo_iterator MemOp = MF.allocateMemRefsArray(1);
-  MemOp[0] = cast<MemSDNode>(N)->getMemOperand();
-  cast<MachineSDNode>(CmpSwap)->setMemRefs(MemOp, MemOp + 1);
+  MachineMemOperand *MemOp = cast<MemSDNode>(N)->getMemOperand();
+  DAG.setNodeMemRefs(cast<MachineSDNode>(CmpSwap), {MemOp});
 
   bool isBigEndian = DAG.getDataLayout().isBigEndian();
 
@@ -9209,6 +9184,8 @@ ARMTargetLowering::EmitLowered__chkstk(MachineInstr &MI,
   // IP.
 
   switch (TM.getCodeModel()) {
+  case CodeModel::Tiny:
+    llvm_unreachable("Tiny code model not available on ARM.");
   case CodeModel::Small:
   case CodeModel::Medium:
   case CodeModel::Kernel:
@@ -10447,6 +10424,25 @@ static SDValue PerformADDCombineWithOperands(SDNode *N, SDValue N0, SDValue N1,
   return SDValue();
 }
 
+bool
+ARMTargetLowering::isDesirableToCommuteWithShift(const SDNode *N,
+                                                 CombineLevel Level) const {
+  if (Level == BeforeLegalizeTypes)
+    return true;
+
+  if (Subtarget->isThumb() && Subtarget->isThumb1Only())
+    return true;
+
+  if (N->getOpcode() != ISD::SHL)
+    return true;
+
+  // Turn off commute-with-shift transform after legalization, so it doesn't
+  // conflict with PerformSHLSimplify.  (We could try to detect when
+  // PerformSHLSimplify would trigger more precisely, but it isn't
+  // really necessary.)
+  return false;
+}
+
 static SDValue PerformSHLSimplify(SDNode *N,
                                 TargetLowering::DAGCombinerInfo &DCI,
                                 const ARMSubtarget *ST) {
@@ -10546,9 +10542,7 @@ static SDValue PerformSHLSimplify(SDNode *N,
   LLVM_DEBUG(dbgs() << "Simplify shl use:\n"; SHL.getOperand(0).dump();
              SHL.dump(); N->dump());
   LLVM_DEBUG(dbgs() << "Into:\n"; X.dump(); BinOp.dump(); Res.dump());
-
-  DAG.ReplaceAllUsesWith(SDValue(N, 0), Res);
-  return SDValue(N, 0);
+  return Res;
 }
 
 
@@ -11581,8 +11575,15 @@ static SDValue CombineBaseUpdate(SDNode *N,
       continue;
 
     // Check that the add is independent of the load/store.  Otherwise, folding
-    // it would create a cycle.
-    if (User->isPredecessorOf(N) || N->isPredecessorOf(User))
+    // it would create a cycle. We can avoid searching through Addr as it's a
+    // predecessor to both.
+    SmallPtrSet<const SDNode *, 32> Visited;
+    SmallVector<const SDNode *, 16> Worklist;
+    Visited.insert(Addr.getNode());
+    Worklist.push_back(N);
+    Worklist.push_back(User);
+    if (SDNode::hasPredecessorHelper(N, Visited, Worklist) ||
+        SDNode::hasPredecessorHelper(User, Visited, Worklist))
       continue;
 
     // Find the new opcode for the updating load/store.
@@ -13602,6 +13603,90 @@ void ARMTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   }
 }
 
+bool
+ARMTargetLowering::targetShrinkDemandedConstant(SDValue Op,
+                                                const APInt &DemandedAPInt,
+                                                TargetLoweringOpt &TLO) const {
+  // Delay optimization, so we don't have to deal with illegal types, or block
+  // optimizations.
+  if (!TLO.LegalOps)
+    return false;
+
+  // Only optimize AND for now.
+  if (Op.getOpcode() != ISD::AND)
+    return false;
+
+  EVT VT = Op.getValueType();
+
+  // Ignore vectors.
+  if (VT.isVector())
+    return false;
+
+  assert(VT == MVT::i32 && "Unexpected integer type");
+
+  // Make sure the RHS really is a constant.
+  ConstantSDNode *C = dyn_cast<ConstantSDNode>(Op.getOperand(1));
+  if (!C)
+    return false;
+
+  unsigned Mask = C->getZExtValue();
+
+  unsigned Demanded = DemandedAPInt.getZExtValue();
+  unsigned ShrunkMask = Mask & Demanded;
+  unsigned ExpandedMask = Mask | ~Demanded;
+
+  // If the mask is all zeros, let the target-independent code replace the
+  // result with zero.
+  if (ShrunkMask == 0)
+    return false;
+
+  // If the mask is all ones, erase the AND. (Currently, the target-independent
+  // code won't do this, so we have to do it explicitly to avoid an infinite
+  // loop in obscure cases.)
+  if (ExpandedMask == ~0U)
+    return TLO.CombineTo(Op, Op.getOperand(0));
+
+  auto IsLegalMask = [ShrunkMask, ExpandedMask](unsigned Mask) -> bool {
+    return (ShrunkMask & Mask) == ShrunkMask && (~ExpandedMask & Mask) == 0;
+  };
+  auto UseMask = [Mask, Op, VT, &TLO](unsigned NewMask) -> bool {
+    if (NewMask == Mask)
+      return true;
+    SDLoc DL(Op);
+    SDValue NewC = TLO.DAG.getConstant(NewMask, DL, VT);
+    SDValue NewOp = TLO.DAG.getNode(ISD::AND, DL, VT, Op.getOperand(0), NewC);
+    return TLO.CombineTo(Op, NewOp);
+  };
+
+  // Prefer uxtb mask.
+  if (IsLegalMask(0xFF))
+    return UseMask(0xFF);
+
+  // Prefer uxth mask.
+  if (IsLegalMask(0xFFFF))
+    return UseMask(0xFFFF);
+
+  // [1, 255] is Thumb1 movs+ands, legal immediate for ARM/Thumb2.
+  // FIXME: Prefer a contiguous sequence of bits for other optimizations.
+  if (ShrunkMask < 256)
+    return UseMask(ShrunkMask);
+
+  // [-256, -2] is Thumb1 movs+bics, legal immediate for ARM/Thumb2.
+  // FIXME: Prefer a contiguous sequence of bits for other optimizations.
+  if ((int)ExpandedMask <= -2 && (int)ExpandedMask >= -256)
+    return UseMask(ExpandedMask);
+
+  // Potential improvements:
+  //
+  // We could try to recognize lsls+lsrs or lsrs+lsls pairs here.
+  // We could try to prefer Thumb1 immediates which can be lowered to a
+  // two-instruction sequence.
+  // We could try to recognize more legal ARM/Thumb2 immediates here.
+
+  return false;
+}
+
+
 //===----------------------------------------------------------------------===//
 //                           ARM Inline Assembly Support
 //===----------------------------------------------------------------------===//
@@ -14452,16 +14537,18 @@ ARMTargetLowering::shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const {
              : AtomicExpansionKind::None;
 }
 
-bool ARMTargetLowering::shouldExpandAtomicCmpXchgInIR(
-    AtomicCmpXchgInst *AI) const {
+TargetLowering::AtomicExpansionKind
+ARMTargetLowering::shouldExpandAtomicCmpXchgInIR(AtomicCmpXchgInst *AI) const {
   // At -O0, fast-regalloc cannot cope with the live vregs necessary to
   // implement cmpxchg without spilling. If the address being exchanged is also
   // on the stack and close enough to the spill slot, this can lead to a
   // situation where the monitor always gets cleared and the atomic operation
   // can never succeed. So at -O0 we need a late-expanded pseudo-inst instead.
-  bool hasAtomicCmpXchg =
+  bool HasAtomicCmpXchg =
       !Subtarget->isThumb() || Subtarget->hasV8MBaselineOps();
-  return getTargetMachine().getOptLevel() != 0 && hasAtomicCmpXchg;
+  if (getTargetMachine().getOptLevel() != 0 && HasAtomicCmpXchg)
+    return AtomicExpansionKind::LLSC;
+  return AtomicExpansionKind::None;
 }
 
 bool ARMTargetLowering::shouldInsertFencesForAtomic(
@@ -14586,6 +14673,11 @@ Value *ARMTargetLowering::emitStoreConditional(IRBuilder<> &Builder, Value *Val,
       Strex, {Builder.CreateZExtOrBitCast(
                   Val, Strex->getFunctionType()->getParamType(0)),
               Addr});
+}
+
+
+bool ARMTargetLowering::alignLoopsWithOptSize() const {
+  return Subtarget->isMClass();
 }
 
 /// A helper function for determining the number of interleaved accesses we

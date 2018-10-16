@@ -844,8 +844,7 @@ define void @test_sadd_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %addr) {
 ; CHECK: [[LHS:%[0-9]+]]:_(s32) = COPY $w0
 ; CHECK: [[RHS:%[0-9]+]]:_(s32) = COPY $w1
 ; CHECK: [[ADDR:%[0-9]+]]:_(p0) = COPY $x2
-; CHECK: [[ZERO:%[0-9]+]]:_(s1) = G_CONSTANT i1 false
-; CHECK: [[VAL:%[0-9]+]]:_(s32), [[OVERFLOW:%[0-9]+]]:_(s1) = G_UADDE [[LHS]], [[RHS]], [[ZERO]]
+; CHECK: [[VAL:%[0-9]+]]:_(s32), [[OVERFLOW:%[0-9]+]]:_(s1) = G_UADDO [[LHS]], [[RHS]]
 ; CHECK: G_STORE [[VAL]](s32), [[ADDR]](p0) :: (store 4 into %ir.addr)
 ; CHECK: [[CST:%[0-9]+]]:_(s64) = G_CONSTANT i64 4
 ; CHECK: [[GEP:%[0-9]+]]:_(p0) = G_GEP [[ADDR]], [[CST]](s64)
@@ -877,8 +876,7 @@ define void @test_ssub_overflow(i32 %lhs, i32 %rhs, { i32, i1 }* %subr) {
 ; CHECK: [[LHS:%[0-9]+]]:_(s32) = COPY $w0
 ; CHECK: [[RHS:%[0-9]+]]:_(s32) = COPY $w1
 ; CHECK: [[ADDR:%[0-9]+]]:_(p0) = COPY $x2
-; CHECK: [[ZERO:%[0-9]+]]:_(s1) = G_CONSTANT i1 false
-; CHECK: [[VAL:%[0-9]+]]:_(s32), [[OVERFLOW:%[0-9]+]]:_(s1) = G_USUBE [[LHS]], [[RHS]], [[ZERO]]
+; CHECK: [[VAL:%[0-9]+]]:_(s32), [[OVERFLOW:%[0-9]+]]:_(s1) = G_USUBO [[LHS]], [[RHS]]
 ; CHECK: G_STORE [[VAL]](s32), [[ADDR]](p0) :: (store 4 into %ir.subr)
 ; CHECK: [[CST:%[0-9]+]]:_(s64) = G_CONSTANT i64 4
 ; CHECK: [[GEP:%[0-9]+]]:_(p0) = G_GEP [[ADDR]], [[CST]](s64)
@@ -1405,6 +1403,26 @@ define float @test_fabs_intrin(float %a) {
 ; CHECK: [[RES:%[0-9]+]]:_(s32) = G_FABS [[A]]
 ; CHECK: $s0 = COPY [[RES]]
   %res = call float @llvm.fabs.f32(float %a)
+  ret float %res
+}
+
+declare float @llvm.trunc.f32(float)
+define float @test_intrinsic_trunc(float %a) {
+; CHECK-LABEL: name: test_intrinsic_trunc
+; CHECK: [[A:%[0-9]+]]:_(s32) = COPY $s0
+; CHECK: [[RES:%[0-9]+]]:_(s32) = G_INTRINSIC_TRUNC [[A]]
+; CHECK: $s0 = COPY [[RES]]
+  %res = call float @llvm.trunc.f32(float %a)
+  ret float %res
+}
+
+declare float @llvm.round.f32(float)
+define float @test_intrinsic_round(float %a) {
+; CHECK-LABEL: name: test_intrinsic_round
+; CHECK: [[A:%[0-9]+]]:_(s32) = COPY $s0
+; CHECK: [[RES:%[0-9]+]]:_(s32) = G_INTRINSIC_ROUND [[A]]
+; CHECK: $s0 = COPY [[RES]]
+  %res = call float @llvm.round.f32(float %a)
   ret float %res
 }
 
@@ -2187,5 +2205,19 @@ define void @test_blockaddress() {
   store i8* blockaddress(@test_blockaddress, %block), i8** @addr
   indirectbr i8* blockaddress(@test_blockaddress, %block), [label %block]
 block:
+  ret void
+}
+
+%t = type { i32 }
+declare {}* @llvm.invariant.start.p0i8(i64, i8* nocapture) readonly nounwind
+declare void @llvm.invariant.end.p0i8({}*, i64, i8* nocapture) nounwind
+define void @test_invariant_intrin() {
+; CHECK-LABEL: name: test_invariant_intrin
+; CHECK: %{{[0-9]+}}:_(s64) = G_IMPLICIT_DEF
+; CHECK-NEXT: RET_ReallyLR
+  %x = alloca %t
+  %y = bitcast %t* %x to i8*
+  %inv = call {}* @llvm.invariant.start.p0i8(i64 8, i8* %y)
+  call void @llvm.invariant.end.p0i8({}* %inv, i64 8, i8* %y)
   ret void
 }

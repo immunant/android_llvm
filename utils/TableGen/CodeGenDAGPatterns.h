@@ -350,11 +350,11 @@ struct TypeInfer {
   bool Validate = true;   // Indicate whether to validate types.
 
 private:
-  TypeSetByHwMode getLegalTypes();
+  const TypeSetByHwMode &getLegalTypes();
 
-  /// Cached legal types.
+  /// Cached legal types (in default mode).
   bool LegalTypesCached = false;
-  TypeSetByHwMode::SetType LegalCache = {};
+  TypeSetByHwMode LegalCache;
 };
 
 /// Set type used to track multiply used variables in patterns
@@ -673,8 +673,8 @@ public:
   }
   void addPredicateFn(const TreePredicateFn &Fn) {
     assert(!Fn.isAlwaysTrue() && "Empty predicate string!");
-    if (!is_contained(PredicateFns, Fn))
-      PredicateFns.push_back(Fn);
+    assert(!is_contained(PredicateFns, Fn) && "predicate applied recursively");
+    PredicateFns.push_back(Fn);
   }
 
   Record *getTransformFn() const { return TransformFn; }

@@ -96,7 +96,7 @@ void TargetLoweringObjectFileELF::Initialize(MCContext &Ctx,
   TargetLoweringObjectFile::Initialize(Ctx, TgtM);
   TM = &TgtM;
 
-  bool Large = TgtM.getCodeModel() == CodeModel::Large;
+  CodeModel::Model CM = TgtM.getCodeModel();
 
   switch (TgtM.getTargetTriple().getArch()) {
   case Triple::arm:
@@ -124,18 +124,23 @@ void TargetLoweringObjectFileELF::Initialize(MCContext &Ctx,
     break;
   case Triple::x86_64:
     if (isPositionIndependent()) {
-      PersonalityEncoding =
-          dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_pcrel |
-          (Large ? dwarf::DW_EH_PE_sdata8 : dwarf::DW_EH_PE_sdata4);
+      PersonalityEncoding = dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_pcrel |
+        ((CM == CodeModel::Small || CM == CodeModel::Medium)
+         ? dwarf::DW_EH_PE_sdata4 : dwarf::DW_EH_PE_sdata8);
       LSDAEncoding = dwarf::DW_EH_PE_pcrel |
-                     (Large ? dwarf::DW_EH_PE_sdata8 : dwarf::DW_EH_PE_sdata4);
+        (CM == CodeModel::Small
+         ? dwarf::DW_EH_PE_sdata4 : dwarf::DW_EH_PE_sdata8);
       TTypeEncoding = dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_pcrel |
-                      (Large ? dwarf::DW_EH_PE_sdata8 : dwarf::DW_EH_PE_sdata4);
+        ((CM == CodeModel::Small || CM == CodeModel::Medium)
+         ? dwarf::DW_EH_PE_sdata8 : dwarf::DW_EH_PE_sdata4);
     } else {
       PersonalityEncoding =
-          Large ? dwarf::DW_EH_PE_absptr : dwarf::DW_EH_PE_udata4;
-      LSDAEncoding = Large ? dwarf::DW_EH_PE_absptr : dwarf::DW_EH_PE_udata4;
-      TTypeEncoding = Large ? dwarf::DW_EH_PE_absptr : dwarf::DW_EH_PE_udata4;
+        (CM == CodeModel::Small || CM == CodeModel::Medium)
+        ? dwarf::DW_EH_PE_udata4 : dwarf::DW_EH_PE_absptr;
+      LSDAEncoding = (CM == CodeModel::Small)
+        ? dwarf::DW_EH_PE_udata4 : dwarf::DW_EH_PE_absptr;
+      TTypeEncoding = (CM == CodeModel::Small)
+        ? dwarf::DW_EH_PE_udata4 : dwarf::DW_EH_PE_absptr;
     }
     break;
   case Triple::hexagon:
@@ -1451,8 +1456,25 @@ static MCSectionCOFF *getCOFFStaticStructorSection(MCContext &Ctx,
                                                    unsigned Priority,
                                                    const MCSymbol *KeySym,
                                                    MCSectionCOFF *Default) {
-  if (T.isKnownWindowsMSVCEnvironment() || T.isWindowsItaniumEnvironment())
-    return Ctx.getAssociativeCOFFSection(Default, KeySym, 0);
+  if (T.isKnownWindowsMSVCEnvironment() || T.isWindowsItaniumEnvironment()) {
+    // If the priority is the default, use .CRT$XCU, possibly associative.
+    if (Priority == 65535)
+      return Ctx.getAssociativeCOFFSection(Default, KeySym, 0);
+
+    // Otherwise, we need to compute a new section name. Low priorities should
+    // run earlier. The linker will sort sections ASCII-betically, and we need a
+    // string that sorts between .CRT$XCA and .CRT$XCU. In the general case, we
+    // make a name like ".CRT$XCT12345", since that runs before .CRT$XCU. Really
+    // low priorities need to sort before 'L', since the CRT uses that
+    // internally, so we use ".CRT$XCA00001" for them.
+    SmallString<24> Name;
+    raw_svector_ostream OS(Name);
+    OS << ".CRT$XC" << (Priority < 200 ? 'A' : 'T') << format("%05u", Priority);
+    MCSectionCOFF *Sec = Ctx.getCOFFSection(
+        Name, COFF::IMAGE_SCN_CNT_INITIALIZED_DATA | COFF::IMAGE_SCN_MEM_READ,
+        SectionKind::getReadOnly());
+    return Ctx.getAssociativeCOFFSection(Sec, KeySym, 0);
+  }
 
   std::string Name = IsCtor ? ".ctors" : ".dtors";
   if (Priority != 65535)

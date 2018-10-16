@@ -141,6 +141,11 @@ static cl::opt<int> EnableGlobalISelAtO(
 static cl::opt<bool> EnableFalkorHWPFFix("aarch64-enable-falkor-hwpf-fix",
                                          cl::init(true), cl::Hidden);
 
+static cl::opt<bool>
+    EnableBranchTargets("aarch64-enable-branch-targets", cl::Hidden,
+                        cl::desc("Enable the AAcrh64 branch target pass"),
+                        cl::init(true));
+
 extern "C" void LLVMInitializeAArch64Target() {
   // Register the target.
   RegisterTargetMachine<AArch64leTargetMachine> X(getTheAArch64leTarget());
@@ -151,6 +156,7 @@ extern "C" void LLVMInitializeAArch64Target() {
   initializeAArch64A53Fix835769Pass(*PR);
   initializeAArch64A57FPLoadBalancingPass(*PR);
   initializeAArch64AdvSIMDScalarPass(*PR);
+  initializeAArch64BranchTargetsPass(*PR);
   initializeAArch64CollectLOHPass(*PR);
   initializeAArch64ConditionalComparesPass(*PR);
   initializeAArch64ConditionOptimizerPass(*PR);
@@ -158,6 +164,7 @@ extern "C" void LLVMInitializeAArch64Target() {
   initializeAArch64ExpandPseudoPass(*PR);
   initializeAArch64LoadStoreOptPass(*PR);
   initializeAArch64SIMDInstrOptPass(*PR);
+  initializeAArch64PreLegalizerCombinerPass(*PR);
   initializeAArch64PromoteConstantPass(*PR);
   initializeAArch64RedundantCopyEliminationPass(*PR);
   initializeAArch64StorePairSuppressPass(*PR);
@@ -210,14 +217,16 @@ static CodeModel::Model getEffectiveCodeModel(const Triple &TT,
                                               Optional<CodeModel::Model> CM,
                                               bool JIT) {
   if (CM) {
-    if (*CM != CodeModel::Small && *CM != CodeModel::Large) {
+    if (*CM != CodeModel::Small && *CM != CodeModel::Tiny &&
+        *CM != CodeModel::Large) {
       if (!TT.isOSFuchsia())
         report_fatal_error(
-            "Only small and large code models are allowed on AArch64");
-      else if (CM != CodeModel::Kernel)
-        report_fatal_error(
-            "Only small, kernel, and large code models are allowed on AArch64");
-    }
+            "Only small, tiny and large code models are allowed on AArch64");
+      else if (*CM != CodeModel::Kernel)
+        report_fatal_error("Only small, tiny, kernel, and large code models "
+                           "are allowed on AArch64");
+    } else if (*CM == CodeModel::Tiny && !TT.isOSBinFormatELF())
+      report_fatal_error("tiny code model is only supported on ELF");
     return *CM;
   }
   // The default MCJIT memory managers make no guarantees about where they can
@@ -346,6 +355,7 @@ public:
   bool addPreISel() override;
   bool addInstSelector() override;
   bool addIRTranslator() override;
+  void addPreLegalizeMachineIR() override;
   bool addLegalizeMachineIR() override;
   bool addRegBankSelect() override;
   void addPreGlobalInstructionSelect() override;
@@ -447,6 +457,10 @@ bool AArch64PassConfig::addIRTranslator() {
   return false;
 }
 
+void AArch64PassConfig::addPreLegalizeMachineIR() {
+  addPass(createAArch64PreLegalizeCombiner());
+}
+
 bool AArch64PassConfig::addLegalizeMachineIR() {
   addPass(new Legalizer());
   return false;
@@ -528,6 +542,9 @@ void AArch64PassConfig::addPreEmitPass() {
   // range of their destination.
   if (BranchRelaxation)
     addPass(&BranchRelaxationPassID);
+
+  if (EnableBranchTargets)
+    addPass(createAArch64BranchTargetsPass());
 
   if (TM->getOptLevel() != CodeGenOpt::None && EnableCollectLOH &&
       TM->getTargetTriple().isOSBinFormatMachO())

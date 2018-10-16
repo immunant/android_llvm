@@ -243,6 +243,67 @@ Instruction *InstCombiner::SimplifyAnyMemSet(AnyMemSetInst *MI) {
   return nullptr;
 }
 
+static Value *simplifyX86AddsSubs(const IntrinsicInst &II,
+                                  InstCombiner::BuilderTy &Builder) {
+  bool IsAddition;
+
+  switch (II.getIntrinsicID()) {
+  default: llvm_unreachable("Unexpected intrinsic!");
+  case Intrinsic::x86_sse2_padds_b:
+  case Intrinsic::x86_sse2_padds_w:
+  case Intrinsic::x86_avx2_padds_b:
+  case Intrinsic::x86_avx2_padds_w:
+  case Intrinsic::x86_avx512_padds_b_512:
+  case Intrinsic::x86_avx512_padds_w_512:
+    IsAddition = true;
+    break;
+  case Intrinsic::x86_sse2_psubs_b:
+  case Intrinsic::x86_sse2_psubs_w:
+  case Intrinsic::x86_avx2_psubs_b:
+  case Intrinsic::x86_avx2_psubs_w:
+  case Intrinsic::x86_avx512_psubs_b_512:
+  case Intrinsic::x86_avx512_psubs_w_512:
+    IsAddition = false;
+    break;
+  }
+
+  auto *Arg0 = dyn_cast<Constant>(II.getOperand(0));
+  auto *Arg1 = dyn_cast<Constant>(II.getOperand(1));
+  auto VT = cast<VectorType>(II.getType());
+  auto SVT = VT->getElementType();
+  unsigned NumElems = VT->getNumElements();
+
+  if (!Arg0 || !Arg1)
+    return nullptr;
+
+  SmallVector<Constant *, 64> Result;
+
+  APInt MaxValue = APInt::getSignedMaxValue(SVT->getIntegerBitWidth());
+  APInt MinValue = APInt::getSignedMinValue(SVT->getIntegerBitWidth());
+  for (unsigned i = 0; i < NumElems; ++i) {
+    auto *Elt0 = Arg0->getAggregateElement(i);
+    auto *Elt1 = Arg1->getAggregateElement(i);
+    if (isa<UndefValue>(Elt0) || isa<UndefValue>(Elt1)) {
+      Result.push_back(UndefValue::get(SVT));
+      continue;
+    }
+
+    if (!isa<ConstantInt>(Elt0) || !isa<ConstantInt>(Elt1))
+      return nullptr;
+
+    const APInt &Val0 = cast<ConstantInt>(Elt0)->getValue();
+    const APInt &Val1 = cast<ConstantInt>(Elt1)->getValue();
+    bool Overflow = false;
+    APInt ResultElem = IsAddition ? Val0.sadd_ov(Val1, Overflow)
+                                  : Val0.ssub_ov(Val1, Overflow);
+    if (Overflow)
+      ResultElem = Val0.isNegative() ? MinValue : MaxValue;
+    Result.push_back(Constant::getIntegerValue(SVT, ResultElem));
+  }
+
+  return ConstantVector::get(Result);
+}
+
 static Value *simplifyX86immShift(const IntrinsicInst &II,
                                   InstCombiner::BuilderTy &Builder) {
   bool LogicalShift = false;
@@ -648,7 +709,7 @@ static Value *simplifyX86round(IntrinsicInst &II,
   }
 
   Intrinsic::ID ID = (RoundControl == 2) ? Intrinsic::ceil : Intrinsic::floor;
-  Value *Res = Builder.CreateIntrinsic(ID, {Src}, &II);
+  Value *Res = Builder.CreateUnaryIntrinsic(ID, Src, &II);
   if (!IsScalar) {
     if (auto *C = dyn_cast<Constant>(Mask))
       if (C->isAllOnesValue())
@@ -1977,7 +2038,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
       // maxnum(-X, -Y) --> -(minnum(X, Y))
       Intrinsic::ID NewIID = II->getIntrinsicID() == Intrinsic::maxnum ?
           Intrinsic::minnum : Intrinsic::maxnum;
-      Value *NewCall = Builder.CreateIntrinsic(NewIID, { X, Y }, II);
+      Value *NewCall = Builder.CreateBinaryIntrinsic(NewIID, X, Y, II);
       Instruction *FNeg = BinaryOperator::CreateFNeg(NewCall);
       FNeg->copyIRFlags(II);
       return FNeg;
@@ -2055,24 +2116,33 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     Value *ExtSrc;
     if (match(II->getArgOperand(0), m_OneUse(m_FPExt(m_Value(ExtSrc))))) {
       // Narrow the call: intrinsic (fpext x) -> fpext (intrinsic x)
-      Value *NarrowII = Builder.CreateIntrinsic(II->getIntrinsicID(),
-                                                { ExtSrc }, II);
+      Value *NarrowII =
+          Builder.CreateUnaryIntrinsic(II->getIntrinsicID(), ExtSrc, II);
       return new FPExtInst(NarrowII, II->getType());
     }
     break;
   }
   case Intrinsic::cos:
   case Intrinsic::amdgcn_cos: {
-    Value *SrcSrc;
+    Value *X;
     Value *Src = II->getArgOperand(0);
-    if (match(Src, m_FNeg(m_Value(SrcSrc))) ||
-        match(Src, m_FAbs(m_Value(SrcSrc)))) {
+    if (match(Src, m_FNeg(m_Value(X))) || match(Src, m_FAbs(m_Value(X)))) {
       // cos(-x) -> cos(x)
       // cos(fabs(x)) -> cos(x)
-      II->setArgOperand(0, SrcSrc);
+      II->setArgOperand(0, X);
       return II;
     }
-
+    break;
+  }
+  case Intrinsic::sin: {
+    Value *X;
+    if (match(II->getArgOperand(0), m_OneUse(m_FNeg(m_Value(X))))) {
+      // sin(-x) --> -sin(x)
+      Value *NewSin = Builder.CreateUnaryIntrinsic(Intrinsic::sin, X, II);
+      Instruction *FNeg = BinaryOperator::CreateFNeg(NewSin);
+      FNeg->copyFastMathFlags(II);
+      return FNeg;
+    }
     break;
   }
   case Intrinsic::ppc_altivec_lvx:
@@ -2525,6 +2595,23 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     break;
   }
 
+  // Constant fold add/sub with saturation intrinsics.
+  case Intrinsic::x86_sse2_padds_b:
+  case Intrinsic::x86_sse2_padds_w:
+  case Intrinsic::x86_sse2_psubs_b:
+  case Intrinsic::x86_sse2_psubs_w:
+  case Intrinsic::x86_avx2_padds_b:
+  case Intrinsic::x86_avx2_padds_w:
+  case Intrinsic::x86_avx2_psubs_b:
+  case Intrinsic::x86_avx2_psubs_w:
+  case Intrinsic::x86_avx512_padds_b_512:
+  case Intrinsic::x86_avx512_padds_w_512:
+  case Intrinsic::x86_avx512_psubs_b_512:
+  case Intrinsic::x86_avx512_psubs_w_512:
+    if (Value *V = simplifyX86AddsSubs(*II, Builder))
+      return replaceInstUsesWith(*II, V);
+    break;
+
   // Constant fold ashr( <A x Bi>, Ci ).
   // Constant fold lshr( <A x Bi>, Ci ).
   // Constant fold shl( <A x Bi>, Ci ).
@@ -2842,16 +2929,10 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::x86_avx_blendv_ps_256:
   case Intrinsic::x86_avx_blendv_pd_256:
   case Intrinsic::x86_avx2_pblendvb: {
-    // Convert blendv* to vector selects if the mask is constant.
-    // This optimization is convoluted because the intrinsic is defined as
-    // getting a vector of floats or doubles for the ps and pd versions.
-    // FIXME: That should be changed.
-
+    // fold (blend A, A, Mask) -> A
     Value *Op0 = II->getArgOperand(0);
     Value *Op1 = II->getArgOperand(1);
     Value *Mask = II->getArgOperand(2);
-
-    // fold (blend A, A, Mask) -> A
     if (Op0 == Op1)
       return replaceInstUsesWith(CI, Op0);
 
@@ -2864,6 +2945,33 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
       Constant *NewSelector = getNegativeIsTrueBoolVec(ConstantMask);
       return SelectInst::Create(NewSelector, Op1, Op0, "blendv");
     }
+
+    // Convert to a vector select if we can bypass casts and find a boolean
+    // vector condition value.
+    Value *BoolVec;
+    Mask = peekThroughBitcast(Mask);
+    if (match(Mask, m_SExt(m_Value(BoolVec))) &&
+        BoolVec->getType()->isVectorTy() &&
+        BoolVec->getType()->getScalarSizeInBits() == 1) {
+      assert(Mask->getType()->getPrimitiveSizeInBits() ==
+             II->getType()->getPrimitiveSizeInBits() &&
+             "Not expecting mask and operands with different sizes");
+
+      unsigned NumMaskElts = Mask->getType()->getVectorNumElements();
+      unsigned NumOperandElts = II->getType()->getVectorNumElements();
+      if (NumMaskElts == NumOperandElts)
+        return SelectInst::Create(BoolVec, Op1, Op0);
+
+      // If the mask has less elements than the operands, each mask bit maps to
+      // multiple elements of the operands. Bitcast back and forth.
+      if (NumMaskElts < NumOperandElts) {
+        Value *CastOp0 = Builder.CreateBitCast(Op0, Mask->getType());
+        Value *CastOp1 = Builder.CreateBitCast(Op1, Mask->getType());
+        Value *Sel = Builder.CreateSelect(BoolVec, CastOp1, CastOp0);
+        return new BitCastInst(Sel, II->getType());
+      }
+    }
+
     break;
   }
 
@@ -3195,6 +3303,22 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
       return replaceInstUsesWith(*II, FCmp);
     }
 
+    if (Mask == (N_ZERO | P_ZERO)) {
+      // Equivalent of == 0.
+      Value *FCmp = Builder.CreateFCmpOEQ(
+        Src0, ConstantFP::get(Src0->getType(), 0.0));
+
+      FCmp->takeName(II);
+      return replaceInstUsesWith(*II, FCmp);
+    }
+
+    // fp_class (nnan x), qnan|snan|other -> fp_class (nnan x), other
+    if (((Mask & S_NAN) || (Mask & Q_NAN)) && isKnownNeverNaN(Src0, &TLI)) {
+      II->setArgOperand(1, ConstantInt::get(Src1->getType(),
+                                            Mask & ~(S_NAN | Q_NAN)));
+      return II;
+    }
+
     const ConstantFP *CVal = dyn_cast<ConstantFP>(Src0);
     if (!CVal) {
       if (isa<UndefValue>(Src0))
@@ -3522,6 +3646,33 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
 
       Intrinsic::ID NewIID = CmpInst::isFPPredicate(SrcPred) ?
         Intrinsic::amdgcn_fcmp : Intrinsic::amdgcn_icmp;
+
+      Type *Ty = SrcLHS->getType();
+      if (auto *CmpType = dyn_cast<IntegerType>(Ty)) {
+        // Promote to next legal integer type.
+        unsigned Width = CmpType->getBitWidth();
+        unsigned NewWidth = Width;
+        if (Width <= 16)
+          NewWidth = 16;
+        else if (Width <= 32)
+          NewWidth = 32;
+        else if (Width <= 64)
+          NewWidth = 64;
+        else if (Width > 64)
+          break; // Can't handle this.
+
+        if (Width != NewWidth) {
+          IntegerType *CmpTy = Builder.getIntNTy(NewWidth);
+          if (CmpInst::isSigned(SrcPred)) {
+            SrcLHS = Builder.CreateSExt(SrcLHS, CmpTy);
+            SrcRHS = Builder.CreateSExt(SrcRHS, CmpTy);
+          } else {
+            SrcLHS = Builder.CreateZExt(SrcLHS, CmpTy);
+            SrcRHS = Builder.CreateZExt(SrcRHS, CmpTy);
+          }
+        }
+      } else if (!Ty->isFloatTy() && !Ty->isDoubleTy() && !Ty->isHalfTy())
+        break;
 
       Value *NewF = Intrinsic::getDeclaration(II->getModule(), NewIID,
                                               SrcLHS->getType());

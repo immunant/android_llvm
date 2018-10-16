@@ -1624,8 +1624,8 @@ define void @combine_test23(<8 x float> %v, <2 x float>* %ptr) {
 define <4 x float> @combine_test1b(<4 x float> %a, <4 x float> %b) {
 ; SSE-LABEL: combine_test1b:
 ; SSE:       # %bb.0:
-; SSE-NEXT:    shufps {{.*#+}} xmm1 = xmm1[0,1,2,0]
 ; SSE-NEXT:    movaps %xmm1, %xmm0
+; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[0,1],xmm1[2,0]
 ; SSE-NEXT:    retq
 ;
 ; AVX-LABEL: combine_test1b:
@@ -1640,8 +1640,8 @@ define <4 x float> @combine_test1b(<4 x float> %a, <4 x float> %b) {
 define <4 x float> @combine_test2b(<4 x float> %a, <4 x float> %b) {
 ; SSE2-LABEL: combine_test2b:
 ; SSE2:       # %bb.0:
-; SSE2-NEXT:    movlhps {{.*#+}} xmm1 = xmm1[0,0]
 ; SSE2-NEXT:    movaps %xmm1, %xmm0
+; SSE2-NEXT:    movlhps {{.*#+}} xmm0 = xmm0[0],xmm1[0]
 ; SSE2-NEXT:    retq
 ;
 ; SSSE3-LABEL: combine_test2b:
@@ -1695,8 +1695,8 @@ define <4 x float> @combine_test3b(<4 x float> %a, <4 x float> %b) {
 define <4 x float> @combine_test4b(<4 x float> %a, <4 x float> %b) {
 ; SSE-LABEL: combine_test4b:
 ; SSE:       # %bb.0:
-; SSE-NEXT:    shufps {{.*#+}} xmm1 = xmm1[1,1,2,3]
 ; SSE-NEXT:    movaps %xmm1, %xmm0
+; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[1,1],xmm1[2,3]
 ; SSE-NEXT:    retq
 ;
 ; AVX-LABEL: combine_test4b:
@@ -2766,31 +2766,24 @@ entry:
 define <8 x float> @PR22412(<8 x float> %a, <8 x float> %b) {
 ; SSE-LABEL: PR22412:
 ; SSE:       # %bb.0: # %entry
-; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[1,0],xmm3[3,2]
-; SSE-NEXT:    shufps {{.*#+}} xmm3 = xmm3[1,0],xmm2[3,2]
 ; SSE-NEXT:    movaps %xmm3, %xmm1
+; SSE-NEXT:    shufps {{.*#+}} xmm0 = xmm0[1,0],xmm3[3,2]
+; SSE-NEXT:    shufps {{.*#+}} xmm1 = xmm1[1,0],xmm2[3,2]
 ; SSE-NEXT:    retq
 ;
 ; AVX1-LABEL: PR22412:
 ; AVX1:       # %bb.0: # %entry
-; AVX1-NEXT:    vblendps {{.*#+}} ymm0 = ymm0[0,1],ymm1[2,3,4,5,6,7]
-; AVX1-NEXT:    vperm2f128 {{.*#+}} ymm1 = ymm0[2,3,0,1]
-; AVX1-NEXT:    vshufps {{.*#+}} ymm0 = ymm0[1,0],ymm1[3,2],ymm0[5,4],ymm1[7,6]
+; AVX1-NEXT:    vperm2f128 {{.*#+}} ymm2 = ymm1[2,3,0,1]
+; AVX1-NEXT:    vblendps {{.*#+}} ymm0 = ymm0[0,1,2,3],ymm1[4,5,6,7]
+; AVX1-NEXT:    vshufps {{.*#+}} ymm0 = ymm0[1,0],ymm2[3,2],ymm0[5,4],ymm2[7,6]
 ; AVX1-NEXT:    retq
 ;
-; AVX2-SLOW-LABEL: PR22412:
-; AVX2-SLOW:       # %bb.0: # %entry
-; AVX2-SLOW-NEXT:    vblendps {{.*#+}} ymm0 = ymm0[0,1],ymm1[2,3,4,5,6,7]
-; AVX2-SLOW-NEXT:    vpermilps {{.*#+}} ymm0 = ymm0[1,0,3,2,5,4,7,6]
-; AVX2-SLOW-NEXT:    vpermpd {{.*#+}} ymm0 = ymm0[0,3,2,1]
-; AVX2-SLOW-NEXT:    retq
-;
-; AVX2-FAST-LABEL: PR22412:
-; AVX2-FAST:       # %bb.0: # %entry
-; AVX2-FAST-NEXT:    vblendps {{.*#+}} ymm0 = ymm0[0,1],ymm1[2,3,4,5,6,7]
-; AVX2-FAST-NEXT:    vmovaps {{.*#+}} ymm1 = [1,0,7,6,5,4,3,2]
-; AVX2-FAST-NEXT:    vpermps %ymm0, %ymm1, %ymm0
-; AVX2-FAST-NEXT:    retq
+; AVX2-LABEL: PR22412:
+; AVX2:       # %bb.0: # %entry
+; AVX2-NEXT:    vblendps {{.*#+}} ymm0 = ymm0[0,1,2,3],ymm1[4,5,6,7]
+; AVX2-NEXT:    vpermpd {{.*#+}} ymm1 = ymm1[2,3,0,1]
+; AVX2-NEXT:    vshufps {{.*#+}} ymm0 = ymm0[1,0],ymm1[3,2],ymm0[5,4],ymm1[7,6]
+; AVX2-NEXT:    retq
 entry:
   %s1 = shufflevector <8 x float> %a, <8 x float> %b, <8 x i32> <i32 0, i32 1, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
   %s2 = shufflevector <8 x float> %s1, <8 x float> undef, <8 x i32> <i32 1, i32 0, i32 7, i32 6, i32 5, i32 4, i32 3, i32 2>

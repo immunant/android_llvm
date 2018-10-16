@@ -20,30 +20,10 @@
 
 namespace exegesis {
 
-static bool hasUnknownOperand(const llvm::MCOperandInfo &OpInfo) {
-  return OpInfo.OperandType == llvm::MCOI::OPERAND_UNKNOWN;
-}
-
-// FIXME: Handle memory, see PR36905.
-static bool hasMemoryOperand(const llvm::MCOperandInfo &OpInfo) {
-  return OpInfo.OperandType == llvm::MCOI::OPERAND_MEMORY;
-}
-
-LatencyBenchmarkRunner::~LatencyBenchmarkRunner() = default;
-
-llvm::Error LatencyBenchmarkRunner::isInfeasible(
-    const llvm::MCInstrDesc &MCInstrDesc) const {
-  if (llvm::any_of(MCInstrDesc.operands(), hasUnknownOperand))
-    return llvm::make_error<BenchmarkFailure>(
-        "Infeasible : has unknown operands");
-  if (llvm::any_of(MCInstrDesc.operands(), hasMemoryOperand))
-    return llvm::make_error<BenchmarkFailure>(
-        "Infeasible : has memory operands");
-  return llvm::Error::success();
-}
+LatencySnippetGenerator::~LatencySnippetGenerator() = default;
 
 llvm::Expected<CodeTemplate>
-LatencyBenchmarkRunner::generateTwoInstructionPrototype(
+LatencySnippetGenerator::generateTwoInstructionPrototype(
     const Instruction &Instr) const {
   std::vector<unsigned> Opcodes;
   Opcodes.resize(State.getInstrInfo().getNumOpcodes());
@@ -53,26 +33,24 @@ LatencyBenchmarkRunner::generateTwoInstructionPrototype(
     if (OtherOpcode == Instr.Description->Opcode)
       continue;
     const auto &OtherInstrDesc = State.getInstrInfo().get(OtherOpcode);
-    if (auto E = isInfeasible(OtherInstrDesc)) {
-      llvm::consumeError(std::move(E));
-      continue;
-    }
     const Instruction OtherInstr(OtherInstrDesc, RATC);
+    if (OtherInstr.hasMemoryOperands())
+      continue;
     const AliasingConfigurations Forward(Instr, OtherInstr);
     const AliasingConfigurations Back(OtherInstr, Instr);
     if (Forward.empty() || Back.empty())
       continue;
-    InstructionBuilder ThisIB(Instr);
-    InstructionBuilder OtherIB(OtherInstr);
+    InstructionTemplate ThisIT(Instr);
+    InstructionTemplate OtherIT(OtherInstr);
     if (!Forward.hasImplicitAliasing())
-      setRandomAliasing(Forward, ThisIB, OtherIB);
+      setRandomAliasing(Forward, ThisIT, OtherIT);
     if (!Back.hasImplicitAliasing())
-      setRandomAliasing(Back, OtherIB, ThisIB);
+      setRandomAliasing(Back, OtherIT, ThisIT);
     CodeTemplate CT;
     CT.Info = llvm::formatv("creating cycle through {0}.",
                             State.getInstrInfo().getName(OtherOpcode));
-    CT.Instructions.push_back(std::move(ThisIB));
-    CT.Instructions.push_back(std::move(OtherIB));
+    CT.Instructions.push_back(std::move(ThisIT));
+    CT.Instructions.push_back(std::move(OtherIT));
     return std::move(CT);
   }
   return llvm::make_error<BenchmarkFailure>(
@@ -80,11 +58,11 @@ LatencyBenchmarkRunner::generateTwoInstructionPrototype(
 }
 
 llvm::Expected<CodeTemplate>
-LatencyBenchmarkRunner::generateCodeTemplate(unsigned Opcode) const {
-  const auto &InstrDesc = State.getInstrInfo().get(Opcode);
-  if (auto E = isInfeasible(InstrDesc))
-    return std::move(E);
-  const Instruction Instr(InstrDesc, RATC);
+LatencySnippetGenerator::generateCodeTemplate(unsigned Opcode) const {
+  const Instruction Instr(State.getInstrInfo().get(Opcode), RATC);
+  if (Instr.hasMemoryOperands())
+    return llvm::make_error<BenchmarkFailure>(
+        "Infeasible : has memory operands");
   if (auto CT = generateSelfAliasingCodeTemplate(Instr))
     return CT;
   else
@@ -105,10 +83,11 @@ const char *LatencyBenchmarkRunner::getCounterName() const {
   return CounterName;
 }
 
+LatencyBenchmarkRunner::~LatencyBenchmarkRunner() = default;
+
 std::vector<BenchmarkMeasure>
 LatencyBenchmarkRunner::runMeasurements(const ExecutableFunction &Function,
-                                        ScratchSpace &Scratch,
-                                        const unsigned NumRepetitions) const {
+                                        ScratchSpace &Scratch) const {
   // Cycle measurements include some overhead from the kernel. Repeat the
   // measure several times and take the minimum value.
   constexpr const int NumMeasurements = 30;
@@ -129,7 +108,7 @@ LatencyBenchmarkRunner::runMeasurements(const ExecutableFunction &Function,
     if (Value < MinLatency)
       MinLatency = Value;
   }
-  return {{"latency", static_cast<double>(MinLatency) / NumRepetitions, ""}};
+  return {BenchmarkMeasure::Create("latency", MinLatency)};
 }
 
 } // namespace exegesis

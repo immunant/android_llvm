@@ -149,6 +149,10 @@ namespace llvm {
       /// For vector types, only the last n bits are used. See vsld.
       SRL, SRA, SHL,
 
+      /// EXTSWSLI = The PPC extswsli instruction, which does an extend-sign
+      /// word and shift left immediate.
+      EXTSWSLI,
+
       /// The combination of sra[wd]i and addze used to implemented signed
       /// integer division by a power of 2. The first operand is the dividend,
       /// and the second is the constant shift amount (representing the
@@ -1088,6 +1092,7 @@ namespace llvm {
     SDValue combineSHL(SDNode *N, DAGCombinerInfo &DCI) const;
     SDValue combineSRA(SDNode *N, DAGCombinerInfo &DCI) const;
     SDValue combineSRL(SDNode *N, DAGCombinerInfo &DCI) const;
+    SDValue combineADD(SDNode *N, DAGCombinerInfo &DCI) const;
 
     /// ConvertSETCCToSubtract - looks at SETCC that compares ints. It replaces
     /// SETCC with integer subtraction when (1) there is a legal way of doing it
@@ -1122,6 +1127,7 @@ namespace llvm {
     // tail call. This will cause the optimizers to attempt to move, or
     // duplicate return instructions to help enable tail call optimizations.
     bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
+    bool hasBitPreservingFPLogic(EVT VT) const override;
     bool isMaskAndCmp0FoldingBeneficial(const Instruction &AndI) const override;
   }; // end class PPCTargetLowering
 

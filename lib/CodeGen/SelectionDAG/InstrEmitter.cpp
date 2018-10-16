@@ -868,6 +868,15 @@ EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
 
     if (Flags.hasAllowReassociation())
       MI->setFlag(MachineInstr::MIFlag::FmReassoc);
+
+    if (Flags.hasNoUnsignedWrap())
+      MI->setFlag(MachineInstr::MIFlag::NoUWrap);
+
+    if (Flags.hasNoSignedWrap())
+      MI->setFlag(MachineInstr::MIFlag::NoSWrap);
+
+    if (Flags.hasExact())
+      MI->setFlag(MachineInstr::MIFlag::IsExact);
   }
 
   // Emit all of the actual operands of this instruction, adding them to the
@@ -886,9 +895,9 @@ EmitMachineNode(SDNode *Node, bool IsClone, bool IsCloned,
       MIB.addReg(ScratchRegs[i], RegState::ImplicitDefine |
                                  RegState::EarlyClobber);
 
-  // Transfer all of the memory reference descriptions of this instruction.
-  MIB.setMemRefs(cast<MachineSDNode>(Node)->memoperands_begin(),
-                 cast<MachineSDNode>(Node)->memoperands_end());
+  // Set the memory reference descriptions of this instruction now that it is
+  // part of the function.
+  MIB.setMemRefs(cast<MachineSDNode>(Node)->memoperands());
 
   // Insert the instruction into position in the block. This needs to
   // happen before any custom inserter hook is called so that the

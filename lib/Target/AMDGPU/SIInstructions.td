@@ -15,8 +15,8 @@ class GCNPat<dag pattern, dag result> : Pat<pattern, result>, GCNPredicateContro
   let SubtargetPredicate = isGCN;
 }
 
-include "VOPInstructions.td"
 include "SOPInstructions.td"
+include "VOPInstructions.td"
 include "SMInstructions.td"
 include "FLATInstructions.td"
 include "BUFInstructions.td"
@@ -727,12 +727,14 @@ defm : SelectPat <i32, V_CNDMASK_B32_e64>;
 defm : SelectPat <f16, V_CNDMASK_B32_e64>;
 defm : SelectPat <f32, V_CNDMASK_B32_e64>;
 
+let AddedComplexity = 1 in {
 def : GCNPat <
-  (i32 (add (i32 (ctpop i32:$popcnt)), i32:$val)),
+  (i32 (add (i32 (getDivergentFrag<ctpop>.ret i32:$popcnt)), i32:$val)),
   (V_BCNT_U32_B32_e64 $popcnt, $val)
 >;
+}
 def : GCNPat <
-  (i16 (add (i16 (trunc (ctpop i32:$popcnt))), i16:$val)),
+  (i16 (add (i16 (trunc (getDivergentFrag<ctpop>.ret i32:$popcnt))), i16:$val)),
   (V_BCNT_U32_B32_e64 $popcnt, $val)
 >;
 
@@ -1321,6 +1323,28 @@ def : GCNPat <
 >;
 
 def : GCNPat <
+  (i1 (add i1:$src0, i1:$src1)),
+  (S_XOR_B64 $src0, $src1)
+>;
+
+let AddedComplexity = 1 in {
+def : GCNPat <
+  (i1 (add i1:$src0, (i1 -1))),
+  (S_NOT_B64 $src0)
+>;
+}
+
+def : GCNPat <
+  (f16 (sint_to_fp i1:$src)),
+  (V_CVT_F16_F32_e32 (V_CNDMASK_B32_e64 (i32 0), (i32 CONST.FP32_NEG_ONE), $src))
+>;
+
+def : GCNPat <
+  (f16 (uint_to_fp i1:$src)),
+  (V_CVT_F16_F32_e32 (V_CNDMASK_B32_e64 (i32 0), (i32 CONST.FP32_ONE), $src))
+>;
+
+def : GCNPat <
   (f32 (sint_to_fp i1:$src)),
   (V_CNDMASK_B32_e64 (i32 0), (i32 CONST.FP32_NEG_ONE), $src)
 >;
@@ -1461,13 +1485,32 @@ class ExpPattern<SDPatternOperator node, ValueType vt, Instruction Inst> : GCNPa
 def : ExpPattern<AMDGPUexport, i32, EXP>;
 def : ExpPattern<AMDGPUexport_done, i32, EXP_DONE>;
 
-// COPY_TO_REGCLASS is workaround tablegen bug from multiple outputs
+// COPY is workaround tablegen bug from multiple outputs
 // from S_LSHL_B32's multiple outputs from implicit scc def.
 def : GCNPat <
   (v2i16 (build_vector (i16 0), i16:$src1)),
-  (v2i16 (COPY_TO_REGCLASS (S_LSHL_B32 i16:$src1, (i16 16)), SReg_32_XM0))
+  (v2i16 (COPY (S_LSHL_B32 i16:$src1, (i16 16))))
 >;
 
+def : GCNPat <
+  (v2i16 (build_vector i16:$src0, (i16 undef))),
+  (v2i16 (COPY $src0))
+>;
+
+def : GCNPat <
+  (v2f16 (build_vector f16:$src0, (f16 undef))),
+  (v2f16 (COPY $src0))
+>;
+
+def : GCNPat <
+  (v2i16 (build_vector (i16 undef), i16:$src1)),
+  (v2i16 (COPY (S_LSHL_B32 $src1, (i32 16))))
+>;
+
+def : GCNPat <
+  (v2f16 (build_vector (f16 undef), f16:$src1)),
+  (v2f16 (COPY (S_LSHL_B32 $src1, (i32 16))))
+>;
 
 let SubtargetPredicate = HasVOP3PInsts in {
 def : GCNPat <

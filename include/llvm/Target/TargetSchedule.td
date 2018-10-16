@@ -373,7 +373,7 @@ class SchedPredicate<code pred> : SchedPredicateBase {
   SchedMachineModel SchedModel = ?;
   code Predicate = pred;
 }
-def NoSchedPred : SchedPredicate<[{true}]>;
+def NoSchedPred : MCSchedPredicate<TruePred>;
 
 // Associate a predicate with a list of SchedReadWrites. By default,
 // the selected SchedReadWrites are still associated with a single
@@ -550,3 +550,10 @@ class PfmIssueCounter<ProcResourceUnits resource, list<string> counters>
   // The list of counters that measure issue events.
   list<string> Counters = counters;
 }
+
+// Each processor can define how to measure NumMicroOps by defining a
+// PfmUopsCounter.
+class PfmUopsCounter<string counter> : PfmCounter {
+  string Counter = counter;
+}
+

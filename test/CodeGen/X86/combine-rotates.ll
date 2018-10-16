@@ -98,8 +98,8 @@ define <4 x i32> @combine_vec_rot_rot_splat_zero(<4 x i32> %x) {
 define i32 @combine_rot_select_zero(i32, i32) {
 ; CHECK-LABEL: combine_rot_select_zero:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    movl %edi, %eax
 ; CHECK-NEXT:    movl %esi, %ecx
+; CHECK-NEXT:    movl %edi, %eax
 ; CHECK-NEXT:    roll %cl, %eax
 ; CHECK-NEXT:    testl %esi, %esi
 ; CHECK-NEXT:    cmovel %edi, %eax
@@ -340,4 +340,17 @@ define <4 x i32> @rotate_demanded_bits_3(<4 x i32>, <4 x i32>) {
   %8 = lshr <4 x i32> %0, %7
   %9 = or <4 x i32> %5, %8
   ret <4 x i32> %9
+}
+
+; OSS Fuzz: https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=9935
+define i32 @fuzz9935() {
+; CHECK-LABEL: fuzz9935:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    movl $-1, %eax
+; CHECK-NEXT:    retq
+  %1 = trunc i40 549755813887 to i32
+  %2 = mul i32 %1, %1
+  %3 = lshr i32 %2, %1
+  %4 = or i32 %3, %2
+  ret i32 %4
 }

@@ -83,8 +83,41 @@ def int_wasm_atomic_wait_i64 :
              IntrHasSideEffects],
              "", [SDNPMemOperand]>;
 def int_wasm_atomic_notify:
-  Intrinsic<[llvm_i64_ty], [LLVMPointerType<llvm_i32_ty>, llvm_i64_ty],
+  Intrinsic<[llvm_i32_ty], [LLVMPointerType<llvm_i32_ty>, llvm_i32_ty],
             [IntrInaccessibleMemOnly, NoCapture<0>, IntrHasSideEffects], "",
             [SDNPMemOperand]>;
 
-}
+//===----------------------------------------------------------------------===//
+// SIMD intrinsics
+//===----------------------------------------------------------------------===//
+
+def int_wasm_add_saturate_signed :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_add_saturate_unsigned :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_sub_saturate_signed :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_sub_saturate_unsigned :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_bitselect :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_anytrue :
+  Intrinsic<[llvm_i32_ty],
+            [llvm_anyvector_ty],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_alltrue :
+  Intrinsic<[llvm_i32_ty],
+            [llvm_anyvector_ty],
+            [IntrNoMem, IntrSpeculatable]>;
+
+} // TargetPrefix = "wasm"

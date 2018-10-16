@@ -199,7 +199,7 @@ static void predictValueUseListOrderImpl(const Value *V, const Function *F,
       !isa<GlobalVariable>(V) && !isa<Function>(V) && !isa<BasicBlock>(V);
   if (auto *BA = dyn_cast<BlockAddress>(V))
     ID = OM.lookup(BA->getBasicBlock()).first;
-  llvm::sort(List.begin(), List.end(), [&](const Entry &L, const Entry &R) {
+  llvm::sort(List, [&](const Entry &L, const Entry &R) {
     const Use *LU = L.first;
     const Use *RU = R.first;
     if (LU == RU)
@@ -363,6 +363,7 @@ static void PrintCallingConv(unsigned cc, raw_ostream &Out) {
   case CallingConv::ARM_APCS:      Out << "arm_apcscc"; break;
   case CallingConv::ARM_AAPCS:     Out << "arm_aapcscc"; break;
   case CallingConv::ARM_AAPCS_VFP: Out << "arm_aapcs_vfpcc"; break;
+  case CallingConv::AArch64_VectorCall: Out << "aarch64_vector_pcs"; break;
   case CallingConv::MSP430_INTR:   Out << "msp430_intrcc"; break;
   case CallingConv::AVR_INTR:      Out << "avr_intrcc "; break;
   case CallingConv::AVR_SIGNAL:    Out << "avr_signalcc "; break;
@@ -704,6 +705,10 @@ private:
   DenseMap<GlobalValue::GUID, unsigned> GUIDMap;
   unsigned GUIDNext = 0;
 
+  /// TypeIdMap - The slot map for type ids used in the summary index.
+  StringMap<unsigned> TypeIdMap;
+  unsigned TypeIdNext = 0;
+
 public:
   /// Construct from a module.
   ///
@@ -735,6 +740,7 @@ public:
   int getAttributeGroupSlot(AttributeSet AS);
   int getModulePathSlot(StringRef Path);
   int getGUIDSlot(GlobalValue::GUID GUID);
+  int getTypeIdSlot(StringRef Id);
 
   /// If you'd like to deal with a function instead of just a module, use
   /// this method to get its data into the SlotTracker.
@@ -789,6 +795,7 @@ private:
 
   inline void CreateModulePathSlot(StringRef Path);
   void CreateGUIDSlot(GlobalValue::GUID GUID);
+  void CreateTypeIdSlot(StringRef Id);
 
   /// Add all of the module level global variables (and their initializers)
   /// and function declarations, but not the contents of those functions.
@@ -1025,8 +1032,12 @@ void SlotTracker::processIndex() {
   for (auto &GlobalList : *TheIndex)
     CreateGUIDSlot(GlobalList.first);
 
-  for (auto &TId : TheIndex->typeIds())
-    CreateGUIDSlot(GlobalValue::getGUID(TId.first));
+  // Start numbering the TypeIds after the GUIDs.
+  TypeIdNext = GUIDNext;
+
+  for (auto TidIter = TheIndex->typeIds().begin();
+       TidIter != TheIndex->typeIds().end(); TidIter++)
+    CreateTypeIdSlot(TidIter->second.first);
 
   ST_DEBUG("end processIndex!\n");
 }
@@ -1132,6 +1143,15 @@ int SlotTracker::getGUIDSlot(GlobalValue::GUID GUID) {
   return I == GUIDMap.end() ? -1 : (int)I->second;
 }
 
+int SlotTracker::getTypeIdSlot(StringRef Id) {
+  // Check for uninitialized state and do lazy initialization.
+  initializeIndexIfNeeded();
+
+  // Find the TypeId string in the map
+  auto I = TypeIdMap.find(Id);
+  return I == TypeIdMap.end() ? -1 : (int)I->second;
+}
+
 /// CreateModuleSlot - Insert the specified GlobalValue* into the slot table.
 void SlotTracker::CreateModuleSlot(const GlobalValue *V) {
   assert(V && "Can't insert a null Value into SlotTracker!");
@@ -1202,6 +1222,11 @@ void SlotTracker::CreateGUIDSlot(GlobalValue::GUID GUID) {
   GUIDMap[GUID] = GUIDNext++;
 }
 
+/// Create a new slot for the specified Id
+void SlotTracker::CreateTypeIdSlot(StringRef Id) {
+  TypeIdMap[Id] = TypeIdNext++;
+}
+
 //===----------------------------------------------------------------------===//
 // AsmWriter Implementation
 //===----------------------------------------------------------------------===//
@@ -1215,24 +1240,6 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
                                    TypePrinting *TypePrinter,
                                    SlotTracker *Machine, const Module *Context,
                                    bool FromValue = false);
-
-static void writeAtomicRMWOperation(raw_ostream &Out,
-                                    AtomicRMWInst::BinOp Op) {
-  switch (Op) {
-  default: Out << " <unknown operation " << Op << ">"; break;
-  case AtomicRMWInst::Xchg: Out << " xchg"; break;
-  case AtomicRMWInst::Add:  Out << " add"; break;
-  case AtomicRMWInst::Sub:  Out << " sub"; break;
-  case AtomicRMWInst::And:  Out << " and"; break;
-  case AtomicRMWInst::Nand: Out << " nand"; break;
-  case AtomicRMWInst::Or:   Out << " or"; break;
-  case AtomicRMWInst::Xor:  Out << " xor"; break;
-  case AtomicRMWInst::Max:  Out << " max"; break;
-  case AtomicRMWInst::Min:  Out << " min"; break;
-  case AtomicRMWInst::UMax: Out << " umax"; break;
-  case AtomicRMWInst::UMin: Out << " umin"; break;
-  }
-}
 
 static void WriteOptimizationInfo(raw_ostream &Out, const User *U) {
   if (const FPMathOperator *FPO = dyn_cast<const FPMathOperator>(U)) {
@@ -1604,6 +1611,8 @@ struct MDFieldPrinter {
   void printDwarfEnum(StringRef Name, IntTy Value, Stringifier toString,
                       bool ShouldSkipZero = true);
   void printEmissionKind(StringRef Name, DICompileUnit::DebugEmissionKind EK);
+  void printNameTableKind(StringRef Name,
+                          DICompileUnit::DebugNameTableKind NTK);
 };
 
 } // end anonymous namespace
@@ -1701,6 +1710,13 @@ void MDFieldPrinter::printEmissionKind(StringRef Name,
   Out << FS << Name << ": " << DICompileUnit::emissionKindString(EK);
 }
 
+void MDFieldPrinter::printNameTableKind(StringRef Name,
+                                        DICompileUnit::DebugNameTableKind NTK) {
+  if (NTK == DICompileUnit::DebugNameTableKind::Default)
+    return;
+  Out << FS << Name << ": " << DICompileUnit::nameTableKindString(NTK);
+}
+
 template <class IntTy, class Stringifier>
 void MDFieldPrinter::printDwarfEnum(StringRef Name, IntTy Value,
                                     Stringifier toString, bool ShouldSkipZero) {
@@ -1744,6 +1760,8 @@ static void writeDILocation(raw_ostream &Out, const DILocation *DL,
   Printer.printInt("column", DL->getColumn());
   Printer.printMetadata("scope", DL->getRawScope(), /* ShouldSkipNull */ false);
   Printer.printMetadata("inlinedAt", DL->getRawInlinedAt());
+  Printer.printBool("isImplicitCode", DL->isImplicitCode(),
+                    /* Default */ false);
   Out << ")";
 }
 
@@ -1787,6 +1805,7 @@ static void writeDIBasicType(raw_ostream &Out, const DIBasicType *N,
   Printer.printInt("align", N->getAlignInBits());
   Printer.printDwarfEnum("encoding", N->getEncoding(),
                          dwarf::AttributeEncodingString);
+  Printer.printDIFlags("flags", N->getFlags());
   Out << ")";
 }
 
@@ -1890,7 +1909,7 @@ static void writeDICompileUnit(raw_ostream &Out, const DICompileUnit *N,
   Printer.printBool("splitDebugInlining", N->getSplitDebugInlining(), true);
   Printer.printBool("debugInfoForProfiling", N->getDebugInfoForProfiling(),
                     false);
-  Printer.printBool("gnuPubnames", N->getGnuPubnames(), false);
+  Printer.printNameTableKind("nameTableKind", N->getNameTableKind());
   Out << ")";
 }
 
@@ -2040,6 +2059,7 @@ static void writeDIGlobalVariable(raw_ostream &Out, const DIGlobalVariable *N,
   Printer.printBool("isLocal", N->isLocalToUnit());
   Printer.printBool("isDefinition", N->isDefinition());
   Printer.printMetadata("declaration", N->getRawStaticDataMemberDeclaration());
+  Printer.printMetadata("templateParams", N->getRawTemplateParams());
   Printer.printInt("align", N->getAlignInBits());
   Out << ")";
 }
@@ -2643,12 +2663,12 @@ void AssemblyWriter::printModuleSummaryIndex() {
   }
 
   // Print the TypeIdMap entries.
-  for (auto &TId : TheIndex->typeIds()) {
-    auto GUID = GlobalValue::getGUID(TId.first);
-    Out << "^" << Machine.getGUIDSlot(GUID) << " = typeid: (name: \""
-        << TId.first << "\"";
-    printTypeIdSummary(TId.second);
-    Out << ") ; guid = " << GUID << "\n";
+  for (auto TidIter = TheIndex->typeIds().begin();
+       TidIter != TheIndex->typeIds().end(); TidIter++) {
+    Out << "^" << Machine.getTypeIdSlot(TidIter->second.first)
+        << " = typeid: (name: \"" << TidIter->second.first << "\"";
+    printTypeIdSummary(TidIter->second.second);
+    Out << ") ; guid = " << TidIter->first << "\n";
   }
 }
 
@@ -2840,22 +2860,6 @@ static std::string getLinkageNameWithSpace(GlobalValue::LinkageTypes LT) {
   return getLinkageName(LT) + " ";
 }
 
-static const char *getHotnessName(CalleeInfo::HotnessType HT) {
-  switch (HT) {
-  case CalleeInfo::HotnessType::Unknown:
-    return "unknown";
-  case CalleeInfo::HotnessType::Cold:
-    return "cold";
-  case CalleeInfo::HotnessType::None:
-    return "none";
-  case CalleeInfo::HotnessType::Hot:
-    return "hot";
-  case CalleeInfo::HotnessType::Critical:
-    return "critical";
-  }
-  llvm_unreachable("invalid hotness");
-}
-
 void AssemblyWriter::printFunctionSummary(const FunctionSummary *FS) {
   Out << ", insts: " << FS->instCount();
 
@@ -2897,12 +2901,19 @@ void AssemblyWriter::printTypeIdInfo(
     Out << "typeTests: (";
     FieldSeparator FS;
     for (auto &GUID : TIDInfo.TypeTests) {
-      Out << FS;
-      auto Slot = Machine.getGUIDSlot(GUID);
-      if (Slot != -1)
-        Out << "^" << Slot;
-      else
+      auto TidIter = TheIndex->typeIds().equal_range(GUID);
+      if (TidIter.first == TidIter.second) {
+        Out << FS;
         Out << GUID;
+        continue;
+      }
+      // Print all type id that correspond to this GUID.
+      for (auto It = TidIter.first; It != TidIter.second; ++It) {
+        Out << FS;
+        auto Slot = Machine.getTypeIdSlot(It->second.first);
+        assert(Slot != -1);
+        Out << "^" << Slot;
+      }
     }
     Out << ")";
   }
@@ -2928,14 +2939,25 @@ void AssemblyWriter::printTypeIdInfo(
 }
 
 void AssemblyWriter::printVFuncId(const FunctionSummary::VFuncId VFId) {
-  Out << "vFuncId: (";
-  auto Slot = Machine.getGUIDSlot(VFId.GUID);
-  if (Slot != -1)
-    Out << "^" << Slot;
-  else
+  auto TidIter = TheIndex->typeIds().equal_range(VFId.GUID);
+  if (TidIter.first == TidIter.second) {
+    Out << "vFuncId: (";
     Out << "guid: " << VFId.GUID;
-  Out << ", offset: " << VFId.Offset;
-  Out << ")";
+    Out << ", offset: " << VFId.Offset;
+    Out << ")";
+    return;
+  }
+  // Print all type id that correspond to this GUID.
+  FieldSeparator FS;
+  for (auto It = TidIter.first; It != TidIter.second; ++It) {
+    Out << FS;
+    Out << "vFuncId: (";
+    auto Slot = Machine.getTypeIdSlot(It->second.first);
+    assert(Slot != -1);
+    Out << "^" << Slot;
+    Out << ", offset: " << VFId.Offset;
+    Out << ")";
+  }
 }
 
 void AssemblyWriter::printNonConstVCalls(
@@ -2955,11 +2977,13 @@ void AssemblyWriter::printConstVCalls(
   FieldSeparator FS;
   for (auto &ConstVCall : VCallList) {
     Out << FS;
+    Out << "(";
     printVFuncId(ConstVCall.VFunc);
     if (!ConstVCall.Args.empty()) {
       Out << ", ";
       printArgs(ConstVCall.Args);
     }
+    Out << ")";
   }
   Out << ")";
 }
@@ -3354,6 +3378,13 @@ void AssemblyWriter::printFunction(const Function *F) {
   StringRef UA = getUnnamedAddrEncoding(F->getUnnamedAddr());
   if (!UA.empty())
     Out << ' ' << UA;
+  // We print the function address space if it is non-zero or if we are writing
+  // a module with a non-zero program address space or if there is no valid
+  // Module* so that the file can be parsed without the datalayout string.
+  const Module *Mod = F->getParent();
+  if (F->getAddressSpace() != 0 || !Mod ||
+      Mod->getDataLayout().getProgramAddressSpace() != 0)
+    Out << " addrspace(" << F->getAddressSpace() << ")";
   if (Attrs.hasAttributes(AttributeList::FunctionIndex))
     Out << " #" << Machine.getAttributeGroupSlot(Attrs.getFnAttributes());
   if (F->hasSection()) {
@@ -3491,6 +3522,23 @@ void AssemblyWriter::printInfoComment(const Value &V) {
     AnnotationWriter->printInfoComment(V, Out);
 }
 
+static void maybePrintCallAddrSpace(const Value *Operand, const Instruction *I,
+                                    raw_ostream &Out) {
+  // We print the address space of the call if it is non-zero.
+  unsigned CallAddrSpace = Operand->getType()->getPointerAddressSpace();
+  bool PrintAddrSpace = CallAddrSpace != 0;
+  if (!PrintAddrSpace) {
+    const Module *Mod = getModuleFromVal(I);
+    // We also print it if it is zero but not equal to the program address space
+    // or if we can't find a valid Module* to make it possible to parse
+    // the resulting file even without a datalayout string.
+    if (!Mod || Mod->getDataLayout().getProgramAddressSpace() != 0)
+      PrintAddrSpace = true;
+  }
+  if (PrintAddrSpace)
+    Out << " addrspace(" << CallAddrSpace << ")";
+}
+
 // This member is called for each Instruction in a function..
 void AssemblyWriter::printInstruction(const Instruction &I) {
   if (AnnotationWriter) AnnotationWriter->emitInstructionAnnot(&I, Out);
@@ -3547,7 +3595,7 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
 
   // Print out the atomicrmw operation
   if (const AtomicRMWInst *RMWI = dyn_cast<AtomicRMWInst>(&I))
-    writeAtomicRMWOperation(Out, RMWI->getOperation());
+    Out << ' ' << AtomicRMWInst::getOperationName(RMWI->getOperation());
 
   // Print out the type of the operands...
   const Value *Operand = I.getNumOperands() ? I.getOperand(0) : nullptr;
@@ -3688,6 +3736,9 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     if (PAL.hasAttributes(AttributeList::ReturnIndex))
       Out << ' ' << PAL.getAsString(AttributeList::ReturnIndex);
 
+    // Only print addrspace(N) if necessary:
+    maybePrintCallAddrSpace(Operand, &I, Out);
+
     // If possible, print out the short form of the call instruction.  We can
     // only do this if the first argument is a pointer to a nonvararg function,
     // and if the return type is not a pointer to a function.
@@ -3729,6 +3780,9 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
 
     if (PAL.hasAttributes(AttributeList::ReturnIndex))
       Out << ' ' << PAL.getAsString(AttributeList::ReturnIndex);
+
+    // Only print addrspace(N) if necessary:
+    maybePrintCallAddrSpace(Operand, &I, Out);
 
     // If possible, print out the short form of the invoke instruction. We can
     // only do this if the first argument is a pointer to a nonvararg function,

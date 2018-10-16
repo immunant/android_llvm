@@ -21,7 +21,6 @@
 #include "llvm/ExecutionEngine/Orc/OrcError.h"
 #include "llvm/ExecutionEngine/RuntimeDyld.h"
 #include "llvm/Support/DynamicLibrary.h"
-#include "llvm/Target/TargetOptions.h"
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -38,45 +37,6 @@ class TargetMachine;
 class Value;
 
 namespace orc {
-
-/// A utility class for building TargetMachines for JITs.
-class JITTargetMachineBuilder {
-public:
-  JITTargetMachineBuilder(Triple TT);
-  static Expected<JITTargetMachineBuilder> detectHost();
-  Expected<std::unique_ptr<TargetMachine>> createTargetMachine();
-
-  JITTargetMachineBuilder &setArch(std::string Arch) {
-    this->Arch = std::move(Arch);
-    return *this;
-  }
-  JITTargetMachineBuilder &setCPU(std::string CPU) {
-    this->CPU = std::move(CPU);
-    return *this;
-  }
-  JITTargetMachineBuilder &setRelocationModel(Optional<Reloc::Model> RM) {
-    this->RM = std::move(RM);
-    return *this;
-  }
-  JITTargetMachineBuilder &setCodeModel(Optional<CodeModel::Model> CM) {
-    this->CM = std::move(CM);
-    return *this;
-  }
-  JITTargetMachineBuilder &
-  addFeatures(const std::vector<std::string> &FeatureVec);
-  SubtargetFeatures &getFeatures() { return Features; }
-  TargetOptions &getOptions() { return Options; }
-
-private:
-  Triple TT;
-  std::string Arch;
-  std::string CPU;
-  SubtargetFeatures Features;
-  TargetOptions Options;
-  Optional<Reloc::Model> RM;
-  Optional<CodeModel::Model> CM;
-  CodeGenOpt::Level OptLevel = CodeGenOpt::Default;
-};
 
 /// This iterator provides a convenient way to iterate over the elements
 ///        of an llvm.global_ctors/llvm.global_dtors instance.
@@ -171,7 +131,7 @@ private:
 
 class CtorDtorRunner2 {
 public:
-  CtorDtorRunner2(VSO &V) : V(V) {}
+  CtorDtorRunner2(JITDylib &JD) : JD(JD) {}
   void add(iterator_range<CtorDtorIterator> CtorDtors);
   Error run();
 
@@ -179,7 +139,7 @@ private:
   using CtorDtorList = std::vector<SymbolStringPtr>;
   using CtorDtorPriorityMap = std::map<unsigned, CtorDtorList>;
 
-  VSO &V;
+  JITDylib &JD;
   CtorDtorPriorityMap CtorDtorsByPriority;
 };
 
@@ -244,20 +204,44 @@ private:
 
 class LocalCXXRuntimeOverrides2 : public LocalCXXRuntimeOverridesBase {
 public:
-  Error enable(VSO &V, MangleAndInterner &Mangler);
+  Error enable(JITDylib &JD, MangleAndInterner &Mangler);
 };
 
 /// A utility class to expose symbols found via dlsym to the JIT.
 ///
-/// If an instance of this class is attached to a VSO as a fallback definition
-/// generator, then any symbol found in the given DynamicLibrary that passes
-/// the 'Allow' predicate will be added to the VSO.
+/// If an instance of this class is attached to a JITDylib as a fallback
+/// definition generator, then any symbol found in the given DynamicLibrary that
+/// passes the 'Allow' predicate will be added to the JITDylib.
 class DynamicLibraryFallbackGenerator {
 public:
   using SymbolPredicate = std::function<bool(SymbolStringPtr)>;
+
+  static bool AllowAll(SymbolStringPtr Name) { return true; }
+
+  /// Create a DynamicLibraryFallbackGenerator that searches for symbols in the
+  /// given sys::DynamicLibrary.
+  /// Only symbols that match the 'Allow' predicate will be searched for.
   DynamicLibraryFallbackGenerator(sys::DynamicLibrary Dylib,
-                                  const DataLayout &DL, SymbolPredicate Allow);
-  SymbolNameSet operator()(VSO &V, const SymbolNameSet &Names);
+                                  const DataLayout &DL,
+                                  SymbolPredicate Allow = AllowAll);
+
+  /// Permanently loads the library at the given path and, on success, returns
+  /// a DynamicLibraryFallbackGenerator that will search it for symbol
+  /// definitions matching the Allow predicate.
+  /// On failure returns the reason the library failed to load.
+  static Expected<DynamicLibraryFallbackGenerator>
+  Load(const char *FileName, const DataLayout &DL,
+       SymbolPredicate Allow = AllowAll);
+
+  /// Creates a DynamicLibraryFallbackGenerator that searches for symbols in
+  /// the current process.
+  static Expected<DynamicLibraryFallbackGenerator>
+  CreateForCurrentProcess(const DataLayout &DL,
+                          SymbolPredicate Allow = AllowAll) {
+    return Load(nullptr, DL, std::move(Allow));
+  }
+
+  SymbolNameSet operator()(JITDylib &JD, const SymbolNameSet &Names);
 
 private:
   sys::DynamicLibrary Dylib;

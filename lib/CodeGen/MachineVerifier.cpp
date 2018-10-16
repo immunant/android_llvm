@@ -23,6 +23,7 @@
 // the verifier errors.
 //===----------------------------------------------------------------------===//
 
+#include "LiveRangeCalc.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -108,6 +109,7 @@ namespace {
     using RegMap = DenseMap<unsigned, const MachineInstr *>;
     using BlockSet = SmallPtrSet<const MachineBasicBlock *, 8>;
 
+    const MachineInstr *FirstNonPHI;
     const MachineInstr *FirstTerminator;
     BlockSet FunctionBlocks;
 
@@ -261,6 +263,7 @@ namespace {
                             LaneBitmask LaneMask = LaneBitmask::getNone());
     void checkLivenessAtDef(const MachineOperand *MO, unsigned MONum,
                             SlotIndex DefIdx, const LiveRange &LR, unsigned VRegOrUnit,
+                            bool SubRangeCheck = false,
                             LaneBitmask LaneMask = LaneBitmask::getNone());
 
     void markReachable(const MachineBasicBlock *MBB);
@@ -362,6 +365,13 @@ unsigned MachineVerifier::verify(MachineFunction &MF) {
 
   const bool isFunctionFailedISel = MF.getProperties().hasProperty(
       MachineFunctionProperties::Property::FailedISel);
+
+  // If we're mid-GlobalISel and we already triggered the fallback path then
+  // it's expected that the MIR is somewhat broken but that's ok since we'll
+  // reset it and clear the FailedISel attribute in ResetMachineFunctions.
+  if (isFunctionFailedISel)
+    return foundErrors;
+
   isFunctionRegBankSelected =
       !isFunctionFailedISel &&
       MF.getProperties().hasProperty(
@@ -599,6 +609,7 @@ static bool matchPair(MachineBasicBlock::const_succ_iterator i,
 void
 MachineVerifier::visitMachineBasicBlockBefore(const MachineBasicBlock *MBB) {
   FirstTerminator = nullptr;
+  FirstNonPHI = nullptr;
 
   if (!MF->getProperties().hasProperty(
       MachineFunctionProperties::Property::NoPHIs) && MRI->tracksLiveness()) {
@@ -880,9 +891,15 @@ void MachineVerifier::visitMachineInstrBefore(const MachineInstr *MI) {
            << MI->getNumOperands() << " given.\n";
   }
 
-  if (MI->isPHI() && MF->getProperties().hasProperty(
-                         MachineFunctionProperties::Property::NoPHIs))
-    report("Found PHI instruction with NoPHIs property set", MI);
+  if (MI->isPHI()) {
+    if (MF->getProperties().hasProperty(
+            MachineFunctionProperties::Property::NoPHIs))
+      report("Found PHI instruction with NoPHIs property set", MI);
+
+    if (FirstNonPHI)
+      report("Found PHI instruction after non-PHI", MI);
+  } else if (FirstNonPHI == nullptr)
+    FirstNonPHI = MI;
 
   // Check the tied operands.
   if (MI->isInlineAsm())
@@ -1395,7 +1412,7 @@ void MachineVerifier::checkLivenessAtUse(const MachineOperand *MO,
 
 void MachineVerifier::checkLivenessAtDef(const MachineOperand *MO,
     unsigned MONum, SlotIndex DefIdx, const LiveRange &LR, unsigned VRegOrUnit,
-    LaneBitmask LaneMask) {
+    bool SubRangeCheck, LaneBitmask LaneMask) {
   if (const VNInfo *VNI = LR.getVNInfoAt(DefIdx)) {
     assert(VNI && "NULL valno is not allowed");
     if (VNI->def != DefIdx) {
@@ -1419,25 +1436,14 @@ void MachineVerifier::checkLivenessAtDef(const MachineOperand *MO,
   if (MO->isDead()) {
     LiveQueryResult LRQ = LR.Query(DefIdx);
     if (!LRQ.isDeadDef()) {
-      // In case of physregs we can have a non-dead definition on another
-      // operand.
-      bool otherDef = false;
-      if (!TargetRegisterInfo::isVirtualRegister(VRegOrUnit)) {
-        const MachineInstr &MI = *MO->getParent();
-        for (const MachineOperand &MO : MI.operands()) {
-          if (!MO.isReg() || !MO.isDef() || MO.isDead())
-            continue;
-          unsigned Reg = MO.getReg();
-          for (MCRegUnitIterator Units(Reg, TRI); Units.isValid(); ++Units) {
-            if (*Units == VRegOrUnit) {
-              otherDef = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (!otherDef) {
+      assert(TargetRegisterInfo::isVirtualRegister(VRegOrUnit) &&
+             "Expecting a virtual register.");
+      // A dead subreg def only tells us that the specific subreg is dead. There
+      // could be other non-dead defs of other subregs, or we could have other
+      // parts of the register being live through the instruction. So unless we
+      // are checking liveness for a subrange it is ok for the live range to
+      // continue, given that we have a dead def of a subregister.
+      if (SubRangeCheck || MO->getSubReg() == 0) {
         report("Live range continues after dead def flag", MO, MONum);
         report_context_liverange(LR);
         report_context_vreg_regunit(VRegOrUnit);
@@ -1532,10 +1538,12 @@ void MachineVerifier::checkLiveness(const MachineOperand *MO, unsigned MONum) {
         // get a report for its operand.
         if (Bad) {
           for (const MachineOperand &MOP : MI->uses()) {
-            if (!MOP.isReg())
+            if (!MOP.isReg() || !MOP.isImplicit())
               continue;
-            if (!MOP.isImplicit())
+
+            if (!TargetRegisterInfo::isPhysicalRegister(MOP.getReg()))
               continue;
+
             for (MCSubRegIterator SubRegs(MOP.getReg(), TRI); SubRegs.isValid();
                  ++SubRegs) {
               if (*SubRegs == Reg) {
@@ -1593,7 +1601,7 @@ void MachineVerifier::checkLiveness(const MachineOperand *MO, unsigned MONum) {
             for (const LiveInterval::SubRange &SR : LI.subranges()) {
               if ((SR.LaneMask & MOMask).none())
                 continue;
-              checkLivenessAtDef(MO, MONum, DefIdx, SR, Reg, SR.LaneMask);
+              checkLivenessAtDef(MO, MONum, DefIdx, SR, Reg, true, SR.LaneMask);
             }
           }
         } else {
@@ -2116,6 +2124,13 @@ void MachineVerifier::verifyLiveRangeSegment(const LiveRange &LR,
     // Skip this block.
     ++MFI;
   }
+
+  SmallVector<SlotIndex, 4> Undefs;
+  if (LaneMask.any()) {
+    LiveInterval &OwnerLI = LiveInts->getInterval(Reg);
+    OwnerLI.computeSubRangeUndefs(Undefs, LaneMask, *MRI, *Indexes);
+  }
+
   while (true) {
     assert(LiveInts->isLiveInToMBB(LR, &*MFI));
     // We don't know how to track physregs into a landing pad.
@@ -2141,7 +2156,9 @@ void MachineVerifier::verifyLiveRangeSegment(const LiveRange &LR,
       // instruction with subregister intervals
       // only one of the subregisters (not necessarily the current one) needs to
       // be defined.
-      if (!PVNI && (LaneMask.none() || !IsPHI) ) {
+      if (!PVNI && (LaneMask.none() || !IsPHI)) {
+        if (LiveRangeCalc::isJointlyDominated(*PI, Undefs, *Indexes))
+          continue;
         report("Register not marked live out of predecessor", *PI);
         report_context(LR, Reg, LaneMask);
         report_context(*VNI);

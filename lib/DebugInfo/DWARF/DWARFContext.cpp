@@ -106,10 +106,11 @@ collectContributionData(DWARFContext::unit_iterator_range Units) {
   // Sort the contributions so that any invalid ones are placed at
   // the start of the contributions vector. This way they are reported
   // first.
-  llvm::sort(Contributions.begin(), Contributions.end(),
+  llvm::sort(Contributions,
              [](const Optional<StrOffsetsContributionDescriptor> &L,
                 const Optional<StrOffsetsContributionDescriptor> &R) {
-               if (L && R) return L->Base < R->Base;
+               if (L && R)
+                 return L->Base < R->Base;
                return R.hasValue();
              });
 
@@ -248,19 +249,12 @@ static void dumpStringOffsetsSection(raw_ostream &OS, StringRef SectionName,
 static void dumpAddrSection(raw_ostream &OS, DWARFDataExtractor &AddrData,
                             DIDumpOptions DumpOpts, uint16_t Version,
                             uint8_t AddrSize) {
-  // TODO: Make this more general: add callback types to Error.h, create
-  // implementation and make all DWARF classes use them.
-  static auto WarnCallback = [](Error Warn) {
-    handleAllErrors(std::move(Warn), [](ErrorInfoBase &Info) {
-      WithColor::warning() << Info.message() << '\n';
-    });
-  };
   uint32_t Offset = 0;
   while (AddrData.isValidOffset(Offset)) {
     DWARFDebugAddrTable AddrTable;
     uint32_t TableOffset = Offset;
-    if (Error Err = AddrTable.extract(AddrData, &Offset, Version,
-                                      AddrSize, WarnCallback)) {
+    if (Error Err = AddrTable.extract(AddrData, &Offset, Version, AddrSize,
+                                      DWARFContext::dumpWarning)) {
       WithColor::error() << toString(std::move(Err)) << '\n';
       // Keep going after an error, if we can, assuming that the length field
       // could be read. If it couldn't, stop reading the section.
@@ -334,21 +328,20 @@ void DWARFContext::dump(
                  DObj->getAbbrevDWOSection()))
     getDebugAbbrevDWO()->dump(OS);
 
-  auto dumpDebugInfo = [&](bool IsExplicit, const char *Name,
-                           DWARFSection Section, unit_iterator_range Units) {
-    if (shouldDump(IsExplicit, Name, DIDT_ID_DebugInfo, Section.Data)) {
-      if (DumpOffset)
-        getDIEForOffset(DumpOffset.getValue())
-            .dump(OS, 0, DumpOpts.noImplicitRecursion());
-      else
-        for (const auto &U : Units)
-          U->dump(OS, DumpOpts);
-    }
+  auto dumpDebugInfo = [&](unit_iterator_range Units) {
+    if (DumpOffset)
+      getDIEForOffset(DumpOffset.getValue())
+          .dump(OS, 0, DumpOpts.noImplicitRecursion());
+    else
+      for (const auto &U : Units)
+        U->dump(OS, DumpOpts);
   };
-  dumpDebugInfo(Explicit, ".debug_info", DObj->getInfoSection(),
-                info_section_units());
-  dumpDebugInfo(ExplicitDWO, ".debug_info.dwo", DObj->getInfoDWOSection(),
-                dwo_info_section_units());
+  if (shouldDump(Explicit, ".debug_info", DIDT_ID_DebugInfo,
+                 DObj->getInfoSection().Data))
+    dumpDebugInfo(info_section_units());
+  if (shouldDump(ExplicitDWO, ".debug_info.dwo", DIDT_ID_DebugInfo,
+                 DObj->getInfoDWOSection().Data))
+    dumpDebugInfo(dwo_info_section_units());
 
   auto dumpDebugType = [&](const char *Name, unit_iterator_range Units) {
     OS << '\n' << Name << " contents:\n";
@@ -404,14 +397,15 @@ void DWARFContext::dump(
                              DIDumpOptions DumpOpts) {
     while (!Parser.done()) {
       if (DumpOffset && Parser.getOffset() != *DumpOffset) {
-        Parser.skip();
+        Parser.skip(dumpWarning);
         continue;
       }
       OS << "debug_line[" << format("0x%8.8x", Parser.getOffset()) << "]\n";
       if (DumpOpts.Verbose) {
-        Parser.parseNext(DWARFDebugLine::warn, DWARFDebugLine::warn, &OS);
+        Parser.parseNext(dumpWarning, dumpWarning, &OS);
       } else {
-        DWARFDebugLine::LineTable LineTable = Parser.parseNext();
+        DWARFDebugLine::LineTable LineTable =
+            Parser.parseNext(dumpWarning, dumpWarning);
         LineTable.dump(OS, DumpOpts);
       }
     }
@@ -548,7 +542,7 @@ void DWARFContext::dump(
     dumpStringOffsetsSection(OS, "debug_str_offsets.dwo", *DObj,
                              DObj->getStringOffsetDWOSection(),
                              DObj->getStringDWOSection(), dwo_units(),
-                             isLittleEndian(), getMaxVersion());
+                             isLittleEndian(), getMaxDWOVersion());
 
   if (shouldDump(Explicit, ".gnu_index", DIDT_ID_GdbIndex,
                  DObj->getGdbIndexSection())) {
@@ -698,11 +692,10 @@ const DWARFDebugLocDWO *DWARFContext::getDebugLocDWO() {
 
   LocDWO.reset(new DWARFDebugLocDWO());
   // Assume all compile units have the same address byte size.
-  if (getNumCompileUnits()) {
-    DataExtractor LocData(DObj->getLocDWOSection().Data, isLittleEndian(),
-                          getUnitAtIndex(0)->getAddressByteSize());
-    LocDWO->parse(LocData);
-  }
+  // FIXME: We don't need AddressSize for split DWARF since relocatable
+  // addresses cannot appear there. At the moment DWARFExpression requires it.
+  DataExtractor LocData(DObj->getLocDWOSection().Data, isLittleEndian(), 4);
+  LocDWO->parse(LocData);
   return LocDWO.get();
 }
 
@@ -799,9 +792,9 @@ const AppleAcceleratorTable &DWARFContext::getAppleObjC() {
 const DWARFDebugLine::LineTable *
 DWARFContext::getLineTableForUnit(DWARFUnit *U) {
   Expected<const DWARFDebugLine::LineTable *> ExpectedLineTable =
-      getLineTableForUnit(U, DWARFDebugLine::warn);
+      getLineTableForUnit(U, dumpWarning);
   if (!ExpectedLineTable) {
-    DWARFDebugLine::warn(ExpectedLineTable.takeError());
+    dumpWarning(ExpectedLineTable.takeError());
     return nullptr;
   }
   return *ExpectedLineTable;
@@ -1598,7 +1591,8 @@ Error DWARFContext::loadRegisterInfo(const object::ObjectFile &Obj) {
   const Target *TheTarget =
       TargetRegistry::lookupTarget(TT.str(), TargetLookupError);
   if (!TargetLookupError.empty())
-    return make_error<StringError>(TargetLookupError, inconvertibleErrorCode());
+    return createStringError(errc::invalid_argument,
+                             TargetLookupError.c_str());
   RegInfo.reset(TheTarget->createMCRegInfo(TT.str()));
   return Error::success();
 }
@@ -1615,4 +1609,10 @@ uint8_t DWARFContext::getCUAddrSize() {
     break;
   }
   return Addr;
+}
+
+void DWARFContext::dumpWarning(Error Warning) {
+  handleAllErrors(std::move(Warning), [](ErrorInfoBase &Info) {
+      WithColor::warning() << Info.message() << '\n';
+  });
 }
