@@ -52,21 +52,15 @@ enum Style {
 
 class X86Subtarget final : public X86GenSubtargetInfo {
 public:
+  // NOTE: Do not add anything new to this list. Coarse, CPU name based flags
+  // are not a good idea. We should be migrating away from these.
   enum X86ProcFamilyEnum {
     Others,
     IntelAtom,
     IntelSLM,
     IntelGLM,
     IntelGLP,
-    IntelTRM,
-    IntelHaswell,
-    IntelBroadwell,
-    IntelSkylake,
-    IntelKNL,
-    IntelSKX,
-    IntelCannonlake,
-    IntelIcelakeClient,
-    IntelIcelakeServer,
+    IntelTRM
   };
 
 protected:
@@ -229,6 +223,9 @@ protected:
   //  PMULUDQ.
   bool IsPMULLDSlow = false;
 
+  /// True if the PMADDWD instruction is slow compared to PMULLD.
+  bool IsPMADDWDSlow = false;
+
   /// True if unaligned memory accesses of 16-bytes are slow.
   bool IsUAMem16Slow = false;
 
@@ -387,6 +384,9 @@ protected:
 
   /// Processor has a single uop BEXTR implementation.
   bool HasFastBEXTR = false;
+
+  /// Try harder to combine to horizontal vector ops if they are fast.
+  bool HasFastHorizontalOps = false;
 
   /// Use a retpoline thunk rather than indirect calls to block speculative
   /// execution.
@@ -615,6 +615,7 @@ public:
   bool hasPTWRITE() const { return HasPTWRITE; }
   bool isSHLDSlow() const { return IsSHLDSlow; }
   bool isPMULLDSlow() const { return IsPMULLDSlow; }
+  bool isPMADDWDSlow() const { return IsPMADDWDSlow; }
   bool isUnalignedMem16Slow() const { return IsUAMem16Slow; }
   bool isUnalignedMem32Slow() const { return IsUAMem32Slow; }
   int getGatherOverhead() const { return GatherOverhead; }
@@ -636,6 +637,7 @@ public:
   bool hasFastLZCNT() const { return HasFastLZCNT; }
   bool hasFastSHLDRotate() const { return HasFastSHLDRotate; }
   bool hasFastBEXTR() const { return HasFastBEXTR; }
+  bool hasFastHorizontalOps() const { return HasFastHorizontalOps; }
   bool hasMacroFusion() const { return HasMacroFusion; }
   bool hasERMSB() const { return HasERMSB; }
   bool hasSlowDivide32() const { return HasSlowDivide32; }
