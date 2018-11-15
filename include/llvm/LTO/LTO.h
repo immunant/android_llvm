@@ -40,13 +40,13 @@ class Module;
 class Target;
 class raw_pwrite_stream;
 
-/// Resolve linkage for prevailing symbols in the \p Index. Linkage changes
-/// recorded in the index and the ThinLTO backends must apply the changes to
-/// the module via thinLTOResolvePrevailingInModule.
+/// Resolve Weak and LinkOnce values in the \p Index. Linkage changes recorded
+/// in the index and the ThinLTO backends must apply the changes to the Module
+/// via thinLTOResolveWeakForLinkerModule.
 ///
 /// This is done for correctness (if value exported, ensure we always
 /// emit a copy), and compile-time optimization (allow drop of duplicates).
-void thinLTOResolvePrevailingInIndex(
+void thinLTOResolveWeakForLinkerInIndex(
     ModuleSummaryIndex &Index,
     function_ref<bool(GlobalValue::GUID, const GlobalValueSummary *)>
         isPrevailing,
