@@ -282,7 +282,7 @@ static void computeCacheKey(
   Key = toHex(Hasher.result());
 }
 
-static void thinLTOResolvePrevailingGUID(
+static void thinLTOResolveWeakForLinkerGUID(
     GlobalValueSummaryList &GVSummaryList, GlobalValue::GUID GUID,
     DenseSet<GlobalValueSummary *> &GlobalInvolvedWithAlias,
     function_ref<bool(GlobalValue::GUID, const GlobalValueSummary *)>
@@ -291,10 +291,7 @@ static void thinLTOResolvePrevailingGUID(
         recordNewLinkage) {
   for (auto &S : GVSummaryList) {
     GlobalValue::LinkageTypes OriginalLinkage = S->linkage();
-    // Ignore local and appending linkage values since the linker
-    // doesn't resolve them.
-    if (GlobalValue::isLocalLinkage(OriginalLinkage) ||
-        GlobalValue::isAppendingLinkage(S->linkage()))
+    if (!GlobalValue::isWeakForLinker(OriginalLinkage))
       continue;
     // We need to emit only one of these. The prevailing module will keep it,
     // but turned into a weak, while the others will drop it when possible.
@@ -318,13 +315,13 @@ static void thinLTOResolvePrevailingGUID(
   }
 }
 
-/// Resolve linkage for prevailing symbols in the \p Index.
+// Resolve Weak and LinkOnce values in the \p Index.
 //
 // We'd like to drop these functions if they are no longer referenced in the
 // current module. However there is a chance that another module is still
 // referencing them because of the import. We make sure we always emit at least
 // one copy.
-void llvm::thinLTOResolvePrevailingInIndex(
+void llvm::thinLTOResolveWeakForLinkerInIndex(
     ModuleSummaryIndex &Index,
     function_ref<bool(GlobalValue::GUID, const GlobalValueSummary *)>
         isPrevailing,
@@ -340,9 +337,9 @@ void llvm::thinLTOResolvePrevailingInIndex(
         GlobalInvolvedWithAlias.insert(&AS->getAliasee());
 
   for (auto &I : Index)
-    thinLTOResolvePrevailingGUID(I.second.SummaryList, I.first,
-                                 GlobalInvolvedWithAlias, isPrevailing,
-                                 recordNewLinkage);
+    thinLTOResolveWeakForLinkerGUID(I.second.SummaryList, I.first,
+                                    GlobalInvolvedWithAlias, isPrevailing,
+                                    recordNewLinkage);
 }
 
 static void thinLTOInternalizeAndPromoteGUID(
@@ -353,13 +350,7 @@ static void thinLTOInternalizeAndPromoteGUID(
       if (GlobalValue::isLocalLinkage(S->linkage()))
         S->setLinkage(GlobalValue::ExternalLinkage);
     } else if (EnableLTOInternalization &&
-               // Ignore local and appending linkage values since the linker
-               // doesn't resolve them.
-               !GlobalValue::isLocalLinkage(S->linkage()) &&
-               S->linkage() != GlobalValue::AppendingLinkage &&
-               // We can't internalize available_externally globals because this
-               // can break function pointer equality.
-               S->linkage() != GlobalValue::AvailableExternallyLinkage)
+               !GlobalValue::isLocalLinkage(S->linkage()))
       S->setLinkage(GlobalValue::InternalLinkage);
   }
 }
@@ -1214,8 +1205,8 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache) {
                               GlobalValue::LinkageTypes NewLinkage) {
     ResolvedODR[ModuleIdentifier][GUID] = NewLinkage;
   };
-  thinLTOResolvePrevailingInIndex(ThinLTO.CombinedIndex, isPrevailing,
-                                  recordNewLinkage);
+  thinLTOResolveWeakForLinkerInIndex(ThinLTO.CombinedIndex, isPrevailing,
+                                     recordNewLinkage);
 
   std::unique_ptr<ThinBackendProc> BackendProc =
       ThinLTO.Backend(Conf, ThinLTO.CombinedIndex, ModuleToDefinedGVSummaries,

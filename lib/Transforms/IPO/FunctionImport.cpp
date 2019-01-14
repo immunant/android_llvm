@@ -897,8 +897,8 @@ bool llvm::convertToDeclaration(GlobalValue &GV) {
   return true;
 }
 
-/// Fixup prevailing symbol linkages in \p TheModule based on summary analysis.
-void llvm::thinLTOResolvePrevailingInModule(
+/// Fixup WeakForLinker linkages in \p TheModule based on summary analysis.
+void llvm::thinLTOResolveWeakForLinkerModule(
     Module &TheModule, const GVSummaryMapTy &DefinedGlobals) {
   auto updateLinkage = [&](GlobalValue &GV) {
     // See if the global summary analysis computed a new resolved linkage.
@@ -915,15 +915,13 @@ void llvm::thinLTOResolvePrevailingInModule(
     // as we need access to the resolution vectors for each input file in
     // order to find which symbols have been redefined.
     // We may consider reorganizing this code and moving the linkage recording
-    // somewhere else, e.g. in thinLTOResolvePrevailingInIndex.
+    // somewhere else, e.g. in thinLTOResolveWeakForLinkerInIndex.
     if (NewLinkage == GlobalValue::WeakAnyLinkage) {
       GV.setLinkage(NewLinkage);
       return;
     }
 
-    if (GlobalValue::isLocalLinkage(GV.getLinkage()) ||
-        // In case it was dead and already converted to declaration.
-        GV.isDeclaration())
+    if (!GlobalValue::isWeakForLinker(GV.getLinkage()))
       return;
     // Check for a non-prevailing def that has interposable linkage
     // (e.g. non-odr weak or linkonce). In that case we can't simply
@@ -934,7 +932,7 @@ void llvm::thinLTOResolvePrevailingInModule(
         GlobalValue::isInterposableLinkage(GV.getLinkage())) {
       if (!convertToDeclaration(GV))
         // FIXME: Change this to collect replaced GVs and later erase
-        // them from the parent module once thinLTOResolvePrevailingGUID is
+        // them from the parent module once thinLTOResolveWeakForLinkerGUID is
         // changed to enable this for aliases.
         llvm_unreachable("Expected GV to be converted");
     } else {
