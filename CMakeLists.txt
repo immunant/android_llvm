@@ -187,6 +187,11 @@ option(LLVM_INSTALL_UTILS "Include utility binaries in the 'install' target." OF
 
 option(LLVM_INSTALL_TOOLCHAIN_ONLY "Only include toolchain files in the 'install' target." OFF)
 
+# Unfortunatly Clang is too eager to search directories for module maps, which can cause the
+# installed version of the maps to be found when building LLVM from source. Therefore we turn off
+# the installation by default. See llvm.org/PR31905.
+option(LLVM_INSTALL_MODULEMAPS "Install the modulemap files in the 'install' target." OFF)
+
 option(LLVM_USE_FOLDERS "Enable solution folders in Visual Studio. Disable for Express versions." ON)
 if ( LLVM_USE_FOLDERS )
   set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -365,6 +370,10 @@ option(LLVM_ENABLE_LLD "Use lld as C and C++ linker." OFF)
 option(LLVM_ENABLE_PEDANTIC "Compile with pedantic enabled." ON)
 option(LLVM_ENABLE_WERROR "Fail and stop if a warning is triggered." OFF)
 
+if (MSVC)
+   option(LLVM_ENABLE_INCREMENTAL_LINK "Link incrementally. Enabling it might produce slower executables." OFF)
+endif()
+
 option(LLVM_ENABLE_DUMP "Enable dump functions even when assertions are disabled" OFF)
 
 if( NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" )
@@ -399,8 +408,8 @@ option(LLVM_USE_OPROFILE
 option(LLVM_EXTERNALIZE_DEBUGINFO
   "Generate dSYM files and strip executables and libraries (Darwin Only)" OFF)
 
-option(LLVM_CODESIGNING_IDENTITY
-  "Sign executables and dylibs with the given identity (Darwin Only)" OFF)
+set(LLVM_CODESIGNING_IDENTITY "" CACHE STRING
+  "Sign executables and dylibs with the given identity or skip if empty (Darwin Only)")
 
 # If enabled, verify we are on a platform that supports oprofile.
 if( LLVM_USE_OPROFILE )
@@ -972,6 +981,20 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     PATTERN "config.h" EXCLUDE
     PATTERN ".svn" EXCLUDE
     )
+
+  if (LLVM_INSTALL_MODULEMAPS)
+    install(DIRECTORY include/llvm include/llvm-c
+            DESTINATION include
+            COMPONENT llvm-headers
+            FILES_MATCHING
+            PATTERN "module.modulemap"
+            )
+    install(FILES include/llvm/module.install.modulemap
+            DESTINATION include/llvm
+            COMPONENT llvm-headers
+            RENAME "module.extern.modulemap"
+            )
+  endif(LLVM_INSTALL_MODULEMAPS)
 
   # Installing the headers needs to depend on generating any public
   # tablegen'd headers.

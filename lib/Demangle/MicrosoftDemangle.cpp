@@ -40,7 +40,8 @@ struct NodeList {
   NodeList *Next = nullptr;
 };
 
-static bool isMemberPointer(StringView MangledName) {
+static bool isMemberPointer(StringView MangledName, bool &Error) {
+  Error = false;
   switch (MangledName.popFront()) {
   case '$':
     // This is probably an rvalue reference (e.g. $$Q), and you cannot have an
@@ -58,7 +59,8 @@ static bool isMemberPointer(StringView MangledName) {
     // what.
     break;
   default:
-    assert(false && "Ty is not a pointer type!");
+    Error = true;
+    return false;
   }
 
   // If it starts with a number, then 6 indicates a non-member function
@@ -89,9 +91,9 @@ static bool isMemberPointer(StringView MangledName) {
   case 'T':
     return true;
   default:
-    assert(false);
+    Error = true;
+    return false;
   }
-  return false;
 }
 
 static SpecialIntrinsicKind
@@ -874,7 +876,7 @@ void Demangler::memorizeIdentifier(IdentifierNode *Identifier) {
   // Render this class template name into a string buffer so that we can
   // memorize it for the purpose of back-referencing.
   OutputStream OS;
-  if (initializeOutputStream(nullptr, nullptr, OS, 1024))
+  if (!initializeOutputStream(nullptr, nullptr, OS, 1024))
     // FIXME: Propagate out-of-memory as an error?
     std::terminate();
   Identifier->output(OS, OF_Default);
@@ -1207,7 +1209,7 @@ Demangler::demangleStringLiteral(StringView &MangledName) {
   if (MangledName.empty())
     goto StringLiteralError;
 
-  if (initializeOutputStream(nullptr, nullptr, OS, 1024))
+  if (!initializeOutputStream(nullptr, nullptr, OS, 1024))
     // FIXME: Propagate out-of-memory as an error?
     std::terminate();
   if (IsWcharT) {
@@ -1330,7 +1332,7 @@ Demangler::demangleLocallyScopedNamePiece(StringView &MangledName) {
 
   // Render the parent symbol's name into a buffer.
   OutputStream OS;
-  if (initializeOutputStream(nullptr, nullptr, OS, 1024))
+  if (!initializeOutputStream(nullptr, nullptr, OS, 1024))
     // FIXME: Propagate out-of-memory as an error?
     std::terminate();
   OS << '`';
@@ -1651,10 +1653,12 @@ TypeNode *Demangler::demangleType(StringView &MangledName,
   if (isTagType(MangledName))
     Ty = demangleClassType(MangledName);
   else if (isPointerType(MangledName)) {
-    if (isMemberPointer(MangledName))
+    if (isMemberPointer(MangledName, Error))
       Ty = demangleMemberPointerType(MangledName);
-    else
+    else if (!Error)
       Ty = demanglePointerType(MangledName);
+    else
+      return nullptr;
   } else if (isArrayType(MangledName))
     Ty = demangleArrayType(MangledName);
   else if (isFunctionType(MangledName)) {
@@ -1669,10 +1673,10 @@ TypeNode *Demangler::demangleType(StringView &MangledName,
     Ty = demangleCustomType(MangledName);
   } else {
     Ty = demanglePrimitiveType(MangledName);
-    if (!Ty || Error)
-      return Ty;
   }
 
+  if (!Ty || Error)
+    return Ty;
   Ty->Quals = Qualifiers(Ty->Quals | Quals);
   return Ty;
 }
@@ -1988,6 +1992,8 @@ Demangler::demangleFunctionParameterList(StringView &MangledName) {
 
     *Current = Arena.alloc<NodeList>();
     TypeNode *TN = demangleType(MangledName, QualifierMangleMode::Drop);
+    if (!TN || Error)
+      return nullptr;
 
     (*Current)->N = TN;
 
@@ -2156,7 +2162,7 @@ void Demangler::dumpBackReferences() {
 
   // Create an output stream so we can render each type.
   OutputStream OS;
-  if (initializeOutputStream(nullptr, nullptr, OS, 1024))
+  if (!initializeOutputStream(nullptr, nullptr, OS, 1024))
     std::terminate();
   for (size_t I = 0; I < Backrefs.FunctionParamCount; ++I) {
     OS.setCurrentPosition(0);
@@ -2194,7 +2200,7 @@ char *llvm::microsoftDemangle(const char *MangledName, char *Buf, size_t *N,
 
   if (D.Error)
     InternalStatus = demangle_invalid_mangled_name;
-  else if (initializeOutputStream(Buf, N, S, 1024))
+  else if (!initializeOutputStream(Buf, N, S, 1024))
     InternalStatus = demangle_memory_alloc_failure;
   else {
     AST->output(S, OF_Default);

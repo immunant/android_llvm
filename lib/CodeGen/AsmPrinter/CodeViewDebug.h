@@ -14,14 +14,14 @@
 #ifndef LLVM_LIB_CODEGEN_ASMPRINTER_CODEVIEWDEBUG_H
 #define LLVM_LIB_CODEGEN_ASMPRINTER_CODEVIEWDEBUG_H
 
-#include "DbgEntityHistoryCalculator.h"
-#include "DebugHandlerBase.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/CodeGen/DbgEntityHistoryCalculator.h"
+#include "llvm/CodeGen/DebugHandlerBase.h"
 #include "llvm/DebugInfo/CodeView/CodeView.h"
 #include "llvm/DebugInfo/CodeView/GlobalTypeTableBuilder.h"
 #include "llvm/DebugInfo/CodeView/TypeIndex.h"
@@ -53,6 +53,9 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
   MCStreamer &OS;
   BumpPtrAllocator Allocator;
   codeview::GlobalTypeTableBuilder TypeTable;
+
+  /// Whether to emit type record hashes into .debug$H.
+  bool EmitDebugGlobalHashes = false;
 
   /// The codeview CPU type used by the translation unit.
   codeview::CPUType TheCPU;
@@ -299,8 +302,17 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
   /// Returns an end label for use with endCVSubsection when the subsection is
   /// finished.
   MCSymbol *beginCVSubsection(codeview::DebugSubsectionKind Kind);
-
   void endCVSubsection(MCSymbol *EndLabel);
+
+  /// Opens a symbol record of the given kind. Returns an end label for use with
+  /// endSymbolRecord.
+  MCSymbol *beginSymbolRecord(codeview::SymbolKind Kind);
+  void endSymbolRecord(MCSymbol *SymEnd);
+
+  /// Emits an S_END, S_INLINESITE_END, or S_PROC_ID_END record. These records
+  /// are empty, so we emit them with a simpler assembly sequence that doesn't
+  /// involve labels.
+  void emitEndSymbolRecord(codeview::SymbolKind EndKind);
 
   void emitInlinedCallSite(const FunctionInfo &FI, const DILocation *InlinedAt,
                            const InlineSite &Site);
@@ -342,6 +354,10 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
   /// for it.
   codeview::TypeIndex getTypeIndex(DITypeRef TypeRef,
                                    DITypeRef ClassTyRef = DITypeRef());
+
+  codeview::TypeIndex
+  getTypeIndexForThisPtr(DITypeRef TypeRef,
+                         const DISubroutineType *SubroutineTy);
 
   codeview::TypeIndex getTypeIndexForReferenceTo(DITypeRef TypeRef);
 

@@ -802,7 +802,7 @@ define <4 x i32> @combine_nested_undef_test12(<4 x i32> %A, <4 x i32> %B) {
 ;
 ; AVX2-LABEL: combine_nested_undef_test12:
 ; AVX2:       # %bb.0:
-; AVX2-NEXT:    vpbroadcastq %xmm0, %xmm0
+; AVX2-NEXT:    vbroadcastss %xmm0, %xmm0
 ; AVX2-NEXT:    retq
   %1 = shufflevector <4 x i32> %A, <4 x i32> %B, <4 x i32> <i32 0, i32 0, i32 2, i32 4>
   %2 = shufflevector <4 x i32> %1, <4 x i32> undef, <4 x i32> <i32 1, i32 4, i32 0, i32 4>
@@ -2822,4 +2822,23 @@ define <4 x float> @PR30264(<4 x float> %x) {
   %shuf1 = shufflevector <4 x float> %x, <4 x float> <float undef, float 0.0, float undef, float undef>, <4 x i32> <i32 0, i32 5, i32 undef, i32 undef>
   %shuf2 = shufflevector <4 x float> %shuf1, <4 x float> <float undef, float undef, float 4.0, float 1.0>, <4 x i32> <i32 0, i32 1, i32 6, i32 7>
   ret <4 x float> %shuf2
+}
+
+define <8 x i16> @PR39549(<16 x i8> %x) {
+; SSE-LABEL: PR39549:
+; SSE:       # %bb.0:
+; SSE-NEXT:    punpckhbw {{.*#+}} xmm0 = xmm0[8,8,9,9,10,10,11,11,12,12,13,13,14,14,15,15]
+; SSE-NEXT:    psraw $8, %xmm0
+; SSE-NEXT:    retq
+;
+; AVX-LABEL: PR39549:
+; AVX:       # %bb.0:
+; AVX-NEXT:    vpunpckhbw {{.*#+}} xmm0 = xmm0[8,8,9,9,10,10,11,11,12,12,13,13,14,14,15,15]
+; AVX-NEXT:    vpsraw $8, %xmm0, %xmm0
+; AVX-NEXT:    retq
+  %a = shufflevector <16 x i8> %x, <16 x i8> undef, <16 x i32> <i32 8, i32 undef, i32 9, i32 undef, i32 10, i32 undef, i32 11, i32 undef, i32 12, i32 undef, i32 13, i32 undef, i32 14, i32 undef, i32 15, i32 undef>
+  %b = bitcast <16 x i8> %a to <8 x i16>
+  %c = shl <8 x i16> %b, <i16 8, i16 8, i16 8, i16 8, i16 8, i16 8, i16 8, i16 8>
+  %d = ashr <8 x i16> %c, <i16 8, i16 8, i16 8, i16 8, i16 8, i16 8, i16 8, i16 8>
+  ret <8 x i16> %d
 }

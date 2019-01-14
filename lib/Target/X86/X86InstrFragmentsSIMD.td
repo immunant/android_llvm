@@ -103,16 +103,6 @@ def X86vzmovl  : SDNode<"X86ISD::VZEXT_MOVL",
 def X86vzload  : SDNode<"X86ISD::VZEXT_LOAD", SDTLoad,
                         [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
 
-def X86vzext   : SDNode<"X86ISD::VZEXT",
-                         SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
-                                              SDTCisInt<0>, SDTCisInt<1>,
-                                              SDTCisOpSmallerThanOp<1, 0>]>>;
-
-def X86vsext   : SDNode<"X86ISD::VSEXT",
-                         SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
-                                              SDTCisInt<0>, SDTCisInt<1>,
-                                              SDTCisOpSmallerThanOp<1, 0>]>>;
-
 def SDTVtrunc    : SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
                                        SDTCisInt<0>, SDTCisInt<1>,
                                        SDTCisOpSmallerThanOp<0, 1>]>;
@@ -237,10 +227,6 @@ def SDTX86CmpPTest : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
                                           SDTCisVec<1>,
                                           SDTCisSameAs<2, 1>]>;
 
-def X86addus   : SDNode<"X86ISD::ADDUS", SDTIntBinOp, [SDNPCommutative]>;
-def X86subus   : SDNode<"X86ISD::SUBUS", SDTIntBinOp>;
-def X86adds    : SDNode<"X86ISD::ADDS", SDTIntBinOp, [SDNPCommutative]>;
-def X86subs    : SDNode<"X86ISD::SUBS", SDTIntBinOp>;
 def X86mulhrs  : SDNode<"X86ISD::MULHRS", SDTIntBinOp, [SDNPCommutative]>;
 def X86avg     : SDNode<"X86ISD::AVG" , SDTIntBinOp, [SDNPCommutative]>;
 def X86ptest   : SDNode<"X86ISD::PTEST", SDTX86CmpPTest>;

@@ -420,7 +420,7 @@ void RuntimePointerChecking::groupChecks(
 
     // We've computed the grouped checks for this partition.
     // Save the results and continue with the next one.
-    std::copy(Groups.begin(), Groups.end(), std::back_inserter(CheckingGroups));
+    llvm::copy(Groups, std::back_inserter(CheckingGroups));
   }
 }
 
@@ -1221,18 +1221,19 @@ bool llvm::isConsecutiveAccess(Value *A, Value *B, const DataLayout &DL,
   return X == PtrSCEVB;
 }
 
-bool MemoryDepChecker::Dependence::isSafeForVectorization(DepType Type) {
+MemoryDepChecker::VectorizationSafetyStatus
+MemoryDepChecker::Dependence::isSafeForVectorization(DepType Type) {
   switch (Type) {
   case NoDep:
   case Forward:
   case BackwardVectorizable:
-    return true;
+    return VectorizationSafetyStatus::Safe;
 
   case Unknown:
   case ForwardButPreventsForwarding:
   case Backward:
   case BackwardVectorizableButPreventsForwarding:
-    return false;
+    return VectorizationSafetyStatus::Unsafe;
   }
   llvm_unreachable("unexpected DepType!");
 }
@@ -1315,6 +1316,11 @@ bool MemoryDepChecker::couldPreventStoreLoadForward(uint64_t Distance,
           VectorizerParams::MaxVectorWidth * TypeByteSize)
     MaxSafeDepDistBytes = MaxVFWithoutSLForwardIssues;
   return false;
+}
+
+void MemoryDepChecker::mergeInStatus(VectorizationSafetyStatus S) {
+  if (Status < S)
+    Status = S;
 }
 
 /// Given a non-constant (unknown) dependence-distance \p Dist between two
@@ -1652,7 +1658,7 @@ bool MemoryDepChecker::areDepsSafe(DepCandidates &AccessSets,
 
             Dependence::DepType Type =
                 isDependent(*A.first, A.second, *B.first, B.second, Strides);
-            SafeForVectorization &= Dependence::isSafeForVectorization(Type);
+            mergeInStatus(Dependence::isSafeForVectorization(Type));
 
             // Gather dependences unless we accumulated MaxDependences
             // dependences.  In that case return as soon as we find the first
@@ -1669,7 +1675,7 @@ bool MemoryDepChecker::areDepsSafe(DepCandidates &AccessSets,
                            << "Too many dependences, stopped recording\n");
               }
             }
-            if (!RecordDependences && !SafeForVectorization)
+            if (!RecordDependences && !isSafeForVectorization())
               return false;
           }
         ++OI;
@@ -1679,7 +1685,7 @@ bool MemoryDepChecker::areDepsSafe(DepCandidates &AccessSets,
   }
 
   LLVM_DEBUG(dbgs() << "Total Dependences: " << Dependences.size() << "\n");
-  return SafeForVectorization;
+  return isSafeForVectorization();
 }
 
 SmallVector<Instruction *, 4>
@@ -1870,7 +1876,7 @@ void LoopAccessInfo::analyzeLoop(AliasAnalysis *AA, LoopInfo *LI,
     Value *Ptr = ST->getPointerOperand();
 
     if (isUniform(Ptr))
-      HasMultipleStoresToLoopInvariantAddress |=
+      HasDependenceInvolvingLoopInvariantAddress |=
           !UniformStores.insert(Ptr).second;
 
     // If we did *not* see this pointer before, insert it to  the read-write
@@ -1912,6 +1918,14 @@ void LoopAccessInfo::analyzeLoop(AliasAnalysis *AA, LoopInfo *LI,
         !getPtrStride(*PSE, Ptr, TheLoop, SymbolicStrides)) {
       ++NumReads;
       IsReadOnlyPtr = true;
+    }
+
+    // See if there is an unsafe dependency between a load to a uniform address and
+    // store to the same uniform address.
+    if (UniformStores.count(Ptr)) {
+      LLVM_DEBUG(dbgs() << "LAA: Found an unsafe dependency between a uniform "
+                           "load and uniform store to the same address!\n");
+      HasDependenceInvolvingLoopInvariantAddress = true;
     }
 
     MemoryLocation Loc = MemoryLocation::get(LD);
@@ -2272,7 +2286,7 @@ LoopAccessInfo::LoopAccessInfo(Loop *L, ScalarEvolution *SE,
       PtrRtChecking(llvm::make_unique<RuntimePointerChecking>(SE)),
       DepChecker(llvm::make_unique<MemoryDepChecker>(*PSE, L)), TheLoop(L),
       NumLoads(0), NumStores(0), MaxSafeDepDistBytes(-1), CanVecMem(false),
-      HasMultipleStoresToLoopInvariantAddress(false) {
+      HasDependenceInvolvingLoopInvariantAddress(false) {
   if (canAnalyzeLoop())
     analyzeLoop(AA, LI, TLI, DT);
 }
@@ -2304,8 +2318,8 @@ void LoopAccessInfo::print(raw_ostream &OS, unsigned Depth) const {
   PtrRtChecking->print(OS, Depth);
   OS << "\n";
 
-  OS.indent(Depth) << "Multiple stores to invariant address were "
-                   << (HasMultipleStoresToLoopInvariantAddress ? "" : "not ")
+  OS.indent(Depth) << "Non vectorizable stores to invariant address were "
+                   << (HasDependenceInvolvingLoopInvariantAddress ? "" : "not ")
                    << "found in loop.\n";
 
   OS.indent(Depth) << "SCEV assumptions:\n";

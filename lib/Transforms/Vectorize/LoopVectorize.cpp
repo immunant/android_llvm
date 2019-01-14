@@ -152,6 +152,16 @@ using namespace llvm;
 #define LV_NAME "loop-vectorize"
 #define DEBUG_TYPE LV_NAME
 
+/// @{
+/// Metadata attribute names
+static const char *const LLVMLoopVectorizeFollowupAll =
+    "llvm.loop.vectorize.followup_all";
+static const char *const LLVMLoopVectorizeFollowupVectorized =
+    "llvm.loop.vectorize.followup_vectorized";
+static const char *const LLVMLoopVectorizeFollowupEpilogue =
+    "llvm.loop.vectorize.followup_epilogue";
+/// @}
+
 STATISTIC(LoopsVectorized, "Number of loops vectorized");
 STATISTIC(LoopsAnalyzed, "Number of loops analyzed for vectorization");
 
@@ -796,27 +806,6 @@ void InnerLoopVectorizer::addMetadata(ArrayRef<Value *> To,
   }
 }
 
-static void emitMissedWarning(Function *F, Loop *L,
-                              const LoopVectorizeHints &LH,
-                              OptimizationRemarkEmitter *ORE) {
-  LH.emitRemarkWithHints();
-
-  if (LH.getForce() == LoopVectorizeHints::FK_Enabled) {
-    if (LH.getWidth() != 1)
-      ORE->emit(DiagnosticInfoOptimizationFailure(
-                    DEBUG_TYPE, "FailedRequestedVectorization",
-                    L->getStartLoc(), L->getHeader())
-                << "loop not vectorized: "
-                << "failed explicitly specified loop vectorization");
-    else if (LH.getInterleave() != 1)
-      ORE->emit(DiagnosticInfoOptimizationFailure(
-                    DEBUG_TYPE, "FailedRequestedInterleaving", L->getStartLoc(),
-                    L->getHeader())
-                << "loop not interleaved: "
-                << "failed explicitly specified loop interleaving");
-  }
-}
-
 namespace llvm {
 
 /// LoopVectorizationCostModel - estimates the expected speedups due to
@@ -976,7 +965,7 @@ public:
 
   /// Save vectorization decision \p W and \p Cost taken by the cost model for
   /// interleaving group \p Grp and vector width \p VF.
-  void setWideningDecision(const InterleaveGroup *Grp, unsigned VF,
+  void setWideningDecision(const InterleaveGroup<Instruction> *Grp, unsigned VF,
                            InstWidening W, unsigned Cost) {
     assert(VF >= 2 && "Expected VF >=2");
     /// Broadcast this decicion to all instructions inside the group.
@@ -1131,7 +1120,8 @@ public:
   }
 
   /// Get the interleaved access group that \p Instr belongs to.
-  const InterleaveGroup *getInterleavedAccessGroup(Instruction *Instr) {
+  const InterleaveGroup<Instruction> *
+  getInterleavedAccessGroup(Instruction *Instr) {
     return InterleaveInfo.getInterleaveGroup(Instr);
   }
 
@@ -1369,14 +1359,15 @@ static bool isExplicitVecOuterLoop(Loop *OuterLp,
     return false;
 
   Function *Fn = OuterLp->getHeader()->getParent();
-  if (!Hints.allowVectorization(Fn, OuterLp, false /*AlwaysVectorize*/)) {
+  if (!Hints.allowVectorization(Fn, OuterLp,
+                                true /*VectorizeOnlyWhenForced*/)) {
     LLVM_DEBUG(dbgs() << "LV: Loop hints prevent outer loop vectorization.\n");
     return false;
   }
 
   if (!Hints.getWidth()) {
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: No user vector width.\n");
-    emitMissedWarning(Fn, OuterLp, Hints, ORE);
+    Hints.emitRemarkWithHints();
     return false;
   }
 
@@ -1384,7 +1375,7 @@ static bool isExplicitVecOuterLoop(Loop *OuterLp,
     // TODO: Interleave support is future work.
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: Interleave is not supported for "
                          "outer loops.\n");
-    emitMissedWarning(Fn, OuterLp, Hints, ORE);
+    Hints.emitRemarkWithHints();
     return false;
   }
 
@@ -1425,10 +1416,11 @@ struct LoopVectorize : public FunctionPass {
 
   LoopVectorizePass Impl;
 
-  explicit LoopVectorize(bool NoUnrolling = false, bool AlwaysVectorize = true)
+  explicit LoopVectorize(bool InterleaveOnlyWhenForced = false,
+                         bool VectorizeOnlyWhenForced = false)
       : FunctionPass(ID) {
-    Impl.DisableUnrolling = NoUnrolling;
-    Impl.AlwaysVectorize = AlwaysVectorize;
+    Impl.InterleaveOnlyWhenForced = InterleaveOnlyWhenForced;
+    Impl.VectorizeOnlyWhenForced = VectorizeOnlyWhenForced;
     initializeLoopVectorizePass(*PassRegistry::getPassRegistry());
   }
 
@@ -1994,7 +1986,8 @@ static bool useMaskedInterleavedAccesses(const TargetTransformInfo &TTI) {
 //   store <12 x i32> %interleaved.vec              ; Write 4 tuples of R,G,B
 void InnerLoopVectorizer::vectorizeInterleaveGroup(Instruction *Instr,
                                                    VectorParts *BlockInMask) {
-  const InterleaveGroup *Group = Cost->getInterleavedAccessGroup(Instr);
+  const InterleaveGroup<Instruction> *Group =
+      Cost->getInterleavedAccessGroup(Instr);
   assert(Group && "Fail to get an interleaved access group.");
 
   // Skip if current instruction is not the insert position.
@@ -2737,6 +2730,7 @@ BasicBlock *InnerLoopVectorizer::createVectorizedLoopSkeleton() {
   BasicBlock *OldBasicBlock = OrigLoop->getHeader();
   BasicBlock *VectorPH = OrigLoop->getLoopPreheader();
   BasicBlock *ExitBlock = OrigLoop->getExitBlock();
+  MDNode *OrigLoopID = OrigLoop->getLoopID();
   assert(VectorPH && "Invalid loop structure");
   assert(ExitBlock && "Must have an exit block");
 
@@ -2879,6 +2873,17 @@ BasicBlock *InnerLoopVectorizer::createVectorizedLoopSkeleton() {
   LoopExitBlock = ExitBlock;
   LoopVectorBody = VecBody;
   LoopScalarBody = OldBasicBlock;
+
+  Optional<MDNode *> VectorizedLoopID =
+      makeFollowupLoopID(OrigLoopID, {LLVMLoopVectorizeFollowupAll,
+                                      LLVMLoopVectorizeFollowupVectorized});
+  if (VectorizedLoopID.hasValue()) {
+    Lp->setLoopID(VectorizedLoopID.getValue());
+
+    // Do not setAlreadyVectorized if loop attributes have been defined
+    // explicitly.
+    return LoopVectorPreHeader;
+  }
 
   // Keep all loop hints from the original loop on the vector loop (we'll
   // replace the vectorizer-specific hints below).
@@ -5826,9 +5831,10 @@ unsigned LoopVectorizationCostModel::getInstructionCost(Instruction *I,
     auto *Phi = cast<PHINode>(I);
 
     // First-order recurrences are replaced by vector shuffles inside the loop.
+    // NOTE: Don't use ToVectorTy as SK_ExtractSubvector expects a vector type.
     if (VF > 1 && Legal->isFirstOrderRecurrence(Phi))
       return TTI.getShuffleCost(TargetTransformInfo::SK_ExtractSubvector,
-                                VectorTy, VF - 1, ToVectorTy(RetTy, 1));
+                                VectorTy, VF - 1, VectorType::get(RetTy, 1));
 
     // Phi nodes in non-header blocks (not inductions, reductions, etc.) are
     // converted into select instructions. We require N - 1 selects per phi
@@ -6018,8 +6024,9 @@ INITIALIZE_PASS_END(LoopVectorize, LV_NAME, lv_name, false, false)
 
 namespace llvm {
 
-Pass *createLoopVectorizePass(bool NoUnrolling, bool AlwaysVectorize) {
-  return new LoopVectorize(NoUnrolling, AlwaysVectorize);
+Pass *createLoopVectorizePass(bool InterleaveOnlyWhenForced,
+                              bool VectorizeOnlyWhenForced) {
+  return new LoopVectorize(InterleaveOnlyWhenForced, VectorizeOnlyWhenForced);
 }
 
 } // end namespace llvm
@@ -6376,7 +6383,7 @@ VPValue *VPRecipeBuilder::createBlockInMask(BasicBlock *BB, VPlanPtr &Plan) {
 VPInterleaveRecipe *VPRecipeBuilder::tryToInterleaveMemory(Instruction *I,
                                                            VFRange &Range,
                                                            VPlanPtr &Plan) {
-  const InterleaveGroup *IG = CM.getInterleavedAccessGroup(I);
+  const InterleaveGroup<Instruction> *IG = CM.getInterleavedAccessGroup(I);
   if (!IG)
     return nullptr;
 
@@ -6792,7 +6799,8 @@ LoopVectorizationPlanner::buildVPlanWithVPRecipes(
 
       // I is a member of an InterleaveGroup for Range.Start. If it's an adjunct
       // member of the IG, do not construct any Recipe for it.
-      const InterleaveGroup *IG = CM.getInterleavedAccessGroup(Instr);
+      const InterleaveGroup<Instruction> *IG =
+          CM.getInterleavedAccessGroup(Instr);
       if (IG && Instr != IG->getInsertPos() &&
           Range.Start >= 2 && // Query is illegal for VF == 1
           CM.getWideningDecision(Instr, Range.Start) ==
@@ -7136,7 +7144,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                     << L->getHeader()->getParent()->getName() << "\" from "
                     << DebugLocStr << "\n");
 
-  LoopVectorizeHints Hints(L, DisableUnrolling, *ORE);
+  LoopVectorizeHints Hints(L, InterleaveOnlyWhenForced, *ORE);
 
   LLVM_DEBUG(
       dbgs() << "LV: Loop hints:"
@@ -7160,7 +7168,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   // less verbose reporting vectorized loops and unvectorized loops that may
   // benefit from vectorization, respectively.
 
-  if (!Hints.allowVectorization(F, L, AlwaysVectorize)) {
+  if (!Hints.allowVectorization(F, L, VectorizeOnlyWhenForced)) {
     LLVM_DEBUG(dbgs() << "LV: Loop hints prevent vectorization.\n");
     return false;
   }
@@ -7173,7 +7181,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                                 &Requirements, &Hints, DB, AC);
   if (!LVL.canVectorize(EnableVPlanNativePath)) {
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: Cannot prove legality.\n");
-    emitMissedWarning(F, L, Hints, ORE);
+    Hints.emitRemarkWithHints();
     return false;
   }
 
@@ -7246,7 +7254,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     ORE->emit(createLVMissedAnalysis(Hints.vectorizeAnalysisPassName(),
                                      "NoImplicitFloat", L)
               << "loop not vectorized due to NoImplicitFloat attribute");
-    emitMissedWarning(F, L, Hints, ORE);
+    Hints.emitRemarkWithHints();
     return false;
   }
 
@@ -7261,7 +7269,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     ORE->emit(
         createLVMissedAnalysis(Hints.vectorizeAnalysisPassName(), "UnsafeFP", L)
         << "loop not vectorized due to unsafe FP support.");
-    emitMissedWarning(F, L, Hints, ORE);
+    Hints.emitRemarkWithHints();
     return false;
   }
 
@@ -7303,7 +7311,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   if (Requirements.doesNotMeet(F, L, Hints)) {
     LLVM_DEBUG(dbgs() << "LV: Not vectorizing: loop did not meet vectorization "
                          "requirements.\n");
-    emitMissedWarning(F, L, Hints, ORE);
+    Hints.emitRemarkWithHints();
     return false;
   }
 
@@ -7380,6 +7388,8 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   LVP.setBestPlan(VF.Width, IC);
 
   using namespace ore;
+  bool DisableRuntimeUnroll = false;
+  MDNode *OrigLoopID = L->getLoopID();
 
   if (!VectorizeLoop) {
     assert(IC > 1 && "interleave count should not be 1 or 0");
@@ -7406,7 +7416,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     // no runtime checks about strides and memory. A scalar loop that is
     // rarely used is not worth unrolling.
     if (!LB.areSafetyChecksAdded())
-      AddRuntimeUnrollDisableMetaData(L);
+      DisableRuntimeUnroll = true;
 
     // Report the vectorization decision.
     ORE->emit([&]() {
@@ -7418,8 +7428,18 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     });
   }
 
-  // Mark the loop as already vectorized to avoid vectorizing again.
-  Hints.setAlreadyVectorized();
+  Optional<MDNode *> RemainderLoopID =
+      makeFollowupLoopID(OrigLoopID, {LLVMLoopVectorizeFollowupAll,
+                                      LLVMLoopVectorizeFollowupEpilogue});
+  if (RemainderLoopID.hasValue()) {
+    L->setLoopID(RemainderLoopID.getValue());
+  } else {
+    if (DisableRuntimeUnroll)
+      AddRuntimeUnrollDisableMetaData(L);
+
+    // Mark the loop as already vectorized to avoid vectorizing again.
+    Hints.setAlreadyVectorized();
+  }
 
   LLVM_DEBUG(verifyFunction(*L->getHeader()->getParent()));
   return true;
